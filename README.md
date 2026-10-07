@@ -76,3 +76,7 @@ v1, v2 and v3 are implemented. The camera chrome was reworked after v3 to rotate
 ## Working on it
 
 The repo includes a three-agent setup for Claude Code (`.claude/agents/`): frontend, backend and QA, with a file ownership map in `CLAUDE.md`. `scripts/frmr-guard.sh --all` checks the hard constraints (no network, no Combine, no third-party imports and similar) and runs as a hook on every agent edit.
+
+## License
+
+GNU General Public License v3.0. See [LICENSE](LICENSE).
