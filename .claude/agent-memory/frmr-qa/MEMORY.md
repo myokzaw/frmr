@@ -1,0 +1,1 @@
+- [QA state](project_qa_state.md) — recurring bug classes, device-only items

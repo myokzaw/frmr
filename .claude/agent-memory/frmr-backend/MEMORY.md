@@ -1,0 +1,1 @@
+- [Rotation angle / ChromeLayout removal](project_rotation_angle.md) — accumulated angle, isPortrait onboarding gate, WBMode.symbolName

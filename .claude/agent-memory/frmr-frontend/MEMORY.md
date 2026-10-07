@@ -1,0 +1,1 @@
+- [Camera rotate-in-place](camera-rotate-in-place.md) — chip/glyph rotation rules and headless-simulator limits

@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400;1,500&family=Newsreader:ital,wght@0,400;0,600;1,400&family=Fraunces:wght@600&family=Space+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;background:#EFEAE0;font-family:-apple-system,system-ui,sans-serif}
+  a{color:#005F73}a:hover{color:#0A9396}
+  ::-webkit-scrollbar{display:none}
+</style>
+</helmet>
+
+<div style="padding:88px 96px 160px;max-width:2320px">
+
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:32px;margin-bottom:0">
+    <div>
+      <div style="font:600 12px/1 -apple-system,system-ui;letter-spacing:.16em;text-transform:uppercase;color:#005F73;margin-bottom:16px">Photo journal — iOS visual identity</div>
+      <h1 style="font-family:'Newsreader',serif;font-weight:600;font-size:46px;line-height:1.15;color:#001219;margin:0;letter-spacing:-1px;max-width:600px">A quiet camera that also keeps a diary</h1>
+      <p style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:20px;line-height:1.65;color:#3a3128;margin:22px 0 0;max-width:600px">Photo → prompt → reflection, compiled each day into a photobooth strip. Analog, warm, no network — the film-lab palette does the talking.</p>
+    </div>
+    <div style="display:flex;align-items:center;gap:16px;background:#fff;border:1px solid rgba(0,18,25,0.1);border-radius:100px;padding:10px 10px 10px 24px;box-shadow:0 2px 10px rgba(0,18,25,0.06)">
+      <span style="font:500 14px -apple-system,system-ui;color:#001219">{{ toggleLabel }} mode</span>
+      <button onClick="{{ toggleDark }}" style="width:52px;height:30px;border-radius:100px;border:none;cursor:pointer;position:relative;background:{{ theme.primary }};transition:background .2s">
+        <span style="position:absolute;top:3px;left:{{ knobLeft }}px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:left .2s"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ SCREENS GALLERY ============ -->
+  <div style="display:flex;flex-wrap:wrap;gap:72px;margin-top:96px">
+
+    <!-- 1. Camera — diary mode -->
+    <div style="display:flex;flex-direction:column;gap:18px;width:402px">
+      <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55)">01 — Camera, diary mode</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" hint-size="402,874">
+        <div style="height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding-top:54px;background:linear-gradient(160deg,#3a2a10,#120c06 60%,#000);position:relative;overflow:hidden">
+          <div style="position:absolute;inset:54px 0 0 0;background:radial-gradient(circle at 35% 30%,#8a5a24 0%,#4a3013 40%,#1c1208 75%,#000 100%);opacity:.9"></div>
+          <div style="position:relative;z-index:2;display:flex;justify-content:center;padding:6px 0 14px">
+            <div style="display:flex;background:rgba(0,0,0,0.35);border-radius:100px;padding:4px;gap:2px">
+              <div style="padding:7px 16px;border-radius:100px;background:rgba(255,255,255,0.9);font:600 13px -apple-system,system-ui;color:#001219">Diary</div>
+              <div style="padding:7px 16px;border-radius:100px;font:600 13px -apple-system,system-ui;color:rgba(255,255,255,0.75)">Film strip</div>
+            </div>
+          </div>
+          <div style="flex:1;position:relative;z-index:2"></div>
+          <div style="position:relative;z-index:2;font:11px ui-monospace,monospace;color:rgba(255,255,255,0.45);text-align:center;letter-spacing:.06em;margin-bottom:8px">live viewfinder</div>
+          <div style="position:relative;z-index:2;display:flex;gap:8px;overflow-x:auto;padding:0 16px 16px;-ms-overflow-style:none">
+            <div style="flex:none;padding:8px 14px;border-radius:100px;background:#005F73;font:600 12px -apple-system,system-ui;color:#fff">Auto</div>
+            <div style="flex:none;padding:8px 14px;border-radius:100px;background:rgba(255,255,255,0.14);font:500 12px -apple-system,system-ui;color:rgba(255,255,255,0.85)">Sunlight</div>
+            <div style="flex:none;padding:8px 14px;border-radius:100px;background:rgba(255,255,255,0.14);font:500 12px -apple-system,system-ui;color:rgba(255,255,255,0.85)">Cloudy</div>
+            <div style="flex:none;padding:8px 14px;border-radius:100px;background:rgba(255,255,255,0.14);font:500 12px -apple-system,system-ui;color:rgba(255,255,255,0.85)">Fluorescent</div>
+            <div style="flex:none;padding:8px 14px;border-radius:100px;background:rgba(255,255,255,0.14);font:500 12px -apple-system,system-ui;color:rgba(255,255,255,0.85)">Shade</div>
+            <div style="flex:none;padding:8px 14px;border-radius:100px;background:rgba(255,255,255,0.14);font:500 12px -apple-system,system-ui;color:rgba(255,255,255,0.85)">Tungsten</div>
+          </div>
+          <div style="position:relative;z-index:2;display:flex;justify-content:center;padding:6px 0 28px">
+            <div style="width:76px;height:76px;border-radius:50%;border:4px solid rgba(255,255,255,0.85);display:flex;align-items:center;justify-content:center">
+              <div style="width:64px;height:64px;border-radius:50%;background:#EE9B00;box-shadow:0 4px 14px rgba(238,155,0,0.5)"></div>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <!-- 2. Prompt screen -->
+    <div style="display:flex;flex-direction:column;gap:18px;width:402px">
+      <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55)">02 — Prompt screen</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" hint-size="402,874">
+        <div style="height:100%;display:flex;flex-direction:column;box-sizing:border-box;background:{{ theme.bg }};color:{{ theme.text }}">
+          <div style="height:38%;position:relative;background:radial-gradient(circle at 65% 25%,#CA6702 0%,#8a4410 45%,#2b1608 85%);flex-shrink:0"></div>
+          <div style="flex:1;padding:32px 28px 32px;display:flex;flex-direction:column;gap:22px;overflow:auto">
+            <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:500;font-size:25px;line-height:1.4;color:{{ theme.text }}">"What made you take this picture?"</div>
+            <div style="flex:1;min-height:120px;border-radius:12px;background:{{ theme.card }};border:1px solid {{ theme.cardBorder }};padding:18px;font-family:'Newsreader',serif;font-size:16px;line-height:1.6;color:{{ theme.muted }}">The light on the wall right after the rain stopped — didn't want it to disappear before I noticed it.</div>
+            <div style="display:flex;justify-content:flex-end">
+              <span style="font:600 12px ui-monospace,monospace;color:#CA6702">128</span>
+            </div>
+            <button style="border:none;border-radius:10px;padding:16px;background:{{ theme.primary }};color:#fff;font:600 16px -apple-system,system-ui">Save entry</button>
+            <div style="display:flex;justify-content:center;gap:28px">
+              <span style="font:500 14px -apple-system,system-ui;color:{{ theme.muted }}">Retake</span>
+              <span style="font:500 14px -apple-system,system-ui;color:{{ theme.muted }}">Skip</span>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <!-- 3. Camera — film strip mode -->
+    <div style="display:flex;flex-direction:column;gap:18px;width:402px">
+      <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55)">03 — Camera, film strip mode</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" hint-size="402,874">
+        <div style="height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding-top:54px;background:#0c0c0c;position:relative">
+          <div style="display:flex;justify-content:center;padding:6px 0 14px">
+            <div style="display:flex;background:rgba(255,255,255,0.12);border-radius:100px;padding:4px;gap:2px">
+              <div style="padding:7px 16px;border-radius:100px;font:600 13px -apple-system,system-ui;color:rgba(255,255,255,0.75)">Diary</div>
+              <div style="padding:7px 16px;border-radius:100px;background:rgba(255,255,255,0.9);font:600 13px -apple-system,system-ui;color:#001219">Film strip</div>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:center;gap:8px;padding:8px 20px">
+            <div style="width:64px;height:64px;border-radius:8px;background:radial-gradient(circle at 40% 30%,#94D2BD,#0A9396 70%)"></div>
+            <div style="width:64px;height:64px;border-radius:8px;background:radial-gradient(circle at 60% 40%,#EE9B00,#CA6702 75%)"></div>
+            <div style="width:64px;height:64px;border-radius:8px;border:1.5px dashed rgba(255,255,255,0.3)"></div>
+            <div style="width:64px;height:64px;border-radius:8px;border:1.5px dashed rgba(255,255,255,0.3)"></div>
+          </div>
+          <div style="flex:1;position:relative;background:radial-gradient(circle at 50% 40%,#2a2a2a,#050505 75%)"></div>
+          <div style="font:11px ui-monospace,monospace;color:rgba(255,255,255,0.4);text-align:center;letter-spacing:.06em;margin:8px 0">live viewfinder — 2 of 4 captured</div>
+          <div style="display:flex;justify-content:center;align-items:center;gap:30px;padding:6px 0 28px">
+            <div style="width:44px;height:44px;border-radius:9px;border:1.5px solid rgba(255,255,255,0.4);display:flex;align-items:center;justify-content:center">
+              <div style="width:20px;height:20px;border-radius:4px;background:rgba(255,255,255,0.4)"></div>
+            </div>
+            <div style="width:76px;height:76px;border-radius:50%;border:4px solid rgba(255,255,255,0.85);display:flex;align-items:center;justify-content:center">
+              <div style="width:64px;height:64px;border-radius:50%;background:#EE9B00"></div>
+            </div>
+            <div style="width:44px"></div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <!-- 4. Strip preview & customization -->
+    <div style="display:flex;flex-direction:column;gap:18px;width:402px">
+      <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55)">04 — Strip preview &amp; customization</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" hint-size="402,874">
+        <div style="height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding-top:54px;background:{{ theme.bg }};color:{{ theme.text }};overflow:auto">
+          <div style="text-align:center;font-family:'Newsreader',serif;font-weight:600;font-size:16px;padding:4px 0 14px">Today's strip</div>
+          <div style="display:flex;justify-content:center;padding-bottom:20px">
+            <div style="width:150px;background:#E9D8A6;border:6px solid #fff;box-shadow:0 8px 24px rgba(0,0,0,0.25);padding:10px;display:flex;flex-direction:column;gap:8px">
+              <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 40% 30%,#94D2BD,#0A9396 70%)"></div>
+              <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:9px;color:#001219;text-align:center">morning light, finally</div>
+              <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 60% 40%,#EE9B00,#CA6702 75%)"></div>
+              <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:9px;color:#001219;text-align:center">cold coffee again</div>
+              <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 45% 55%,#BB3E03,#3a1206 75%)"></div>
+              <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:9px;color:#001219;text-align:center">the dog by the door</div>
+              <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 55% 35%,#005F73,#001219 75%)"></div>
+              <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:9px;color:#001219;text-align:center">last light, before rain</div>
+              <div style="font:600 8px ui-monospace,monospace;letter-spacing:.12em;text-align:center;color:#3a3128;padding-top:4px">JUL · 30 · 2026</div>
+            </div>
+          </div>
+          <div style="padding:0 20px;display:flex;flex-direction:column;gap:14px">
+            <div>
+              <div style="font:600 11px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.08em;color:{{ theme.muted }};margin-bottom:8px">Background</div>
+              <div style="display:flex;gap:10px">
+                <div style="width:30px;height:30px;border-radius:50%;background:#E9D8A6;border:2px solid {{ theme.primary }}"></div>
+                <div style="width:30px;height:30px;border-radius:50%;background:#001219;border:2px solid rgba(0,0,0,0.15)"></div>
+                <div style="width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid rgba(0,0,0,0.15)"></div>
+                <div style="width:30px;height:30px;border-radius:50%;background:conic-gradient(from 0deg,#EE9B00,#0A9396,#BB3E03,#EE9B00);border:2px solid rgba(0,0,0,0.15)"></div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font:15px -apple-system,system-ui">Film grain</span>
+              <div style="width:46px;height:26px;border-radius:100px;background:{{ theme.primary }};position:relative"><span style="position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;background:#fff"></span></div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="font:15px -apple-system,system-ui">Black &amp; white</span>
+              <div style="width:46px;height:26px;border-radius:100px;background:rgba(0,0,0,0.15);position:relative"><span style="position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff"></span></div>
+            </div>
+            <div style="display:flex;gap:10px;padding-top:6px">
+              <div style="flex:1;text-align:center;padding:12px;border-radius:10px;background:{{ theme.card }};font:600 13px -apple-system,system-ui">Save</div>
+              <div style="flex:1;text-align:center;padding:12px;border-radius:10px;background:{{ theme.card }};font:600 13px -apple-system,system-ui">Share</div>
+              <div style="flex:1;text-align:center;padding:12px;border-radius:10px;background:{{ theme.card }};font:600 13px -apple-system,system-ui">Archive</div>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <!-- 5. Library — diary entries -->
+    <div style="display:flex;flex-direction:column;gap:18px;width:402px">
+      <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55)">05 — Library, diary entries</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" hint-size="402,874">
+        <div style="height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding-top:54px;background:{{ theme.bg }};color:{{ theme.text }}">
+          <div style="padding:6px 24px 16px;font-family:'Newsreader',serif;font-weight:600;font-size:30px;letter-spacing:-0.5px">Library</div>
+          <div style="padding:0 24px 18px;display:flex;gap:26px;border-bottom:1px solid {{ theme.cardBorder }}">
+            <span style="font:600 14px -apple-system,system-ui;color:{{ theme.primary }};border-bottom:2px solid {{ theme.primary }};padding-bottom:10px">Entries</span>
+            <span style="font:500 14px -apple-system,system-ui;color:{{ theme.muted }};padding-bottom:10px">Strips</span>
+          </div>
+          <div style="flex:1;overflow:auto;padding:24px 24px 24px;display:flex;flex-direction:column;gap:28px">
+            <div>
+              <div style="font:600 12px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.08em;color:{{ theme.muted }};margin-bottom:14px">Today</div>
+              <div style="display:flex;gap:14px;align-items:center">
+                <div style="width:56px;height:56px;border-radius:8px;flex-shrink:0;background:radial-gradient(circle at 40% 30%,#94D2BD,#0A9396 70%)"></div>
+                <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:15px;line-height:1.5">morning light, finally back on the wall</div>
+              </div>
+              <div style="display:flex;gap:14px;align-items:center;margin-top:18px">
+                <div style="width:56px;height:56px;border-radius:8px;flex-shrink:0;background:radial-gradient(circle at 60% 40%,#EE9B00,#CA6702 75%)"></div>
+                <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:15px;line-height:1.5">cold coffee again, didn't mind it today</div>
+              </div>
+            </div>
+            <div>
+              <div style="font:600 12px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.08em;color:{{ theme.muted }};margin-bottom:14px">Yesterday</div>
+              <div style="display:flex;gap:14px;align-items:center">
+                <div style="width:56px;height:56px;border-radius:8px;flex-shrink:0;background:radial-gradient(circle at 45% 55%,#BB3E03,#3a1206 75%)"></div>
+                <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:15px;line-height:1.5">the dog waiting by the door again</div>
+              </div>
+            </div>
+          </div>
+          <div style="flex-shrink:0;display:flex;justify-content:space-around;align-items:center;padding:10px 0 30px;border-top:1px solid {{ theme.cardBorder }}">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+              <svg width="22" height="22" viewBox="0 0 22 22"><rect x="1" y="1" width="8" height="8" rx="2" fill="{{ theme.primary }}"/><rect x="13" y="1" width="8" height="8" rx="2" fill="{{ theme.primary }}"/><rect x="1" y="13" width="8" height="8" rx="2" fill="{{ theme.primary }}"/><rect x="13" y="13" width="8" height="8" rx="2" fill="{{ theme.primary }}"/></svg>
+              <span style="font:600 10px -apple-system,system-ui;color:{{ theme.primary }}">Library</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.55">
+              <svg width="24" height="24" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="#94D2BD" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="#94D2BD"/></svg>
+              <span style="font:500 10px -apple-system,system-ui;color:#94D2BD">Camera</span>
+            </div>
+            <div style="display:flex;flex-direction:column;align-items:center;gap:4px;opacity:.55">
+              <svg width="22" height="22" viewBox="0 0 22 22"><line x1="2" y1="6" x2="20" y2="6" stroke="#94D2BD" stroke-width="2"/><circle cx="14" cy="6" r="3" fill="#94D2BD"/><line x1="2" y1="16" x2="20" y2="16" stroke="#94D2BD" stroke-width="2"/><circle cx="8" cy="16" r="3" fill="#94D2BD"/></svg>
+              <span style="font:500 10px -apple-system,system-ui;color:#94D2BD">Settings</span>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+    <!-- 6. Settings -->
+    <div style="display:flex;flex-direction:column;gap:18px;width:402px">
+      <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55)">06 — Settings</div>
+      <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" hint-size="402,874">
+        <div style="height:100%;display:flex;flex-direction:column;box-sizing:border-box;padding-top:54px;background:{{ theme.bg }};color:{{ theme.text }}">
+          <div style="padding:6px 24px 20px;font-family:'Newsreader',serif;font-weight:600;font-size:30px;letter-spacing:-0.5px">Settings</div>
+          <div style="flex:1;overflow:auto;padding:0 24px 24px;display:flex;flex-direction:column;gap:26px">
+            <div>
+              <div style="font:600 12px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.06em;color:{{ theme.muted }};margin-bottom:8px">Appearance</div>
+              <div style="border-radius:10px;background:{{ theme.card }};border:1px solid {{ theme.cardBorder }};display:flex;padding:4px;gap:4px">
+                <div style="flex:1;text-align:center;padding:9px;border-radius:7px;font:600 13px -apple-system,system-ui;background:{{ apLight }};color:{{ apLightText }}">Light</div>
+                <div style="flex:1;text-align:center;padding:9px;border-radius:7px;font:600 13px -apple-system,system-ui;background:{{ apDark }};color:{{ apDarkText }}">Dark</div>
+                <div style="flex:1;text-align:center;padding:9px;border-radius:7px;font:500 13px -apple-system,system-ui;color:{{ theme.muted }}">System</div>
+              </div>
+            </div>
+            <div>
+              <div style="font:600 12px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.06em;color:{{ theme.muted }};margin-bottom:8px">Camera defaults</div>
+              <div style="border-radius:10px;background:{{ theme.card }};border:1px solid {{ theme.cardBorder }};padding:14px 16px;display:flex;justify-content:space-between;align-items:center">
+                <span style="font:15px -apple-system,system-ui">Remember white balance</span>
+                <div style="width:46px;height:26px;border-radius:100px;background:{{ theme.primary }};position:relative"><span style="position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;background:#fff"></span></div>
+              </div>
+            </div>
+            <div>
+              <div style="font:600 12px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.06em;color:{{ theme.muted }};margin-bottom:8px">Strip defaults</div>
+              <div style="border-radius:10px;background:{{ theme.card }};border:1px solid {{ theme.cardBorder }};overflow:hidden">
+                <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid {{ theme.cardBorder }}"><span style="font:15px -apple-system,system-ui">Background</span><span style="font:14px -apple-system,system-ui;color:{{ theme.muted }}">Cream</span></div>
+                <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid {{ theme.cardBorder }}"><span style="font:15px -apple-system,system-ui">Film grain</span><div style="width:46px;height:26px;border-radius:100px;background:{{ theme.primary }};position:relative"><span style="position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;background:#fff"></span></div></div>
+                <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center"><span style="font:15px -apple-system,system-ui">Black &amp; white</span><div style="width:46px;height:26px;border-radius:100px;background:rgba(0,0,0,0.15);position:relative"><span style="position:absolute;top:2px;left:2px;width:22px;height:22px;border-radius:50%;background:#fff"></span></div></div>
+              </div>
+            </div>
+            <div>
+              <div style="font:600 12px -apple-system,system-ui;text-transform:uppercase;letter-spacing:.06em;color:{{ theme.muted }};margin-bottom:8px">Data</div>
+              <div style="border-radius:10px;background:{{ theme.card }};border:1px solid {{ theme.cardBorder }};padding:14px 16px">
+                <span style="font:15px -apple-system,system-ui;color:#BB3E03">Clear diary</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </x-import>
+    </div>
+
+  </div>
+
+  <!-- ============ COMPONENTS ============ -->
+  <div style="margin-top:120px;padding-top:56px;border-top:1px solid rgba(0,18,25,0.12)">
+    <div style="font:600 12px/1 -apple-system,system-ui;letter-spacing:.16em;text-transform:uppercase;color:#005F73;margin-bottom:14px">Building blocks</div>
+    <h2 style="font-family:'Newsreader',serif;font-weight:600;font-size:30px;color:#001219;margin:0 0 48px;letter-spacing:-0.5px">Components</h2>
+
+    <div style="display:flex;flex-wrap:wrap;gap:72px;align-items:flex-start">
+
+      <!-- film strip full fidelity -->
+      <div>
+        <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55);margin-bottom:18px">Film strip — full fidelity</div>
+        <div style="width:210px;background:#E9D8A6;border:8px solid #fff;box-shadow:0 12px 32px rgba(0,0,0,0.28);padding:14px;display:flex;flex-direction:column;gap:12px;position:relative">
+          <div style="position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,0.18) 100%);pointer-events:none"></div>
+          <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 40% 30%,#94D2BD,#0A9396 70%)"></div>
+          <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:11px;color:#001219;text-align:center">morning light, finally</div>
+          <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 60% 40%,#EE9B00,#CA6702 75%)"></div>
+          <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:11px;color:#001219;text-align:center">cold coffee again</div>
+          <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 45% 55%,#BB3E03,#3a1206 75%)"></div>
+          <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:11px;color:#001219;text-align:center">the dog by the door</div>
+          <div style="width:100%;aspect-ratio:1;background:radial-gradient(circle at 55% 35%,#005F73,#001219 75%)"></div>
+          <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:11px;color:#001219;text-align:center">last light, before rain</div>
+          <div style="font:600 9px ui-monospace,monospace;letter-spacing:.14em;text-align:center;color:#3a3128;padding-top:4px">JUL · 30 · 2026</div>
+        </div>
+        <div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.45);margin-top:10px">grain overlay via radial vignette · border fixed at 8px white</div>
+      </div>
+
+      <!-- color usage guide -->
+      <div style="min-width:420px">
+        <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55);margin-bottom:18px">Colour usage guide</div>
+        <div style="display:flex;flex-direction:column;border-radius:10px;overflow:hidden;border:1px solid rgba(0,18,25,0.1)">
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#fff"><div style="width:26px;height:26px;border-radius:6px;background:#001219;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Near black</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#001219</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Dark backgrounds, deep chrome</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#F7F4EC"><div style="width:26px;height:26px;border-radius:6px;background:#005F73;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Dark teal</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#005F73</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Primary actions, tab active (light)</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#fff"><div style="width:26px;height:26px;border-radius:6px;background:#0A9396;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Mid teal</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#0A9396</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Primary actions (dark mode), highlights</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#F7F4EC"><div style="width:26px;height:26px;border-radius:6px;background:#94D2BD;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Light teal</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#94D2BD</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Inactive states, borders</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#fff"><div style="width:26px;height:26px;border-radius:6px;background:#E9D8A6;border:1px solid rgba(0,0,0,0.1);flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Cream</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#E9D8A6</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Light mode background, strip paper</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#F7F4EC"><div style="width:26px;height:26px;border-radius:6px;background:#EE9B00;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Amber</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#EE9B00</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Shutter, generate-strip CTA</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#fff"><div style="width:26px;height:26px;border-radius:6px;background:#CA6702;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Burnt orange</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#CA6702</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Hover/active on amber elements</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#F7F4EC"><div style="width:26px;height:26px;border-radius:6px;background:#BB3E03;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Rust</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#BB3E03</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Destructive actions, errors</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#fff"><div style="width:26px;height:26px;border-radius:6px;background:#AE2012;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Dark red</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#AE2012</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Deeper warnings</div></div>
+          <div style="display:flex;align-items:center;gap:14px;padding:11px 16px;background:#F7F4EC"><div style="width:26px;height:26px;border-radius:6px;background:#9B2226;flex-shrink:0"></div><div style="font:600 13px -apple-system,system-ui;width:150px">Deep crimson</div><div style="font:12px ui-monospace,monospace;color:rgba(0,18,25,0.5);width:70px">#9B2226</div><div style="font:12px -apple-system,system-ui;color:rgba(0,18,25,0.6)">Sparingly, deepest destructive state</div></div>
+        </div>
+      </div>
+
+      <!-- tab bar isolated -->
+      <div>
+        <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55);margin-bottom:18px">Tab bar — active / inactive</div>
+        <div style="width:360px;background:#fff;border:1px solid rgba(0,18,25,0.1);border-radius:14px;padding:12px 0;display:flex;justify-content:space-around;box-shadow:0 4px 14px rgba(0,18,25,0.08)">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+            <svg width="22" height="22" viewBox="0 0 22 22"><rect x="1" y="1" width="8" height="8" rx="2" fill="#94D2BD"/><rect x="13" y="1" width="8" height="8" rx="2" fill="#94D2BD"/><rect x="1" y="13" width="8" height="8" rx="2" fill="#94D2BD"/><rect x="13" y="13" width="8" height="8" rx="2" fill="#94D2BD"/></svg>
+            <span style="font:500 10px -apple-system,system-ui;color:#94D2BD">Library</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+            <div style="width:34px;height:34px;border-radius:50%;background:#005F73;display:flex;align-items:center;justify-content:center;margin-top:-14px;box-shadow:0 4px 10px rgba(0,95,115,0.4)"><svg width="18" height="18" viewBox="0 0 22 22"><circle cx="11" cy="11" r="9" fill="none" stroke="#fff" stroke-width="2"/><circle cx="11" cy="11" r="3.5" fill="#fff"/></svg></div>
+            <span style="font:600 10px -apple-system,system-ui;color:#005F73">Camera</span>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px">
+            <svg width="22" height="22" viewBox="0 0 22 22"><line x1="2" y1="6" x2="20" y2="6" stroke="#94D2BD" stroke-width="2"/><circle cx="14" cy="6" r="3" fill="#94D2BD"/><line x1="2" y1="16" x2="20" y2="16" stroke="#94D2BD" stroke-width="2"/><circle cx="8" cy="16" r="3" fill="#94D2BD"/></svg>
+            <span style="font:500 10px -apple-system,system-ui;color:#94D2BD">Settings</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- prompt card isolated -->
+      <div>
+        <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55);margin-bottom:18px">Prompt / input component</div>
+        <div style="width:340px;background:#fff;border:1px solid rgba(0,18,25,0.1);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 4px 14px rgba(0,18,25,0.06)">
+          <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:500;font-size:20px;line-height:1.35;color:#001219">"What are you noticing right now?"</div>
+          <div style="min-height:90px;border-radius:8px;background:#F7F1E0;border:1px solid rgba(0,18,25,0.08);padding:14px;font-family:'Newsreader',serif;font-size:15px;line-height:1.5;color:rgba(0,18,25,0.4)">Start writing…</div>
+          <div style="display:flex;justify-content:flex-end;font:600 11px ui-monospace,monospace;color:#BB3E03">142 <span style="opacity:.5">/120</span></div>
+        </div>
+      </div>
+
+      <!-- app icon concepts -->
+      <div>
+        <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55);margin-bottom:18px">App icon \u2014 5 concepts</div>
+        <div style="display:flex;gap:28px;flex-wrap:wrap">
+
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div style="width:120px;height:120px;border-radius:27px;background:linear-gradient(155deg,#E9D8A6 0%,#DCC688 100%);position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(0,18,25,0.25)">
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+                <div style="width:60px;height:60px;border-radius:50%;background:#001219"></div>
+                <div style="position:absolute;width:22px;height:22px;border-radius:50%;background:#EE9B00;box-shadow:0 0 0 4px #E9D8A6;top:26px;left:26px"></div>
+              </div>
+            </div>
+            <div style="font:500 11px -apple-system,system-ui;color:rgba(0,18,25,0.6)">A \u00b7 Eclipse lens</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div style="width:120px;height:120px;border-radius:27px;background:#001219;position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(0,18,25,0.25)">
+              <div style="position:absolute;left:0;right:0;bottom:0;height:38%;background:#E9D8A6"></div>
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding-bottom:12px">
+                <div style="width:44px;height:44px;border-radius:50%;border:5px solid #EE9B00"></div>
+              </div>
+            </div>
+            <div style="font:500 11px -apple-system,system-ui;color:rgba(0,18,25,0.6)">B \u00b7 Horizon strip</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div style="width:120px;height:120px;border-radius:27px;background:#005F73;position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(0,18,25,0.25);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px">
+              <div style="width:34px;height:34px;border-radius:6px;background:#E9D8A6"></div>
+              <div style="width:34px;height:34px;border-radius:6px;background:#EE9B00"></div>
+            </div>
+            <div style="font:500 11px -apple-system,system-ui;color:rgba(0,18,25,0.6)">C \u00b7 Twin frames</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div style="width:120px;height:120px;border-radius:27px;background:#E9D8A6;position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(0,18,25,0.25);display:flex;align-items:center;justify-content:center">
+              <div style="font:italic 600 44px Lora,serif;color:#005F73">j</div>
+              <div style="position:absolute;width:9px;height:9px;border-radius:50%;background:#EE9B00;top:35px;left:57px"></div>
+            </div>
+            <div style="font:500 11px -apple-system,system-ui;color:rgba(0,18,25,0.6)">D \u00b7 Lowercase mark</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;align-items:center;gap:10px">
+            <div style="width:120px;height:120px;border-radius:27px;background:radial-gradient(circle at 35% 30%,#CA6702 0%,#8a4410 55%,#2b1608 100%);position:relative;overflow:hidden;box-shadow:0 6px 18px rgba(0,18,25,0.25)">
+              <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+                <div style="width:50px;height:50px;border-radius:50%;border:3px solid rgba(233,216,166,0.85)"></div>
+              </div>
+              <div style="position:absolute;bottom:14px;left:0;right:0;text-align:center;font:600 9px ui-monospace,monospace;letter-spacing:.1em;color:rgba(233,216,166,0.7)">JRNL</div>
+            </div>
+            <div style="font:500 11px -apple-system,system-ui;color:rgba(0,18,25,0.6)">E \u00b7 Viewfinder + wordmark</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- font pairings -->
+      <div style="width:100%;margin-top:16px">
+        <div style="font:600 11px -apple-system,system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,18,25,0.55);margin-bottom:18px">Type pairings</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+
+          <div style="width:380px;padding:24px;border-radius:12px;background:#fff;border:1px solid rgba(0,18,25,0.1)">
+            <div style="font:600 11px -apple-system,system-ui;color:rgba(0,18,25,0.5);margin-bottom:14px">1 \u00b7 Current \u2014 System UI + Lora</div>
+            <div style="font:600 26px -apple-system,system-ui;color:#001219;letter-spacing:-0.5px">Today's strip</div>
+            <div style="font:italic 400 17px/1.5 Lora,serif;color:#3a3128;margin-top:8px">"What made you take this picture?"</div>
+          </div>
+
+          <div style="width:380px;padding:24px;border-radius:12px;background:#fff;border:1px solid rgba(0,18,25,0.1)">
+            <div style="font:600 11px -apple-system,system-ui;color:rgba(0,18,25,0.5);margin-bottom:14px">2 \u00b7 Newsreader + system UI</div>
+            <div style="font-family:'Newsreader',serif;font-weight:600;font-size:27px;color:#001219;letter-spacing:-0.3px">Today's strip</div>
+            <div style="font-family:'Newsreader',serif;font-style:italic;font-weight:400;font-size:17px;line-height:1.5;color:#3a3128;margin-top:8px">"What made you take this picture?"</div>
+          </div>
+
+          <div style="width:380px;padding:24px;border-radius:12px;background:#fff;border:1px solid rgba(0,18,25,0.1)">
+            <div style="font:600 11px -apple-system,system-ui;color:rgba(0,18,25,0.5);margin-bottom:14px">3 \u00b7 Fraunces display + system UI body</div>
+            <div style="font-family:'Fraunces',serif;font-weight:600;font-size:27px;color:#001219;letter-spacing:-0.3px">Today's strip</div>
+            <div style="font:italic 400 17px/1.5 -apple-system,system-ui;color:#3a3128;margin-top:8px">"What made you take this picture?"</div>
+          </div>
+
+          <div style="width:380px;padding:24px;border-radius:12px;background:#fff;border:1px solid rgba(0,18,25,0.1)">
+            <div style="font:600 11px -apple-system,system-ui;color:rgba(0,18,25,0.5);margin-bottom:14px">4 \u00b7 Space Mono accents + system UI</div>
+            <div style="font:600 26px -apple-system,system-ui;color:#001219;letter-spacing:-0.5px">Today's strip</div>
+            <div style="font-family:'Space Mono',monospace;font-size:14px;line-height:1.6;color:#3a3128;margin-top:8px">"what made you take this picture?"</div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { dark: false };
+  toggleDark = () => this.setState(s => ({ dark: !s.dark }));
+  renderVals() {
+    const dark = this.state.dark;
+    const theme = {
+      bg: dark ? '#001219' : '#E9D8A6',
+      text: dark ? '#E9D8A6' : '#001219',
+      primary: dark ? '#0A9396' : '#005F73',
+      card: dark ? '#062830' : '#F5E9C6',
+      cardBorder: dark ? 'rgba(148,210,189,0.25)' : 'rgba(0,18,25,0.12)',
+      muted: dark ? 'rgba(233,216,166,0.6)' : 'rgba(0,18,25,0.6)',
+    };
+    return {
+      dark, theme,
+      toggleDark: this.toggleDark,
+      toggleLabel: dark ? 'Dark' : 'Light',
+      knobLeft: dark ? 25 : 3,
+      apLight: dark ? 'transparent' : theme.primary,
+      apLightText: dark ? theme.muted : '#fff',
+      apDark: dark ? theme.primary : 'transparent',
+      apDarkText: dark ? '#fff' : theme.muted,
+      lightSelStyle: 'transparent',
+    };
+  }
+}
+</script>
+</body>
+</html>
