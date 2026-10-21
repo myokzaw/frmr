@@ -27,3 +27,14 @@ metadata:
 - UI tests: `xcrun simctl addmedia <udid> qa/fixtures/strip-fixture-*.png` first. DiaryReviewUITests use the DEBUG `-UITestDiaryReview` fixture (CameraView.swift:434-466, inside #if DEBUG).
 - Recurring bug class confirmed: OPEN items with no code site lose their marker (v4-4, v4-8, then v4-13).
 - The scratchpad is shared with other agents (dng/, sheets*/ hold the user's personal renders). Never copy anything from it into the repo.
+
+## Test consolidation pass (2026-10-21, user-approved one-off)
+- Unit suite 310 tests / 56 suites / 16 files / 5,429 lines -> 283 / 58 / 25 files (incl. TestSupport) / 5,368 lines; argument cases 369 -> ~430. UI: template tests deleted, 14 -> 11 tests. Runtime unit ~35.5 s -> ~36.6 s (noise +-4 s: parameterised cases went up); UI 502.8 s -> 464.9 s.
+- `frmrTests.swift` is gone: split into themed files; shared helpers in `frmrTests/TestSupport.swift` (PixelBuffer, solidImage, Raster, flatImage, ciFlat, makeScratchDefaults). Rules + file map in `docs/testing.md`; proof in `qa/test-consolidation/` (before/after lists, mapping.md, list-tests.sh, cases.py).
+- Search the theme before adding a test; extend the parameterised ones (OffIsIdentityTests, StripLookRegressionTests matrix, FullLookRegressionTests, FilmStockMigrationTests.storedValuesMigrateToTheirStock).
+- `xcodebuild ... -enumerate-tests -test-enumeration-style flat -test-enumeration-format json -test-enumeration-output-path <inside repo>` lists tests (sandbox blocks /var/folders). Swift Testing log lines carry a zero-width space prefix.
+- Swift Testing: a `@Test(arguments: staticMember)` needs the types in the signature to be non-private.
+- Off + any B&W renders have no seeded effect: seed-sensitivity asserts must skip stock .none.
+- Flaky UI: DiaryReviewUITests.testCameraFilmControlExpandsAndCollapses failed once in the baseline ("Film chip missing", Diary tap after the overlay dismissal) and passed on the next run.
+- Gap found: no direct test for "colour matrix rows sum to 1" (film-simulation.md 8.2) until `colourMatrixRowsSumToOne`.
+- DiaryReviewViewModel and PhotoEditViewModel tests are near-parallel (RAW replaces preview, Download waits for RAW, failed Download); a shared protocol in tests could merge them. Left as a follow-up.

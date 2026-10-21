@@ -1,14 +1,36 @@
 import SwiftData
 import SwiftUI
 
-// Library (project.md §2, screen 5): Entries tab (the diary list) and Strips
-// tab, plus the explicit "compile today's entries into a strip" action.
+// Library (project.md §2, screen 5; v5 F6): Roll tab (Photo-mode shots,
+// the default), Entries tab (the diary list) and Strips tab, plus the
+// explicit "compile today's entries into a strip" action.
 struct LibraryView: View {
+    enum Section: CaseIterable {
+        case roll
+        case entries
+        case strips
+
+        var label: String {
+            switch self {
+            case .roll: return "Roll"
+            case .entries: return "Entries"
+            case .strips: return "Strips"
+            }
+        }
+    }
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(ErrorState.self) private var errorState
     @State private var viewModel = LibraryViewModel()
     @Query(sort: \DiaryEntry.createdAt, order: .reverse) private var entries: [DiaryEntry]
 
+    private var section: Section {
+        switch viewModel.tab {
+        case .roll: return .roll
+        case .entries: return .entries
+        case .strips: return .strips
+        }
+    }
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
     private var hasEntriesToday: Bool {
         entries.contains { Calendar.current.isDateInToday($0.createdAt) }
@@ -18,11 +40,16 @@ struct LibraryView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 LibraryTabRow(
-                    isEntriesActive: viewModel.isEntriesTabActive,
+                    selected: section,
                     activeColor: theme.primary,
                     inactiveColor: theme.muted,
-                    onSelectEntries: viewModel.selectEntriesTab,
-                    onSelectStrips: viewModel.selectStripsTab
+                    onSelect: { selected in
+                        switch selected {
+                        case .roll: viewModel.selectRollTab()
+                        case .entries: viewModel.selectEntriesTab()
+                        case .strips: viewModel.selectStripsTab()
+                        }
+                    }
                 )
                 content
             }
@@ -31,8 +58,10 @@ struct LibraryView: View {
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     // Diary strips are compiled only on this explicit tap
-                    Button("Make today's strip", action: compileToday)
-                        .disabled(!hasEntriesToday)
+                    if section == .entries {
+                        Button("Make today's strip", action: compileToday)
+                            .disabled(!hasEntriesToday)
+                    }
                 }
             }
         }
@@ -46,10 +75,10 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isEntriesTabActive {
-            DiaryView()
-        } else {
-            StripsList(viewModel: viewModel)
+        switch section {
+        case .roll: RollView()
+        case .entries: DiaryView()
+        case .strips: StripsList(viewModel: viewModel)
         }
     }
 
@@ -59,28 +88,22 @@ struct LibraryView: View {
 }
 
 private struct LibraryTabRow: View {
-    let isEntriesActive: Bool
+    let selected: LibraryView.Section
     let activeColor: Color
     let inactiveColor: Color
-    let onSelectEntries: () -> Void
-    let onSelectStrips: () -> Void
+    let onSelect: (LibraryView.Section) -> Void
 
     var body: some View {
         HStack(spacing: 0) {
-            LibraryTab(
-                label: "Entries",
-                isActive: isEntriesActive,
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                action: onSelectEntries
-            )
-            LibraryTab(
-                label: "Strips",
-                isActive: !isEntriesActive,
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                action: onSelectStrips
-            )
+            ForEach(LibraryView.Section.allCases, id: \.self) { section in
+                LibraryTab(
+                    label: section.label,
+                    isActive: section == selected,
+                    activeColor: activeColor,
+                    inactiveColor: inactiveColor,
+                    action: { onSelect(section) }
+                )
+            }
         }
         .padding(.horizontal)
     }
@@ -111,6 +134,8 @@ private struct LibraryTab: View {
                 }
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isActive ? .isSelected : [])
+        .accessibilityIdentifier("library.tab.\(label.lowercased())")
     }
 }
 

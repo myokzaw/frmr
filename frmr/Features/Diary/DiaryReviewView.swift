@@ -13,6 +13,9 @@ struct DiaryReviewView: View {
     let onConfirm: () -> Void
     let onRetake: () -> Void
 
+    // v5 F5: the Effects sliders sit behind one row so the photo keeps the room
+    @State private var isEffectsExpanded = false
+
     // Always the dark palette: the screen is a black darkroom around the photo
     private var theme: ThemePalette { ThemePalette.resolve(for: .dark) }
 
@@ -20,10 +23,12 @@ struct DiaryReviewView: View {
         VStack(spacing: Constants.ReviewUI.sectionSpacing) {
             photoArea
             stockRow
+            effectsSection
             actionRow
         }
         .padding(.bottom)
         .background(Color.appBlack.ignoresSafeArea())
+        .environment(\.colorScheme, .dark)
         .appErrorAlert(errorState)
         .task { review.errorState = errorState }
     }
@@ -39,10 +44,12 @@ struct DiaryReviewView: View {
                         .padding()
                 }
                 .overlay(alignment: .topTrailing) {
-                    DownloadButton(
+                    DownloadControl(
                         isSaving: review.isSavingDownload,
                         didSave: review.didSaveDownload,
                         isDisabled: review.isDownloadDisabled,
+                        identifier: "review.download",
+                        savedIdentifier: "review.saved",
                         action: download
                     )
                     .padding()
@@ -62,8 +69,9 @@ struct DiaryReviewView: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Constants.ReviewUI.stockChipSpacing) {
                     ForEach(review.stockChoices) { stock in
-                        ReviewStockChip(
+                        ChoiceChip(
                             label: stock.label,
+                            accessibilityLabel: "Film: \(stock.label)",
                             identifier: "review.stock.\(stock.rawValue)",
                             isSelected: stock == review.stock,
                             selectedColor: theme.primary,
@@ -75,6 +83,52 @@ struct DiaryReviewView: View {
                 .padding(.horizontal)
             }
             .onAppear { proxy.scrollTo(review.stock, anchor: .center) }
+        }
+    }
+
+    // v5 F5: Halation, Haze, Light leak, Grain and Vignette as sliders, with
+    // Reset to the stock's defaults (OPEN: v5-5). Off has no effects to set.
+    @ViewBuilder private var effectsSection: some View {
+        if review.stock.hasEffects {
+            VStack(spacing: 0) {
+                HStack {
+                    Button(action: toggleEffects) {
+                        HStack(spacing: Constants.ReviewUI.stockChipSpacing) {
+                            Text("Effects")
+                                .font(.subheadline.weight(.semibold))
+                            Image(systemName: isEffectsExpanded ? "chevron.down" : "chevron.right")
+                                .font(.caption.weight(.semibold))
+                        }
+                        .foregroundStyle(Color.appCream)
+                        .frame(minHeight: Constants.ReviewUI.stockChipHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(isEffectsExpanded ? "Hides the effect sliders" : "Shows the effect sliders")
+                    .accessibilityIdentifier("review.effects")
+                    Spacer()
+                    if isEffectsExpanded {
+                        Button("Reset", action: review.resetToStockDefaults)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Color.appCream)
+                            .disabled(review.look.isStockDefault)
+                            .accessibilityHint("Restores this film's own effect strengths")
+                            .accessibilityIdentifier("review.effects.reset")
+                    }
+                }
+                if isEffectsExpanded {
+                    ScrollView {
+                        EffectSliders(
+                            strength: { review.look.strengths[$0] },
+                            setStrength: { review.setStrength($0, for: $1) },
+                            identifierPrefix: "review.slider",
+                            textColor: Color.appCream,
+                            tint: theme.primary
+                        )
+                    }
+                    .frame(maxHeight: Constants.ReviewUI.effectsMaxHeight)
+                }
+            }
+            .padding(.horizontal)
         }
     }
 
@@ -109,6 +163,12 @@ struct DiaryReviewView: View {
         .padding(.horizontal)
     }
 
+    private func toggleEffects() {
+        withAnimation(.easeInOut(duration: Constants.ReviewUI.feedbackAnimationDuration)) {
+            isEffectsExpanded.toggle()
+        }
+    }
+
     private func download() {
         Task { await review.downloadReview() }
     }
@@ -122,100 +182,5 @@ private struct ReviewPhoto: View {
             .resizable()
             .scaledToFit()
             .accessibilityLabel("Captured photo")
-    }
-}
-
-// Small and quiet: the previous look stays on screen while the next renders
-private struct RenderingIndicator: View {
-    let isVisible: Bool
-
-    var body: some View {
-        ProgressView()
-            .tint(.white)
-            .padding(Constants.ReviewUI.savedVerticalPadding)
-            .background(.black.opacity(Constants.ReviewUI.overlayOpacity), in: Circle())
-            .opacity(isVisible ? 1 : 0)
-            .animation(.easeInOut(duration: Constants.ReviewUI.feedbackAnimationDuration), value: isVisible)
-            .accessibilityLabel("Rendering")
-            .accessibilityHidden(!isVisible)
-    }
-}
-
-private struct DownloadButton: View {
-    let isSaving: Bool
-    let didSave: Bool
-    let isDisabled: Bool
-    let action: () -> Void
-
-    private var symbolName: String { didSave ? "checkmark" : "arrow.down.to.line" }
-
-    var body: some View {
-        HStack(spacing: Constants.ReviewUI.stockChipSpacing) {
-            SavedBadge(isVisible: didSave)
-            Button(action: action) {
-                ZStack {
-                    Image(systemName: symbolName)
-                        .font(.system(size: Constants.ReviewUI.downloadIconSize, weight: .semibold))
-                        .opacity(isSaving ? 0 : 1)
-                    ProgressView()
-                        .tint(.white)
-                        .opacity(isSaving ? 1 : 0)
-                }
-                .foregroundStyle(.white)
-                .frame(width: Constants.ReviewUI.downloadButtonSize, height: Constants.ReviewUI.downloadButtonSize)
-                .background(.black.opacity(Constants.ReviewUI.overlayOpacity), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .disabled(isDisabled)
-            .opacity(isDisabled && !isSaving ? Constants.CameraUI.disabledControlOpacity : 1)
-            .accessibilityLabel("Download photo")
-            .accessibilityValue(didSave ? "Saved" : "")
-            .accessibilityHint("Saves this photo with its film look to your photo library")
-            .accessibilityIdentifier("review.download")
-        }
-        .animation(.easeInOut(duration: Constants.ReviewUI.feedbackAnimationDuration), value: didSave)
-    }
-}
-
-private struct SavedBadge: View {
-    let isVisible: Bool
-
-    var body: some View {
-        Text("Saved")
-            .font(.system(size: Constants.ReviewUI.savedFontSize, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Constants.ReviewUI.savedHorizontalPadding)
-            .padding(.vertical, Constants.ReviewUI.savedVerticalPadding)
-            .background(.black.opacity(Constants.ReviewUI.overlayOpacity), in: Capsule())
-            .opacity(isVisible ? 1 : 0)
-            .accessibilityHidden(!isVisible)
-            .accessibilityIdentifier("review.saved")
-    }
-}
-
-private struct ReviewStockChip: View {
-    let label: String
-    let identifier: String
-    let isSelected: Bool
-    let selectedColor: Color
-    let action: () -> Void
-
-    private var background: Color {
-        isSelected ? selectedColor : .white.opacity(Constants.CameraUI.chipInactiveOpacity)
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: Constants.ReviewUI.stockChipFontSize, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(.white)
-                .padding(.horizontal, Constants.ReviewUI.stockChipHorizontalPadding)
-                .frame(minHeight: Constants.ReviewUI.stockChipHeight)
-                .background(background, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Film: \(label)")
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityIdentifier(identifier)
     }
 }

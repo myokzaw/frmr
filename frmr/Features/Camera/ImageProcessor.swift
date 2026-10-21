@@ -164,7 +164,21 @@ nonisolated enum ImageProcessor {
         seed: UInt64,
         coveringPixelSize: CGSize? = nil
     ) throws -> UIImage {
-        guard stock != .none else { return image }
+        try renderFullLook(of: image, look: .stockDefaults(for: stock), seed: seed, coveringPixelSize: coveringPixelSize)
+    }
+
+    /// The same full-frame render for any `FilmLook` (v5 F4/F6): the
+    /// look's print, B&W and effect strengths instead of the stock's
+    /// defaults. A default look renders exactly like the stock overload.
+    /// - Returns: `image` itself when the look changes nothing (stock Off
+    ///   without B&W).
+    static func renderFullLook(
+        of image: UIImage,
+        look: FilmLook,
+        seed: UInt64,
+        coveringPixelSize: CGSize? = nil
+    ) throws -> UIImage {
+        guard look.altersPhoto else { return image }
         guard let cgImage = image.cgImage else { throw AppError.filmLookRenderFailed }
         let orientation = image.imageOrientation
         var input = CIImage(cgImage: cgImage)
@@ -181,7 +195,7 @@ nonisolated enum ImageProcessor {
         // in pixels, so it scales with the frame (OPEN: v4-5,
         // Constants.ImageProcessing.Film.grainReferenceWidth)
         let output = filmLook(
-            input, customization: .stockDefaults(for: stock), outputWidth: uprightWidth, seed: seed,
+            input, customization: look.customization, outputWidth: uprightWidth, seed: seed,
             grainScale: Double(uprightWidth) / Constants.ImageProcessing.Film.grainReferenceWidth
         )
         guard let rendered = stripContext.createCGImage(
@@ -254,16 +268,21 @@ nonisolated enum ImageProcessor {
     ) -> CIImage {
         let stock = customization.filmStock ?? .none
         // Order is part of the spec (v4 §Theme C): monochrome luminance,
-        // halation, the film cube, bloom, light leak, then grain last so it
-        // sits on top of the print.
+        // halation, the film cube, vignette, haze, light leak, then grain
+        // last so it sits on top of the print. Every effect is scaled by its
+        // strength (v5 F5); a strength of 0 skips the stage entirely, so it
+        // is pixel-identical to the effect being off.
+        let strengths = customization.strengths.clamped
         var output = input
         if let negative = stock.negative, let printProfile = customization.resolvedPrint?.profile {
             let monochrome = customization.rendersInBlackAndWhite
             if monochrome {
                 output = luminance(of: output, weights: negative.monoWeights)
             }
-            if customization.effects.halation {
-                output = applyHalation(to: output, strength: stock.halationStrength, outputWidth: outputWidth)
+            if strengths.halation > 0 {
+                output = applyHalation(
+                    to: output, strength: stock.halationStrength * strengths.halation, outputWidth: outputWidth
+                )
             }
             output = applyFilmCube(negative: negative, print: printProfile, monochrome: monochrome, to: output)
         } else if customization.blackAndWhite {
@@ -272,22 +291,27 @@ nonisolated enum ImageProcessor {
             mono.inputImage = output
             output = mono.outputImage ?? skipping("B&W (no stock)", output)
         }
-        // OPEN: v4-4 — no strip-time vignette (Constants.ImageProcessing.Film
-        // .stripVignetteEnabled is false): the RAW development step already
-        // applies one. If it is ever enabled it belongs here, after the cube.
         if stock != .none {
-            if customization.effects.bloom {
-                output = applyBloom(to: output, outputWidth: outputWidth)
+            // v5 F5 overturns OPEN: v4-4: the vignette sits after the cube,
+            // on the printed picture, and defaults to 0
+            if strengths.vignette > 0 {
+                output = applyVignette(to: output, strength: strengths.vignette)
             }
-            if customization.effects.lightLeak {
+            if strengths.haze > 0 {
+                output = applyBloom(to: output, outputWidth: outputWidth, strength: strengths.haze)
+            }
+            if strengths.lightLeak > 0 {
                 output = applyLightLeak(
                     to: output,
-                    seed: SeededRandom.derive(seed, salt: Constants.ImageProcessing.Film.lightLeakSeedSalt)
+                    seed: SeededRandom.derive(seed, salt: Constants.ImageProcessing.Film.lightLeakSeedSalt),
+                    strength: strengths.lightLeak
                 )
             }
             output = addGrain(
                 to: output,
-                intensity: stock.grainIntensity,
+                // The strength scales the stock's own intensity; 0 returns
+                // the input untouched (addGrain skips a zero intensity)
+                intensity: stock.grainIntensity * strengths.grain,
                 // The strip passes 1: its grain is tuned at slot size
                 sizePixels: stock.grainSizePixels * grainScale,
                 monochrome: customization.rendersInBlackAndWhite,
@@ -487,18 +511,47 @@ nonisolated enum ImageProcessor {
         return cube.outputImage ?? skipping("Film cube", input)
     }
 
+    // MARK: Vignette (v5 F5)
+
+    /// Darkens the corners of the printed picture: a multiply by a radial
+    /// gradient that is white inside `vignetteInnerRadiusFraction` of the
+    /// half-diagonal and falls to `1 − vignetteDarkening × strength` at the
+    /// outer radius. Strength 0 returns the input untouched; the falloff
+    /// never brightens, and neither the centre nor the seed matter, so a
+    /// re-render is identical.
+    static func applyVignette(to input: CIImage, strength: Double) -> CIImage {
+        typealias S = Constants.ImageProcessing.Film.Strength
+        guard strength > 0 else { return input }
+        let extent = input.extent
+        let halfDiagonal = 0.5 * (extent.width * extent.width + extent.height * extent.height).squareRoot()
+        let corner = min(max(1 - S.vignetteDarkening * strength, 0), 1)
+        let gradient = CIFilter.radialGradient()
+        gradient.center = CGPoint(x: extent.midX, y: extent.midY)
+        gradient.radius0 = Float(S.vignetteInnerRadiusFraction * halfDiagonal)
+        gradient.radius1 = Float(S.vignetteOuterRadiusFraction * halfDiagonal)
+        gradient.color0 = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
+        gradient.color1 = CIColor(red: corner, green: corner, blue: corner, alpha: 1)
+        let multiply = CIFilter.multiplyCompositing()
+        multiply.inputImage = gradient.outputImage?.cropped(to: extent)
+        multiply.backgroundImage = input
+        return multiply.outputImage?.cropped(to: extent) ?? skipping("Vignette", input)
+    }
+
     // MARK: Bloom and light leak (v4 F6)
 
     /// Mist-filter bloom: a blurred copy screened back at `bloomStrength`.
     /// Highlights spread and contrast drops a little while detail stays
     /// sharp, because the original is never blurred. Screen only brightens.
-    static func applyBloom(to input: CIImage, outputWidth: CGFloat) -> CIImage {
+    /// - Parameter strength: scales the screen amount (v5 F5); 1 is the v4
+    ///   bloom, 0 returns the input untouched.
+    static func applyBloom(to input: CIImage, outputWidth: CGFloat, strength scale: Double = 1) -> CIImage {
         typealias F = Constants.ImageProcessing.Film
+        guard scale > 0 else { return input }
         let extent = input.extent
         let blur = CIFilter.gaussianBlur()
         blur.inputImage = input.clampedToExtent()
         blur.radius = Float(F.bloomRadiusFraction * Double(outputWidth))
-        let strength = CGFloat(F.bloomStrength)
+        let strength = CGFloat(F.bloomStrength * scale)
         let fade = CIFilter.colorMatrix()
         fade.inputImage = blur.outputImage?.cropped(to: extent)
         fade.rVector = CIVector(x: strength, y: 0, z: 0, w: 0)
@@ -514,14 +567,18 @@ nonisolated enum ImageProcessor {
     /// seeded frame edge, screened over the photo. No image assets. Each
     /// glow fades to black, and screening black changes nothing, so a leak
     /// can only brighten.
-    static func applyLightLeak(to input: CIImage, seed: UInt64) -> CIImage {
+    /// - Parameter strength: scales every glow's brightness (v5 F5); 1 is
+    ///   the v4 leak, 0 returns the input untouched. The glows' positions
+    ///   come from the seed alone, so strength never moves them.
+    static func applyLightLeak(to input: CIImage, seed: UInt64, strength: Double = 1) -> CIImage {
         typealias F = Constants.ImageProcessing.Film
+        guard strength > 0 else { return input }
         let extent = input.extent
         let linear = CGColorSpace(name: CGColorSpace.linearSRGB) ?? CGColorSpaceCreateDeviceRGB()
         let spots = LightLeak.spots(seed: seed, width: Double(extent.width), height: Double(extent.height))
         var output = input
         for spot in spots {
-            let s = F.lightLeakStrength
+            let s = F.lightLeakStrength * strength
             guard
                 let inner = CIColor(
                     red: CGFloat(spot.red * s), green: CGFloat(spot.green * s), blue: CGFloat(spot.blue * s),

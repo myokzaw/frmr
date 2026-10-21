@@ -37,4 +37,25 @@ nonisolated extension PHPhotoLibrary {
             throw AppError.saveToLibraryFailed
         }
     }
+
+    /// Several encoded photos as one library change (v5 F6 Roll export), so
+    /// a multi-select export is one permission check and one all-or-nothing
+    /// write.
+    static func saveToCameraRoll(photosData: [Data]) async throws {
+        guard !photosData.isEmpty else { return }
+        let status = await requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            throw AppError.photoLibraryPermissionDenied
+        }
+        do {
+            try await shared().performChanges {
+                for data in photosData {
+                    PHAssetCreationRequest.forAsset().addResource(with: .photo, data: data, options: nil)
+                }
+            }
+        } catch {
+            print("[PHPhotoLibrary] Camera roll save failed: \(error)")
+            throw AppError.saveToLibraryFailed
+        }
+    }
 }

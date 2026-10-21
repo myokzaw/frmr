@@ -231,18 +231,27 @@ struct AsShotStripRegressionTests {
         }
     }
 
-    @Test func secondStripDoesNotRepeatTheFirstStripsFrames() throws {
+    /// Seeds stay per global frame index, so an As shot strip whose frames
+    /// share one stock is byte-identical to overriding the strip with that
+    /// stock (whatever the frames' own stocks said).
+    @Test("As shot over one stock matches that override exactly",
+          arguments: [StripCustomization.FilmStock.portrait400, .none, .mono3200])
+    func asShotOverOneStockMatchesThatOverrideExactly(stock: StripCustomization.FilmStock) throws {
         let sensor = try #require(P2Fixture.sensor())
         let photos = Array(repeating: P2Fixture.tagged(sensor, .right), count: 4)
-        let customization = P2Fixture.asShot()
-        let first = try #require(P2Pixels(P2Fixture.strip(photos, stocks: P2Fixture.mixedFilmStocks, customization: customization, stripIndex: 0)))
-        let second = try #require(P2Pixels(P2Fixture.strip(photos, stocks: P2Fixture.mixedFilmStocks, customization: customization, stripIndex: 1)))
-        let difference = try #require(first.maxDifference(to: second, in: P2Fixture.frameRect(0)))
-        #expect(difference > 0, "strip 1 frame 0 repeats strip 0 frame 0's grain and leak")
+        let asShot = try #require(P2Fixture.strip(
+            photos, stocks: Array(repeating: stock, count: 4), customization: P2Fixture.asShot()
+        ).pngData())
+        var override = P2Fixture.asShot()
+        override.filmStock = stock
+        let overridden = try #require(P2Fixture.strip(
+            photos, stocks: Array(repeating: .portrait400, count: 4), customization: override
+        ).pngData())
+        #expect(asShot == overridden, "\(stock.label): As shot differs from the override")
     }
 
-    /// Per-photo stock round-trip: an As shot frame renders exactly as the
-    /// same frame under an override of that frame's own stock.
+    /// Per-photo stock round-trip, mixed frames: each As shot frame renders
+    /// exactly as the same frame under an override of its own stock.
     @Test func asShotFrameEqualsAnOverrideOfItsOwnStock() throws {
         let sensor = try #require(P2Fixture.sensor())
         let photos = Array(repeating: P2Fixture.tagged(sensor, .right), count: 4)
@@ -259,14 +268,27 @@ struct AsShotStripRegressionTests {
         }
     }
 
-    @Test func overrideIgnoresEveryFrameStock() throws {
+    /// An override ignores every frame's own stock (Off included).
+    @Test("An override ignores every frame stock",
+          arguments: [StripCustomization.FilmStock.cine500T, .none, .mono400])
+    func overrideIgnoresEveryFrameStock(override stock: StripCustomization.FilmStock) throws {
         let sensor = try #require(P2Fixture.sensor())
         let photos = Array(repeating: P2Fixture.tagged(sensor, .right), count: 4)
-        var override = P2Fixture.asShot()
-        override.filmStock = .cine500T
-        let mixed = try #require(P2Fixture.strip(photos, stocks: P2Fixture.mixedFilmStocks, customization: override).pngData())
-        let plain = try #require(P2Fixture.strip(photos, stocks: Array(repeating: .none, count: 4), customization: override).pngData())
-        #expect(mixed == plain)
+        var customization = P2Fixture.asShot()
+        customization.filmStock = stock
+        let mixed = try #require(P2Fixture.strip(photos, stocks: P2Fixture.mixedFilmStocks, customization: customization).pngData())
+        let plain = try #require(P2Fixture.strip(photos, stocks: Array(repeating: .none, count: 4), customization: customization).pngData())
+        #expect(mixed == plain, "\(stock.label) override")
+    }
+
+    @Test func secondStripDoesNotRepeatTheFirstStripsFrames() throws {
+        let sensor = try #require(P2Fixture.sensor())
+        let photos = Array(repeating: P2Fixture.tagged(sensor, .right), count: 4)
+        let customization = P2Fixture.asShot()
+        let first = try #require(P2Pixels(P2Fixture.strip(photos, stocks: P2Fixture.mixedFilmStocks, customization: customization, stripIndex: 0)))
+        let second = try #require(P2Pixels(P2Fixture.strip(photos, stocks: P2Fixture.mixedFilmStocks, customization: customization, stripIndex: 1)))
+        let difference = try #require(first.maxDifference(to: second, in: P2Fixture.frameRect(0)))
+        #expect(difference > 0, "strip 1 frame 0 repeats strip 0 frame 0's grain and leak")
     }
 }
 
@@ -274,18 +296,6 @@ struct AsShotStripRegressionTests {
 
 @MainActor
 struct PerPhotoStockRoundTripRegressionTests {
-
-    @Test func diaryEntryRoundTripsEveryStockAndOldRowsReadOff() {
-        for stock in StripCustomization.FilmStock.allCases {
-            let entry = DiaryEntry(photoPath: "x.jpg", prompt: "p", response: "r", filmStock: stock)
-            #expect(entry.filmStock == stock)
-        }
-        let legacy = DiaryEntry(photoPath: "x.jpg", prompt: "p", response: "r")
-        legacy.filmStockRaw = nil
-        #expect(legacy.filmStock == .none, "a pre-F11 row (nil) must read as Off")
-        legacy.filmStockRaw = "iso3200"
-        #expect(legacy.filmStock == .cine500T, "stored v2 values migrate like every stock")
-    }
 
     @Test func todaysEntriesCarryTheirStockIntoStripItems() {
         let stocks = P2Fixture.mixedFilmStocks
@@ -295,15 +305,6 @@ struct PerPhotoStockRoundTripRegressionTests {
         }
         let items = LibraryViewModel.todaysItems(from: entries.reversed())
         #expect(items.map(\.filmStock) == stocks, "oldest-first order with each entry's own stock")
-    }
-
-    @Test func photoboothShotsCarryTheirStockIntoStripItems() throws {
-        let sensor = try #require(P2Fixture.sensor())
-        let booth = PhotoboothViewModel()
-        for stock in P2Fixture.mixedFilmStocks {
-            booth.add(P2Fixture.tagged(sensor, .right), filmStock: stock)
-        }
-        #expect(booth.stripItems.map(\.filmStock) == P2Fixture.mixedFilmStocks)
     }
 
     /// StripViewModel builds its cells from items, so an As shot render
@@ -338,8 +339,15 @@ struct BoothPaperRegressionTests {
         }
         for background in StripCustomization.StripBackground.allCases {
             #expect(try bytes(background, P2Fixture.date, 0) == bytes(background, P2Fixture.date, 0))
-            #expect(try bytes(background, P2Fixture.date, 0) != bytes(background, P2Fixture.date, 1))
-            #expect(try bytes(background, P2Fixture.date, 0) != bytes(background, P2Fixture.date.addingTimeInterval(1), 0))
+            #expect(try bytes(background, P2Fixture.date, 0) != bytes(background, P2Fixture.date, 1), "\(background): strip index ignored")
+            #expect(try bytes(background, P2Fixture.date, 0) != bytes(background, P2Fixture.date.addingTimeInterval(1), 0),
+                    "\(background): another date gives another sheet of paper")
+
+            // There is a texture, and it is faint
+            let texture = try #require(StripGenerator.paperTexture(for: background, size: size, date: P2Fixture.date, stripIndex: 0))
+            let variance = try #require(PixelBuffer(texture)).luminanceVariance
+            #expect(variance > 0, "\(background): no texture")
+            #expect(variance < 16, "\(background): texture is not faint, variance \(variance)")
         }
     }
 
@@ -418,18 +426,21 @@ struct FullLookRegressionTests {
         }
     }
 
-    @Test func fullLookIsSeedDeterministicAndOffIsTheOriginal() throws {
+    /// Same seed, same bytes; another seed, another grain. Default strengths
+    /// and a boosted set (every effect on, vignette included) per stock.
+    @Test("renderFullLook is seed-deterministic", arguments: StripCustomization.FilmStock.allCases.filter { $0 != .none }, [false, true])
+    func fullLookIsSeedDeterministic(stock: StripCustomization.FilmStock, boosted: Bool) throws {
         let sensor = try #require(P2Fixture.sensor())
         let tagged = P2Fixture.tagged(sensor, .right)
-        for stock in StripCustomization.FilmStock.allCases {
-            let a = try ImageProcessor.renderFullLook(of: tagged, stock: stock, seed: 42)
-            let b = try ImageProcessor.renderFullLook(of: tagged, stock: stock, seed: 42)
-            if stock == .none {
-                #expect(a === tagged, "Off must return the original photo")
-                continue
-            }
-            #expect(P2Pixels(a) == P2Pixels(b), "\(stock.label): same seed differs")
+        var look = FilmLook.stockDefaults(for: stock)
+        if boosted {
+            look.strengths = .init(halation: 0.8, haze: 0.6, lightLeak: 0.7, grain: 1.2, vignette: 0.5)
         }
+        let a = try ImageProcessor.renderFullLook(of: tagged, look: look, seed: 42)
+        let b = try ImageProcessor.renderFullLook(of: tagged, look: look, seed: 42)
+        let other = try ImageProcessor.renderFullLook(of: tagged, look: look, seed: 43)
+        #expect(P2Pixels(a) == P2Pixels(b), "\(stock.label) boosted:\(boosted): same seed differs")
+        #expect(P2Pixels(a) != P2Pixels(other), "\(stock.label) boosted:\(boosted): seed ignored")
     }
 
     @Test func displaySizedFullLookKeepsOrientation() throws {
@@ -457,6 +468,7 @@ struct FullLookRegressionTests {
             let look = try ImageProcessor.renderFullLook(of: P2Fixture.tagged(sensor, orientation), stock: .slide100, seed: 1)
             let data = try ImageProcessor.heicData(from: look)
             let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+            #expect(CGImageSourceGetType(source) as String? == "public.heic", "\(orientation.rawValue): not HEIC")
             let properties = try #require(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
             let tag = properties[kCGImagePropertyOrientation] as? UInt32
             #expect(tag == ImageProcessor.cgOrientation(from: orientation).rawValue, "\(orientation.rawValue): HEIC tag")

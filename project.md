@@ -6,13 +6,14 @@ Full product specification. Read alongside `CLAUDE.md` (engineering rules). Toge
 
 ## §1 What this app is
 
-A minimalist iOS photography journal with a physically based film look. Core loop:
+A minimalist iOS **film camera** with a physically based film look. **Since v5 the camera is the main feature:** the app opens in Photo mode, and Diary and Film strip are additional modes.
 
-1. Take a photo (single diary shot or 4-shot film strip sequence) on a chosen film stock
-2. *(v4 Part 2)* Review it and change the stock if wanted, then confirm
-3. Receive a reflective prompt
-4. Write a short entry
-5. Entries compile into strips in a library, each frame in its own stock or one stock for the whole strip
+Core loop (Photo mode):
+1. Pick a stock on the dial and set white balance and exposure; the viewfinder previews the look.
+2. Take the photo and fine-tune it in the editor: stock, print, B&W and effect strengths.
+3. Save it to the Roll, where it stays re-editable, or Download it to Photos.
+
+Diary mode: photo → review → reflective prompt → short entry. Film strip mode: four photos (camera, gallery or Roll) → photobooth-style strip.
 
 The film look (v4) simulates film rather than filtering it:
 - per-layer characteristic curves
@@ -98,6 +99,33 @@ Review the compiled strip and adjust its look before saving/sharing. *(Updated f
 - Effects: Halation, Bloom and Light leak toggles.
 - Black & white toggle, locked on for mono stocks.
 - Three equal-width action buttons (Save / Share / Archive): 10px radius, theme card background, 13px/600 system UI.
+
+### Screen 0 — Camera, Photo mode (v5, launch screen)
+
+- **Top:** the mode switch (camera, book, film icons; Photo selected at launch).
+- **Viewfinder:** the live film preview of the dial's stock.
+- **Above the shutter:**
+  - white balance chip ("AUTO" or e.g. "5600K"), which opens presets plus Kelvin and tint sliders;
+  - exposure chip ("+0.3"), which opens a ⅓-stop slider;
+  - the stock dial (short codes, selected one centred, full name underneath).
+- **Shutter row:** the last-photo thumbnail on the left (opens it for re-editing), the shutter, and flip.
+- Only one panel is open at a time. Controls rotate in place (glyphs only), per the camera orientation rules.
+
+### Screen 0b — Photo editor (v5, after every Photo-mode shot)
+
+- **Top bar:** Retake (Delete when re-editing), a "Hold photo to compare" hint, and Download (top right).
+- **Photo:** the photo in its look; press and hold to see the original.
+- **Tabs:**
+  - Film: stock chips.
+  - Print: print chips and B&W.
+  - Effects: Halation, Haze, Light leak, Grain and Vignette sliders (0–150%), with Reset.
+- **Bottom:** Discard (left), Save to roll (right).
+
+### Screen 5b — Library, Roll tab (v5, first tab)
+
+- A grid of Roll photos in their looks; tap one to re-edit it.
+- Select mode (up to 4) with Export and Make strip.
+- The empty state invites the user to take a photo.
 
 ### Screen 4b — Diary review (v4)
 

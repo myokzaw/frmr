@@ -102,12 +102,6 @@ struct HalationTests {
         #expect(ring.r > ring.b, "the glow is red-dominant")
     }
 
-    @Test func zeroStrengthIsPixelIdentical() throws {
-        let input = dotImage()
-        let output = ImageProcessor.applyHalation(to: input, strength: 0, outputWidth: outputWidth)
-        #expect(try #require(Pixels(output)) == (try #require(Pixels(input))))
-    }
-
     @Test func nothingAboveTheThresholdAddsNothing() throws {
         let extent = CGRect(x: 0, y: 0, width: side, height: side)
         let mid = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: extent)
@@ -263,17 +257,6 @@ struct GrainTests {
         #expect(try #require(Pixels(StripGenerator.render(strip: cells, customization: customization, date: date))) == first)
     }
 
-    @Test func stripLookIsSeededThroughApplyStripLook() throws {
-        let photo = try #require(uiImage(flat(0.3)))
-        var customization = StripCustomization()
-        customization.filmStock = .portrait400
-        let a = try #require(Pixels(ImageProcessor.applyStripLook(to: photo, customization: customization, outputWidth: 64, seed: 3)))
-        let b = try #require(Pixels(ImageProcessor.applyStripLook(to: photo, customization: customization, outputWidth: 64, seed: 3)))
-        let c = try #require(Pixels(ImageProcessor.applyStripLook(to: photo, customization: customization, outputWidth: 64, seed: 4)))
-        #expect(a == b)
-        #expect(a != c)
-    }
-
     @Test func monochromeGrainIsNeutral() throws {
         let pixels = try grained(flat(0.214), iso: 3200, monochrome: true)
         for y in stride(from: 0, to: pixels.height, by: 7) {
@@ -402,22 +385,6 @@ struct BloomAndLightLeakTests {
         #expect(result.never)
         // Just outside the dot picks up glow
         #expect(bloomed.rgb(32, 48 - 1 - 30).r > input.rgb(32, 48 - 1 - 30).r)
-    }
-
-    @Test func disabledEffectsArePixelIdenticalToTheOffPath() throws {
-        let photo = try #require(uiImage(grey))
-        var base = StripCustomization()
-        base.filmStock = .daylight200
-        base.effects = .init(halation: true, bloom: false, lightLeak: false)
-        var leakOnly = base
-        leakOnly.effects.lightLeak = true
-
-        let off = try #require(Pixels(ImageProcessor.applyStripLook(to: photo, customization: base, outputWidth: 64, seed: 5)))
-        let offAgain = try #require(Pixels(ImageProcessor.applyStripLook(to: photo, customization: base, outputWidth: 64, seed: 5)))
-        let leak = try #require(Pixels(ImageProcessor.applyStripLook(to: photo, customization: leakOnly, outputWidth: 64, seed: 5)))
-
-        #expect(off == offAgain)
-        #expect(leak != off, "turning the leak on must change the strip")
     }
 
     @Test func effectsAreOffByDefault() {

@@ -17,7 +17,7 @@ struct FrmrApp: App {
         WindowGroup {
             ContentView()
                 .environment(errorState)
-                .modelContainer(for: [DiaryEntry.self, DailyStrip.self, OnboardingState.self])
+                .modelContainer(for: [DiaryEntry.self, DailyStrip.self, OnboardingState.self, RollPhoto.self])
         }
     }
 }

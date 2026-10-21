@@ -80,6 +80,7 @@ struct EntryEditorView: View {
         if viewModel.saveEntry(
             image: camera.pendingDiaryImage,
             filmStock: camera.pendingDiaryStock,
+            look: camera.pendingDiaryLook,
             capturedAt: camera.pendingDiaryCaptureDate,
             includeText: true,
             context: modelContext
@@ -93,6 +94,7 @@ struct EntryEditorView: View {
         if viewModel.saveEntry(
             image: camera.pendingDiaryImage,
             filmStock: camera.pendingDiaryStock,
+            look: camera.pendingDiaryLook,
             capturedAt: camera.pendingDiaryCaptureDate,
             includeText: false,
             context: modelContext

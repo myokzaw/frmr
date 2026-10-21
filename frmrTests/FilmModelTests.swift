@@ -344,6 +344,17 @@ struct FilmModelTests {
         }
     }
 
+    // docs/film-simulation.md §8.2: rows sum to one, so a neutral is untouched
+    // (added by the test consolidation: this invariant had no direct test)
+    @Test(arguments: negatives.map(\.0))
+    func colourMatrixRowsSumToOne(stock name: String) throws {
+        let negative = try #require(Self.negatives.first { $0.0 == name }?.1)
+        let m = negative.colour
+        for (row, sum) in [("r", m.rr + m.rg + m.rb), ("g", m.gr + m.gg + m.gb), ("b", m.br + m.bg + m.bb)] {
+            #expect(abs(sum - 1) < 1e-9, "\(name) row \(row) sums to \(sum)")
+        }
+    }
+
     @Test func sRGBTransferRoundTrips() {
         for step in 0...20 {
             let value = Double(step) / 20

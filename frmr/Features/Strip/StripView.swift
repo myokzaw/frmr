@@ -126,26 +126,20 @@ struct StripView: View {
         )
     }
 
-    // OPEN: v4-2 — on/off toggles, not strength sliders
-    // (Constants.ImageProcessing.Film.effectsAreToggles)
+    // v5 F5: strength sliders replace the v4 on/off toggles. 100% is the
+    // v4 strength of an effect that was on; the sliders reach 150%.
     private var effectRows: some View {
         VStack(spacing: 0) {
             Divider()
             StripGroupLabel(title: "Effects", color: theme.muted)
-            Toggle("Halation", isOn: $viewModel.customization.effects.halation)
-                .padding()
-                .accessibilityHint("Adds a warm glow around bright highlights")
-                .accessibilityIdentifier("strip.halation")
-            Divider()
-            Toggle("Bloom", isOn: $viewModel.customization.effects.bloom)
-                .padding()
-                .accessibilityHint("Softens and spreads bright areas")
-                .accessibilityIdentifier("strip.bloom")
-            Divider()
-            Toggle("Light leak", isOn: $viewModel.customization.effects.lightLeak)
-                .padding()
-                .accessibilityHint("Adds a streak of light at the frame edge")
-                .accessibilityIdentifier("strip.lightLeak")
+            EffectSliders(
+                strength: { viewModel.customization.strengths[$0] },
+                setStrength: { viewModel.customization.strengths[$1] = $0 },
+                identifierPrefix: "strip.slider",
+                textColor: theme.text,
+                tint: theme.primary
+            )
+            .padding(.horizontal)
         }
     }
 

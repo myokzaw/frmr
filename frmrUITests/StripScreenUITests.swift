@@ -1,6 +1,6 @@
 import XCTest
 
-// v4 F7 (BUG-V4-3), Part 2 F8/F12: opens the strip screen through the
+// v4 F7 (BUG-V4-3; v5 F5: effect sliders), Part 2 F8/F12: opens the strip screen through the
 // photobooth gallery picker, checks the As shot default and the two
 // backgrounds, and cycles every stock choice, checking which controls show.
 //
@@ -126,7 +126,6 @@ final class StripScreenUITests: XCTestCase {
         app.tabBars.buttons["Settings"].tap()
         let stockPicker = app.buttons["settings.filmStock"]
         XCTAssertTrue(stockPicker.waitForExistence(timeout: timeout))
-        app.swipeUp()
 
         let background = app.buttons["settings.background"]
         XCTAssertTrue(background.waitForExistence(timeout: timeout), "Background picker missing")
@@ -135,6 +134,8 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Black"].firstMatch.exists, "Black missing")
         XCTAssertFalse(app.buttons["Cream"].exists, "Cream should be gone (v4 F8)")
         app.buttons["White"].firstMatch.tap()
+        // The effect sliders and B&W sit below the fold; List rows only exist on screen
+        app.swipeUp()
 
         let suffix = ProcessInfo.processInfo.environment["SHOTS_SUFFIX"] ?? "light"
         let cases = [("Off", "none"), ("Mono 400", "mono400"), ("Cine 500T", "cine500T"), (asShot, "asShot")]
@@ -143,8 +144,8 @@ final class StripScreenUITests: XCTestCase {
             XCTAssertTrue(shows(stock, picker: stockPicker), "\(stock): picker should show the choice")
             let blackAndWhite = app.switches["settings.blackAndWhite"]
             XCTAssertTrue(blackAndWhite.waitForExistence(timeout: timeout))
-            _ = app.switches["settings.halation"].waitForExistence(timeout: 1)
-            XCTAssertEqual(app.switches["settings.halation"].exists, stock != "Off", "\(stock): effects visibility")
+            _ = app.sliders["settings.slider.halation"].waitForExistence(timeout: 1)
+            XCTAssertEqual(app.sliders["settings.slider.halation"].exists, stock != "Off", "\(stock): effects visibility")
             XCTAssertEqual(blackAndWhite.isEnabled, !monoStocks.contains(stock), "\(stock): B&W lock")
             if monoStocks.contains(stock) {
                 XCTAssertEqual(blackAndWhite.value as? String, "1", "\(stock): B&W should read on")
@@ -209,7 +210,7 @@ final class StripScreenUITests: XCTestCase {
     // stock is Off).
     private func assertControls(for stock: String, app: XCUIApplication) {
         let print = app.buttons["strip.print"]
-        let halation = app.switches["strip.halation"]
+        let halation = app.sliders["strip.slider.halation"]
         let blackAndWhite = app.switches["strip.blackAndWhite"]
         XCTAssertTrue(blackAndWhite.waitForExistence(timeout: timeout), "\(stock): B&W toggle missing")
         // Let the row fade settle before checking absence
@@ -219,8 +220,9 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertEqual(print.exists, !stocksWithoutPrint.contains(stock) && stock != asShot, "\(stock): print picker visibility")
         XCTAssertEqual(halation.exists, effectsExpected, "\(stock): effects visibility")
         if effectsExpected {
-            XCTAssertTrue(app.switches["strip.bloom"].exists, "\(stock): bloom missing")
-            XCTAssertTrue(app.switches["strip.lightLeak"].exists, "\(stock): light leak missing")
+            for effect in ["haze", "lightLeak", "grain", "vignette"] {
+                XCTAssertTrue(app.sliders["strip.slider.\(effect)"].exists, "\(stock): \(effect) slider missing")
+            }
         }
         XCTAssertEqual(blackAndWhite.isEnabled, !monoStocks.contains(stock), "\(stock): B&W lock")
         XCTAssertTrue(app.buttons["Save"].exists, "\(stock): Save missing")

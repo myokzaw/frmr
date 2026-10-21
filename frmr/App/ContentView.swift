@@ -54,6 +54,12 @@ struct ContentView: View {
         .task {
             onboarding.errorState = errorState
             onboarding.start(context: modelContext)
+            #if DEBUG
+            // UI tests only: a Roll with photos in it, without a camera
+            if RollSeedFixture.isRequested {
+                RollSeedFixture.seed(in: modelContext)
+            }
+            #endif
         }
     }
 
@@ -93,3 +99,43 @@ struct ContentView: View {
     ContentView()
         .environment(ErrorState())
 }
+
+#if DEBUG
+// Compiled out of release. Launched with `-UITestSeedRoll`, the app adds
+// three generated photos to the Roll (different looks, newest last in the
+// list) so a UI test can drive the Roll grid, selection, re-edit, Make strip
+// and Clear roll. Adds three Roll photos to the simulator on every launch.
+private enum RollSeedFixture {
+    static let launchArgument = "-UITestSeedRoll"
+    static let size = CGSize(width: 900, height: 1200)
+    static let looks: [(UIColor, UIColor, StripCustomization.FilmStock)] = [
+        (.systemPink, .systemIndigo, .portrait400),
+        (.systemYellow, .systemGreen, .mono400),
+        (.systemOrange, .systemTeal, .cine500T),
+    ]
+
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains(launchArgument)
+    }
+
+    static func seed(in context: ModelContext) {
+        for (index, entry) in looks.enumerated() {
+            let date = Date.now.addingTimeInterval(TimeInterval(-index))
+            _ = try? RollViewModel.insert(
+                original: photo(from: entry.0, to: entry.1),
+                look: .stockDefaults(for: entry.2),
+                capturedAt: date,
+                context: context
+            )
+        }
+    }
+
+    private static func photo(from start: UIColor, to end: UIColor) -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            let colors = [start.cgColor, end.cgColor] as CFArray
+            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: nil) else { return }
+            context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+        }
+    }
+}
+#endif

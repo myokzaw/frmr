@@ -6,18 +6,22 @@ import UIKit
 @Observable
 final class LibraryViewModel {
     enum Tab {
+        case roll
         case entries
         case strips
     }
 
     var errorState: ErrorState?
 
-    var tab: Tab = .entries
+    // Roll first and the default (v5 F6)
+    var tab: Tab = .roll
     var isCompileStripPresented = false
 
+    var isRollTabActive: Bool { tab == .roll }
     var isEntriesTabActive: Bool { tab == .entries }
     var isStripsTabActive: Bool { tab == .strips }
 
+    func selectRollTab() { tab = .roll }
     func selectEntriesTab() { tab = .entries }
     func selectStripsTab() { tab = .strips }
 

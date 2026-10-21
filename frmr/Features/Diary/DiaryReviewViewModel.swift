@@ -4,12 +4,17 @@ import Photos
 import UIKit
 
 /// The diary review step (v4 F10) and its Download (v4 F13): the captured
-/// photo in a chosen stock, between the shutter and the prompt screen.
+/// photo in a chosen look, between the shutter and the prompt screen.
 ///
 /// Holds the **original** photo — the JPEG preview, swapped for the
 /// developed RAW when it is ready — and only ever renders the look for
 /// display or for Download. Nothing here creates a diary entry: OK and
 /// Retake go through `CameraViewModel.confirmReview()` / `retake()`.
+///
+/// v5 F5: the look is a whole `FilmLook` (stock, print, B&W, effect
+/// strengths), so the review can offer an Effects tab. The stock-only
+/// calls (`stock`, `selectStock`) keep working. The JPEG→RAW swap and the
+/// last-wins render are the shared `FilmLookRenderScheduler`.
 @Observable
 final class DiaryReviewViewModel: Identifiable {
     let id = UUID()
@@ -21,9 +26,12 @@ final class DiaryReviewViewModel: Identifiable {
     /// The original photo: the JPEG preview until the RAW develops.
     private(set) var photo: UIImage
     private(set) var isDevelopingPhoto: Bool
-    /// The stock chosen on this screen; starts from the camera's.
-    private(set) var stock: StripCustomization.FilmStock
-    /// `photo` through `stock` at the display size. The original itself for
+    /// The look chosen on this screen; starts from the camera's stock on
+    /// that stock's defaults.
+    private(set) var look: FilmLook
+    /// The stock of `look`, for the stock chips.
+    var stock: StripCustomization.FilmStock { look.stock }
+    /// `photo` through `look` at the display size. The original itself for
     /// Off; nil until the first render after `setDisplaySize` lands.
     private(set) var renderedPhoto: UIImage?
     private(set) var isRendering = false
@@ -37,13 +45,10 @@ final class DiaryReviewViewModel: Identifiable {
     /// Disabled while the photo is rendering or saving (spec F13).
     var isDownloadDisabled: Bool { isRendering || isSavingDownload }
 
-    @ObservationIgnored private var development: Task<UIImage, Never>?
-    @ObservationIgnored private var developmentWatch: Task<Void, Never>?
+    @ObservationIgnored private let scheduler = FilmLookRenderScheduler()
     @ObservationIgnored private var displayPixelSize: CGSize?
-    @ObservationIgnored private var renderTask: Task<Void, Never>?
-    @ObservationIgnored private var renderGeneration = 0
     @ObservationIgnored private var savedResetTask: Task<Void, Never>?
-    @ObservationIgnored private var lastDownloadedStock: StripCustomization.FilmStock?
+    @ObservationIgnored private var lastDownloadedLook: FilmLook?
     @ObservationIgnored private let savePhotoData: @Sendable (Data) async throws -> Void
 
     /// - Parameters:
@@ -59,22 +64,18 @@ final class DiaryReviewViewModel: Identifiable {
         savePhotoData: @escaping @Sendable (Data) async throws -> Void = { try await PHPhotoLibrary.saveToCameraRoll(photoData: $0) }
     ) {
         self.photo = preview
-        self.stock = stock
+        self.look = .stockDefaults(for: stock)
         self.captureDate = captureDate
-        self.development = development
         self.isDevelopingPhoto = development != nil
         self.savePhotoData = savePhotoData
         if stock == .none { renderedPhoto = preview }
 
-        if let development {
-            developmentWatch = Task { [weak self] in
-                let developed = await development.value
-                guard let self, !Task.isCancelled else { return }
-                self.photo = developed
-                self.isDevelopingPhoto = false
-                // The swap is not a user tap: no debounce
-                self.scheduleRender(debounced: false)
-            }
+        scheduler.watch(development: development) { [weak self] developed in
+            guard let self else { return }
+            self.photo = developed
+            self.isDevelopingPhoto = false
+            // The swap is not a user tap: no debounce
+            self.scheduleRender(debounced: false)
         }
     }
 
@@ -89,10 +90,41 @@ final class DiaryReviewViewModel: Identifiable {
         scheduleRender(debounced: false)
     }
 
-    /// A stock chip tap. Debounced: quick taps render only the last stock.
+    // MARK: Look edits (each is debounced: quick taps render only the last)
+
+    /// A stock chip tap. Keeps the effect strengths; drops a print the new
+    /// stock can't use.
     func selectStock(_ newStock: StripCustomization.FilmStock) {
-        guard newStock != stock else { return }
-        stock = newStock
+        apply(look.with(stock: newStock))
+    }
+
+    /// One effect slider (v5 F5), clamped to the slider range.
+    func setStrength(_ value: Double, for effect: FilmLook.Effect) {
+        var next = look
+        next.strengths[effect] = FilmLook.clampedStrength(value)
+        apply(next)
+    }
+
+    func selectPrint(_ print: StripCustomization.PrintStock?) {
+        var next = look
+        next.printStock = print
+        apply(next)
+    }
+
+    func setBlackAndWhite(_ on: Bool) {
+        var next = look
+        next.blackAndWhite = on
+        apply(next)
+    }
+
+    /// Back to the current stock on its default print and effects (v5-5).
+    func resetToStockDefaults() {
+        apply(.stockDefaults(for: look.stock))
+    }
+
+    private func apply(_ next: FilmLook) {
+        guard next != look else { return }
+        look = next
         didSaveDownload = false
         scheduleRender(debounced: true)
     }
@@ -100,49 +132,29 @@ final class DiaryReviewViewModel: Identifiable {
     /// Waits for the newest scheduled render, for callers (and tests) that
     /// need the settled result.
     func renderSettled() async {
-        while let task = renderTask {
-            await task.value
-            // Superseded tasks hand over to their successor; a finished
-            // newest task clears itself
-            if renderTask == task { return }
-        }
+        await scheduler.settled()
     }
 
-    // Last request wins: every call bumps the generation, cancels the
-    // previous task, and only the newest generation publishes its result.
     private func scheduleRender(debounced: Bool) {
-        renderTask?.cancel()
-        renderGeneration += 1
-        let generation = renderGeneration
-        let photo = photo
-        let stock = stock
-
-        guard stock != .none else {
-            // Off is the original: nothing to render
-            renderTask = nil
+        // Off is the original: nothing to render, whatever the size
+        guard look.altersPhoto else {
+            scheduler.cancelRender()
             renderedPhoto = photo
             isRendering = false
             return
         }
         guard let target = displayPixelSize else { return }
         isRendering = true
-        let seed = seed
-
-        renderTask = Task { [weak self] in
-            if debounced {
-                try? await Task.sleep(for: .seconds(Constants.Diary.reviewRenderDebounce))
-                guard !Task.isCancelled else { return }
-            }
-            let result = await Task.detached(priority: .userInitiated) {
-                Result { try ImageProcessor.renderFullLook(of: photo, stock: stock, seed: seed, coveringPixelSize: target) }
-            }.value
-            guard let self, generation == self.renderGeneration else { return }
-            self.renderTask = nil
+        scheduler.schedule(
+            photo: photo, look: look, seed: seed, pixelSize: target,
+            debounce: debounced ? Constants.Diary.reviewRenderDebounce : nil
+        ) { [weak self] outcome in
+            guard let self else { return }
             self.isRendering = false
-            switch result {
-            case .success(let image):
+            switch outcome {
+            case .rendered(let image):
                 self.renderedPhoto = image
-            case .failure:
+            case .failed:
                 // The previous look stays on screen; the user can tap again
                 self.errorState?.raise(.filmLookRenderFailed)
             }
@@ -153,27 +165,26 @@ final class DiaryReviewViewModel: Identifiable {
 
     // MARK: Download (v4 F13)
 
-    /// Saves this capture in the chosen stock — full resolution, the
-    /// stock's default print and effects, HEIC with the capture's
-    /// orientation tag — to the camera roll. Waits for the RAW so the JPEG
-    /// preview is never what gets saved. Creates no diary entry.
-    // OPEN: v4-15 — repeat Downloads of the same photo and stock are allowed;
+    /// Saves this capture in the chosen look — full resolution, HEIC with
+    /// the capture's orientation tag — to the camera roll. Waits for the
+    /// RAW so the JPEG preview is never what gets saved. Creates no diary
+    /// entry.
+    // OPEN: v4-15 — repeat Downloads of the same photo and look are allowed;
     // each tap saves one photo (Constants.Diary.blocksRepeatDownload).
     func downloadReview() async {
         guard !isSavingDownload else { return }
-        if Constants.Diary.blocksRepeatDownload, lastDownloadedStock == stock { return }
+        if Constants.Diary.blocksRepeatDownload, lastDownloadedLook == look { return }
         isSavingDownload = true
         didSaveDownload = false
         savedResetTask?.cancel()
         defer { isSavingDownload = false }
 
         let developed = await developedPhoto()
-        let stock = stock
+        let look = look
         let seed = seed
         do {
             let data = try await Task.detached(priority: .userInitiated) {
-                let look = try ImageProcessor.renderFullLook(of: developed, stock: stock, seed: seed)
-                return try ImageProcessor.heicData(from: look)
+                try ImageProcessor.fullResolutionHEIC(of: developed, look: look, seed: seed)
             }.value
             try await savePhotoData(data)
         } catch let error as AppError {
@@ -184,7 +195,7 @@ final class DiaryReviewViewModel: Identifiable {
             return
         }
 
-        lastDownloadedStock = stock
+        lastDownloadedLook = look
         didSaveDownload = true
         savedResetTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Constants.Diary.downloadSavedConfirmationDuration))
@@ -195,15 +206,12 @@ final class DiaryReviewViewModel: Identifiable {
 
     /// The final original: the developed RAW once it is ready.
     func developedPhoto() async -> UIImage {
-        guard let development else { return photo }
-        return await development.value
+        await scheduler.developedPhoto(fallback: photo)
     }
 
     /// Retake: stop updating. A Download already in flight still finishes.
     func discard() {
-        developmentWatch?.cancel()
-        renderTask?.cancel()
-        renderTask = nil
+        scheduler.cancel()
         savedResetTask?.cancel()
     }
 }

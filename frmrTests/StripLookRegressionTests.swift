@@ -213,6 +213,11 @@ struct StripLookOrientationRegressionTests {
                 }
                 #expect(output.imageOrientation == .up, "\(label): filtered output must be baked upright")
                 let out = try #require(RegressionPixels(output))
+                // The slot-sized centre crop, whatever the tag (was the single-case
+                // stripLookKeepsATaggedPhotoUpright)
+                #expect(out.width == Int(Fixture.slotWidth)
+                        && out.height == Int((Fixture.slotWidth / Constants.Strip.cellAspectRatio).rounded()),
+                        "\(label): output must be the slot size, got \(out.width)×\(out.height)")
                 let ref = try #require(RegressionPixels(reference))
                 let difference = out.maxDifference(to: ref)
                 #expect(difference != nil, "\(label): size \(out.width)×\(out.height) vs \(ref.width)×\(ref.height)")
@@ -318,7 +323,8 @@ struct StripLookOrientationRegressionTests {
 
 struct StripLookDeterminismRegressionTests {
 
-    @Test("Same seed renders pixel-identically", arguments: StripCustomization.FilmStock.allCases)
+    @Test("Same seed renders pixel-identically, another seed does not",
+          arguments: StripCustomization.FilmStock.allCases)
     func sameSeedIsPixelIdentical(stock: StripCustomization.FilmStock) throws {
         let scene = try #require(Fixture.scene)
         let photo = Fixture.tagged(scene, .right)
@@ -333,6 +339,13 @@ struct StripLookDeterminismRegressionTests {
                 to: photo, customization: customization, outputWidth: 48, seed: Fixture.seed
             )
             #expect(RegressionPixels(first) == RegressionPixels(second), "\(Fixture.describe(customization))")
+            if stock != .none {
+                // Grain and the light leak are seeded (Off has neither, B&W or not): a different seed is a different frame
+                let other = ImageProcessor.applyStripLook(
+                    to: photo, customization: customization, outputWidth: 48, seed: Fixture.seed &+ 1
+                )
+                #expect(RegressionPixels(first) != RegressionPixels(other), "\(Fixture.describe(customization)): seed ignored")
+            }
         }
     }
 

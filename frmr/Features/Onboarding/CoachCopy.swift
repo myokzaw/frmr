@@ -11,7 +11,7 @@ nonisolated enum CoachCopy {
         ),
         .camera: (
             title: "Camera",
-            body: "Take a photo, get a prompt, write a line."
+            body: "Shoot on film. Diary and Film strip are in the mode switch."
         ),
         .settings: (
             title: "Settings",

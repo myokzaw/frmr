@@ -18,6 +18,11 @@ final class DiaryEntry {
     // the diary shows the pattern the user reviewed and downloaded. Optional
     // for the same lightweight migration; older rows fall back to createdAt.
     var capturedAt: Date?
+    // v5 F5: the whole look chosen on the review screen (print, B&W, effect
+    // strengths) as JSON-encoded `FilmLook`. Optional for the same lightweight
+    // migration; nil = the stock's defaults, which is exactly what every
+    // pre-v5 entry was shown with. Only written when it differs from them.
+    var lookData: Data?
 
     init(
         id: UUID = UUID(),
@@ -26,15 +31,36 @@ final class DiaryEntry {
         prompt: String,
         response: String,
         filmStock: StripCustomization.FilmStock = .none,
-        capturedAt: Date? = nil
+        capturedAt: Date? = nil,
+        look: FilmLook? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
         self.photoPath = photoPath
         self.prompt = prompt
         self.response = response
-        self.filmStockRaw = filmStock.rawValue
+        self.filmStockRaw = (look?.stock ?? filmStock).rawValue
         self.capturedAt = capturedAt
+        self.lookData = Self.storedLookData(for: look)
+    }
+
+    /// The stored form of `look`: nil when it is the stock's own defaults.
+    static func storedLookData(for look: FilmLook?) -> Data? {
+        guard let look, look != .stockDefaults(for: look.stock) else { return nil }
+        return FilmLook.encoded(look)
+    }
+
+    /// The look the entry is shown with: the saved one, else its stock on
+    /// the stock's defaults (every entry saved before v5).
+    var look: FilmLook {
+        get {
+            guard let lookData else { return .stockDefaults(for: filmStock) }
+            return FilmLook.decoded(from: lookData)
+        }
+        set {
+            filmStockRaw = newValue.stock.rawValue
+            lookData = Self.storedLookData(for: newValue)
+        }
     }
 
     /// The entry's stock; entries saved before v4 F11 read as Off.

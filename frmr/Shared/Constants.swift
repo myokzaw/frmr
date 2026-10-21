@@ -76,7 +76,24 @@ nonisolated enum Constants {
         static let exposureIndicatorSpacing: CGFloat = 4
         static let exposureIndicatorPadding: CGFloat = 12
         // OPEN: v2-2 — persist EV bias across launches? Default: no.
+        // (v5-4 confirms: WB and EV reset on launch.)
         static let persistExposureBias = false
+        // v5 F3: the EV chip's slider moves in third-stop detents
+        static let exposureStepsPerStop = 3
+        static let exposureStep: Float = 1 / Float(exposureStepsPerStop)
+
+        // v5 F3 white balance fine-tune (Kelvin and tint sliders)
+        static let whiteBalanceKelvinRange: ClosedRange<Float> = 2500...9000
+        static let whiteBalanceTintRange: ClosedRange<Float> = -50...50
+        // The Kelvin a manual white balance starts from when the first
+        // slider is touched while on Auto
+        static let whiteBalanceManualStartKelvin: Float = 5600
+        static let whiteBalanceManualStartTint: Float = 0
+        // OPEN: v5-4 — WB and EV reset on launch (not persisted)
+        static let persistWhiteBalanceAndExposure = false
+        // OPEN: v5-9 — the app always launches in Photo mode; the stored
+        // capture mode (DefaultsKeys.captureMode) no longer decides it
+        static let launchModeFollowsStoredCaptureMode = false
 
         // Pinch-to-zoom (F3)
         static let zoomRampRate: Float = 4.0
@@ -190,9 +207,11 @@ nonisolated enum Constants {
             // cube, not a Metal CIColorKernel (no -fcikernel build rules; the
             // tested Swift produces the pixels). Flip only if profiling demands.
             static let usesColourCube = true
-            // OPEN: v4-4 — decision flag: no strip-time vignette; the RAW
-            // development step already applies one (ImageProcessing.vignette*)
-            static let stripVignetteEnabled = false
+            // OPEN: v4-4 — overturned by v5 F5: the strip/photo-time vignette
+            // now exists as an effect strength (Strength below). Its default
+            // is 0 everywhere, so every existing look renders as before; the
+            // RAW development step keeps its own fixed vignette
+            // (ImageProcessing.vignette*).
 
             // MARK: Halation (v4 F4)
             // OPEN: v4-5 — threshold, radius, tint and strengths are aesthetic
@@ -333,10 +352,35 @@ nonisolated enum Constants {
             // The pre-v2 grain toggle's "on" was v2's ISO 400
             static let legacyGrainEnabledStock = "iso400"
 
-            // OPEN: v4-2 — effects are on/off toggles, not strength sliders
-            static let effectsAreToggles = true
+            // OPEN: v4-2 — overturned by v5 F5: effects are 0…1 strengths
+            // (Strength below); a v4 "on" migrates to Strength.migratedOn
+            static let effectsAreToggles = false
             // Halation defaults on for every stock, at the stock's own strength
             static let halationOnByDefault = true
+
+            // MARK: Effect strengths (v5 F5)
+            // One scale for every effect: 1 is exactly the v4 strength, 0 is
+            // pixel-identical to the effect being off.
+            enum Strength {
+                // OPEN: v5-6 — slider maximum relative to the v4 strength
+                static let sliderMaximum: Double = 1.5
+                // A v4 toggle that was on keeps its v4 strength
+                static let migratedOn: Double = 1
+                // What a stock starts with: halation on (as v4), grain at the
+                // stock's own intensity, the rest opt-in
+                static let defaultHalation: Double = 1
+                static let defaultHaze: Double = 0
+                static let defaultLightLeak: Double = 0
+                static let defaultGrain: Double = 1
+                static let defaultVignette: Double = 0
+                // Vignette at strength 1: how dark the frame corners get
+                // (multiplicative, in the print's output space) and where the
+                // falloff starts and ends, as fractions of the half-diagonal.
+                // Aesthetic estimates, tuned by eye.
+                static let vignetteDarkening: Double = 0.45
+                static let vignetteInnerRadiusFraction: Double = 0.45
+                static let vignetteOuterRadiusFraction: Double = 1.0
+            }
 
             // MARK: Negatives
             // OPEN: v4-5 — v4 F14 calibration against real-film references
@@ -559,6 +603,37 @@ nonisolated enum Constants {
         // Landscape dock on the far right edge
         static let dockSpacing: CGFloat = 10
         static let dockTrailingPadding: CGFloat = 12
+
+        // v5 F2 stock dial: a snapping strip of fixed-width detents above
+        // the shutter; the strip never turns, each code label does
+        static let dialItemWidth: CGFloat = 60
+        static let dialHeight: CGFloat = 44
+        static let dialCodeFontSize: CGFloat = 14
+        static let dialUnselectedOpacity: CGFloat = 0.5
+        static let dialSelectedScale: CGFloat = 1.15
+        static let dialTickWidth: CGFloat = 2
+        static let dialTickHeight: CGFloat = 8
+        static let dialCaptionSpacing: CGFloat = 4
+        static let dialSnapAnimationDuration: TimeInterval = 0.2
+
+        // v5 F3 Photo-mode WB / EV panels (one open at a time)
+        static let panelCornerRadius: CGFloat = 18
+        static let panelPadding: CGFloat = 12
+        static let panelSpacing: CGFloat = 10
+        static let panelBackgroundOpacity: CGFloat = 0.55
+        static let panelHorizontalMargin: CGFloat = 16
+        static let panelMaxWidth: CGFloat = 420
+        static let panelSliderLabelWidth: CGFloat = 52
+        static let panelValueWidth: CGFloat = 56
+        static let kelvinSliderStep: Double = 50
+        static let tintSliderStep: Double = 1
+        static let panelAnimationDuration: TimeInterval = 0.2
+
+        // v5: last Roll photo beside the shutter
+        static let lastPhotoSize: CGFloat = 44
+        static let lastPhotoCornerRadius: CGFloat = 10
+        static let lastPhotoBorderWidth: CGFloat = 1.5
+        static let lastPhotoBorderOpacity: CGFloat = 0.8
     }
 
     // MARK: Entry editor UI (project.md §2, screen 2)
@@ -594,6 +669,52 @@ nonisolated enum Constants {
         static let textPanelMaxHeight: CGFloat = 260
     }
 
+    // MARK: Photo edit screen UI (v5 F4)
+    enum PhotoEditUI {
+        static let topBarHeight: CGFloat = 52
+        static let topBarSpacing: CGFloat = 8
+        static let hintOpacity: CGFloat = 0.6
+        static let hintMinScale: CGFloat = 0.7
+        static let sectionSpacing: CGFloat = 12
+        static let tabHeight: CGFloat = 40
+        static let tabUnderlineHeight: CGFloat = 2
+        static let toolPanelHeight: CGFloat = 252
+        static let actionButtonHeight: CGFloat = 50
+        static let rowSpacing: CGFloat = 4
+        static let compareBadgePadding: CGFloat = 8
+        static let animationDuration: TimeInterval = 0.2
+        // Hold-to-compare: press forever, the pressing callback does the work
+        static let compareMaximumDistance: CGFloat = 60
+        static let chipColumnMinimum: CGFloat = 104
+    }
+
+    // MARK: Effect strength sliders (v5 F5)
+    enum EffectSliderUI {
+        // A tick every 5%: VoiceOver adjusts in the same steps
+        static let step: Double = 0.05
+        static let percentWidth: CGFloat = 56
+        static let titleWidth: CGFloat = 84
+        static let titleMinScale: CGFloat = 0.7
+        static let rowMinHeight: CGFloat = 40
+        static let percentScale: Double = 100
+    }
+
+    // MARK: Roll grid UI (v5 F6)
+    enum RollUI {
+        static let columns = 3
+        static let gridSpacing: CGFloat = 2
+        static let selectionBadgeSize: CGFloat = 24
+        static let selectionBadgePadding: CGFloat = 6
+        static let selectionRingWidth: CGFloat = 3
+        static let selectedDimOpacity: CGFloat = 0.35
+        static let toolbarSpacing: CGFloat = 16
+        static let emptyIconSize: CGFloat = 40
+        static let emptySpacing: CGFloat = 12
+        static let emptyButtonCornerRadius: CGFloat = 10
+        static let emptyButtonHeight: CGFloat = 46
+        static let emptyButtonHorizontalPadding: CGFloat = 24
+    }
+
     // MARK: Diary review screen (v4 F10/F13)
     enum ReviewUI {
         static let stockChipHeight: CGFloat = 44
@@ -608,6 +729,7 @@ nonisolated enum Constants {
         static let overlayOpacity: CGFloat = 0.45
         static let actionButtonHeight: CGFloat = 50
         static let sectionSpacing: CGFloat = 16
+        static let effectsMaxHeight: CGFloat = 230
         static let feedbackAnimationDuration: TimeInterval = 0.2
     }
 
@@ -658,6 +780,33 @@ nonisolated enum Constants {
         static let tabBarEdgeFraction: CGFloat = 0.18
     }
 
+    // MARK: Photo mode edit step (v5 F4)
+    enum PhotoEdit {
+        // OPEN: the edit screen (PhotoEditView) is the frontend's; until it
+        // exists a Photo-mode capture is not presented (so the app can never
+        // sit under a cover with no view). Flipped by frontend with lead approval.
+        static let presentsEditStep = true
+        // Slider drags render once per this pause, last value wins
+        static let renderDebounce: TimeInterval = 0.12
+        // Download "Saved" confirmation, same as the diary review
+        static let downloadSavedConfirmationDuration: TimeInterval = 1.5
+        // Roll originals are re-edited and re-encoded later, so they are
+        // stored one notch above the capture quality
+        static let rollPhotoJPEGQuality: Double = 0.92
+    }
+
+    // MARK: Roll (v5 F6)
+    enum Roll {
+        // OPEN: v5-8 — a Roll photo used in a strip is linked, not copied:
+        // the strip renders its current look at generate time
+        static let stripUsesLinkedLook = true
+        static let maxPhotosPerStrip = Constants.entriesPerStrip
+        // Folder (under Documents) holding the Roll originals
+        static let photosDirectoryName = "Roll"
+        // OPEN: v5-7 — "Clear roll" is separate from "Clear diary"
+        static let clearRollIsSeparateFromClearDiary = true
+    }
+
     // MARK: UserDefaults keys
     enum DefaultsKeys {
         static let appearanceMode = "appearanceMode"
@@ -676,6 +825,11 @@ nonisolated enum Constants {
         static let stripHalation = "stripDefaultHalation"
         static let stripBloom = "stripDefaultBloom"
         static let stripLightLeak = "stripDefaultLightLeak"
+        // v5 F5: haze is the renamed bloom. Its new key is read first; the
+        // old bloom key is read once as a fallback (migration).
+        static let stripHaze = "stripDefaultHaze"
+        static let stripGrain = "stripDefaultGrain"
+        static let stripVignette = "stripDefaultVignette"
         // v4 F9: the camera's film stock (raw FilmStock value; missing = Off)
         static let cameraFilmStock = "cameraFilmStock"
     }

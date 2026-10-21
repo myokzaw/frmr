@@ -5,9 +5,32 @@ import UIKit
 
 @Observable
 final class CameraViewModel {
-    enum Mode {
+    /// Declaration order is the mode switch's order (v5 F1): Photo first.
+    enum Mode: CaseIterable {
+        case photo
         case diary
         case photobooth
+
+        /// Accessibility labels; the switch itself is icon-only.
+        var label: String {
+            switch self {
+            case .photo: return "Photo"
+            case .diary: return "Diary"
+            case .photobooth: return "Film strip"
+            }
+        }
+    }
+
+    /// The app opens in Photo every launch (v5 F1, OPEN: v5-9). Diary and
+    /// Film strip are chosen from the switch and last only for the session;
+    /// the stored capture mode (`DefaultsKeys.captureMode`) no longer decides.
+    static let launchMode: Mode = .photo
+
+    /// The panels that share the one slot above the shutter (v5 F3).
+    enum Panel: Equatable {
+        case film
+        case whiteBalance
+        case exposure
     }
 
     var errorState: ErrorState?
@@ -15,10 +38,42 @@ final class CameraViewModel {
     private let captureSession = CaptureSession()
     @ObservationIgnored private let defaults: UserDefaults
 
-    var mode: Mode = .diary
+    var mode: Mode = CameraViewModel.launchMode
     var whiteBalance: WBMode = .auto
-    // View state, not user data: resets on every camera appear (v3 F3)
-    private(set) var isWhiteBalanceExpanded = false
+
+    // MARK: Panels (v3 F3, v4 F9, v5 F3)
+
+    /// Which of Film / White balance / Exposure is open; at most one at a
+    /// time. View state, not user data: resets on every camera appear.
+    private(set) var openPanel: Panel?
+    var isWhiteBalanceExpanded: Bool { openPanel == .whiteBalance }
+    var isFilmStockExpanded: Bool { openPanel == .film }
+    var isExposurePanelExpanded: Bool { openPanel == .exposure }
+
+    /// Opens `panel`, closing whichever was open; opening the open one closes it.
+    func togglePanel(_ panel: Panel) {
+        openPanel = openPanel == panel ? nil : panel
+    }
+
+    func closePanels() {
+        openPanel = nil
+    }
+
+    // MARK: Free white balance (v5 F3)
+
+    /// The Kelvin and tint the sliders show. After a preset they are that
+    /// preset's values; on Auto they rest at the manual starting point.
+    private(set) var whiteBalanceKelvin: Float = Constants.Camera.whiteBalanceManualStartKelvin
+    private(set) var whiteBalanceTint: Float = Constants.Camera.whiteBalanceManualStartTint
+    /// True once a slider set the balance, so no preset is selected.
+    private(set) var isWhiteBalanceCustom = false
+
+    /// The preset to highlight; nil while a slider-set balance is active.
+    var activeWhiteBalancePreset: WBMode? { isWhiteBalanceCustom ? nil : whiteBalance }
+    /// The chip's text: "AUTO", or the Kelvin in force ("5600K").
+    var whiteBalanceChipText: String {
+        Self.whiteBalanceChipText(mode: whiteBalance, isCustom: isWhiteBalanceCustom, kelvin: whiteBalanceKelvin)
+    }
 
     // MARK: Film stock (v4 F9)
 
@@ -32,8 +87,6 @@ final class CameraViewModel {
             captureSession.setVideoFramesEnabled(showsFilmPreview)
         }
     }
-    // View state like the WB list: collapsed on every camera appear
-    private(set) var isFilmStockExpanded = false
 
     /// The live film viewfinder's engine (v4 F9). Embed with
     /// `FilmPreviewView(renderer:)` over the plain preview layer.
@@ -103,11 +156,15 @@ final class CameraViewModel {
     /// When the pending photo was taken; `saveEntry(capturedAt:)` stores it
     /// so the diary shows the grain the review showed (OBS-V4-7).
     var pendingDiaryCaptureDate: Date? { review?.captureDate }
+    /// The whole look chosen on the review screen (v5 F5): what `saveEntry`
+    /// stores beside the stock so the entry shows what the review showed.
+    var pendingDiaryLook: FilmLook { review?.look ?? .original }
     /// The pending photo in its chosen look, for the editor header.
     var pendingDiaryDisplayImage: UIImage? { review?.renderedPhoto ?? review?.photo }
 
     var session: AVCaptureSession { captureSession.session }
 
+    var isPhotoMode: Bool { mode == .photo }
     var isDiaryMode: Bool { mode == .diary }
     var isPhotoboothMode: Bool { mode == .photobooth }
     var isShutterDisabled: Bool { isCapturing || isPermissionDenied }
@@ -115,6 +172,7 @@ final class CameraViewModel {
     var isLensSelectorVisible: Bool { cameraPosition == .back && availableLenses.count > 1 }
     var isFlipCameraVisible: Bool { hasFrontCamera && !isPermissionDenied }
 
+    func selectPhotoMode() { mode = .photo }
     func selectDiaryMode() { mode = .diary }
     func selectPhotoboothMode() { mode = .photobooth }
 
@@ -144,11 +202,10 @@ final class CameraViewModel {
     }
 
     func userTapped(at location: CGPoint) {
-        // Tapping the viewfinder dismisses the expanded WB and Film lists
-        // (v3 F3, v4 F9) — before the guard, so it works even if the preview
-        // isn't up yet
-        isWhiteBalanceExpanded = false
-        isFilmStockExpanded = false
+        // Tapping the viewfinder dismisses the open Film, WB or EV panel
+        // (v3 F3, v4 F9, v5 F3) — before the guard, so it works even if the
+        // preview isn't up yet
+        closePanels()
         guard let previewLayer else { return }
         let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: location)
         captureSession.setFocusAndExposure(atDevicePoint: devicePoint)
@@ -178,6 +235,13 @@ final class CameraViewModel {
 
     func exposureDragEnded() {
         isDraggingExposure = false
+        // The swipe is continuous; settling on a third-stop detent keeps it
+        // in step with the EV chip's slider (v5 F3)
+        let snapped = Self.snappedExposureBias(exposureBias)
+        if snapped != exposureBias {
+            exposureBias = snapped
+            captureSession.setExposureBias(snapped)
+        }
         exposureFadeTask?.cancel()
         exposureFadeTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(Constants.Camera.exposureIndicatorFadeDelay))
@@ -235,10 +299,10 @@ final class CameraViewModel {
             return
         }
         isPermissionDenied = false
-        // OPEN: WB persistence TBD — always reset to Auto on launch for now
-        whiteBalance = .auto
-        isWhiteBalanceExpanded = false
-        isFilmStockExpanded = false
+        // OPEN: v5-4 — WB and EV are never persisted: every camera start
+        // is Auto and 0 EV, on the device as well as in the state
+        resetWhiteBalanceAndExposure()
+        closePanels()
         availableLenses = CaptureSession.availableBackLenses()
         hasFrontCamera = CaptureSession.hasFrontCamera()
         captureSession.start()
@@ -306,32 +370,112 @@ final class CameraViewModel {
         return .degrees(current.degrees + delta)
     }
 
-    // MARK: White balance (v3 F3 — collapsible)
+    // MARK: White balance (v3 F3 — collapsible; v5 F3 — Kelvin and tint)
 
+    /// A preset tap in the collapsible list closes it (v3 F3).
     func selectWhiteBalance(_ mode: WBMode) {
-        whiteBalance = mode
-        captureSession.apply(whiteBalance: mode)
+        chooseWhiteBalancePreset(mode)
         // Never leave the list open after a selection — including re-selecting
         // the already active mode
-        isWhiteBalanceExpanded = false
+        if openPanel == .whiteBalance { openPanel = nil }
+    }
+
+    /// The same preset, but the panel stays open: the Photo-mode panel
+    /// keeps its Kelvin and tint sliders reachable after a preset.
+    func chooseWhiteBalancePreset(_ mode: WBMode) {
+        whiteBalance = mode
+        isWhiteBalanceCustom = false
+        if let preset = mode.temperatureAndTint {
+            whiteBalanceKelvin = CaptureSession.clampedKelvin(preset.temperature)
+            whiteBalanceTint = CaptureSession.clampedTint(preset.tint)
+        }
+        captureSession.apply(whiteBalance: mode)
+    }
+
+    /// The Kelvin/tint sliders: a free white balance, clamped to 2500–9000 K
+    /// and −50…+50, applied to the device on the session queue.
+    func setWhiteBalance(kelvin: Float, tint: Float) {
+        whiteBalanceKelvin = CaptureSession.clampedKelvin(kelvin)
+        whiteBalanceTint = CaptureSession.clampedTint(tint)
+        isWhiteBalanceCustom = true
+        captureSession.apply(temperature: whiteBalanceKelvin, tint: whiteBalanceTint)
+    }
+
+    func setWhiteBalanceKelvin(_ kelvin: Float) {
+        setWhiteBalance(kelvin: kelvin, tint: whiteBalanceTint)
+    }
+
+    func setWhiteBalanceTint(_ tint: Float) {
+        setWhiteBalance(kelvin: whiteBalanceKelvin, tint: tint)
     }
 
     func toggleWhiteBalanceExpansion() {
-        isWhiteBalanceExpanded.toggle()
-        // Only one list open at a time (v4 F9)
-        if isWhiteBalanceExpanded { isFilmStockExpanded = false }
+        togglePanel(.whiteBalance)
+    }
+
+    /// "AUTO" while the device meters white balance itself, otherwise the
+    /// Kelvin of the preset or slider setting.
+    static func whiteBalanceChipText(mode: WBMode, isCustom: Bool, kelvin: Float) -> String {
+        if !isCustom, mode == .auto { return "AUTO" }
+        return "\(Int(CaptureSession.clampedKelvin(kelvin).rounded()))K"
+    }
+
+    // MARK: Exposure compensation (v5 F3)
+
+    /// The EV chip's slider: a third-stop detent in −2…+2, applied to the
+    /// device. Shares `exposureBias` with the swipe, so the two stay in sync.
+    func setExposureBias(_ ev: Float) {
+        let snapped = Self.snappedExposureBias(ev)
+        exposureBias = snapped
+        exposureBiasAtDragStart = snapped
+        captureSession.setExposureBias(snapped)
+    }
+
+    /// Moves the bias by whole detents (negative = darker).
+    func stepExposureBias(by steps: Int) {
+        setExposureBias(exposureBias + Float(steps) * Constants.Camera.exposureStep)
+    }
+
+    func toggleExposurePanel() {
+        togglePanel(.exposure)
+    }
+
+    /// The chip's text: "+0.3", "−1.7", "0.0".
+    var exposureReadout: String { Self.exposureReadoutText(for: exposureBias) }
+
+    /// The nearest third-stop detent inside the configured range.
+    static func snappedExposureBias(_ ev: Float) -> Float {
+        guard !ev.isNaN else { return 0 }
+        let perStop = Float(Constants.Camera.exposureStepsPerStop)
+        let detent = (ev * perStop).rounded() / perStop
+        return min(max(detent, Constants.Camera.exposureBiasMin), Constants.Camera.exposureBiasMax)
+    }
+
+    static func exposureReadoutText(for ev: Float) -> String {
+        // "+0.0" and "-0.0" read as plain zero
+        abs(ev) < 0.05 ? "0.0" : String(format: "%+.1f", ev)
+    }
+
+    private func resetWhiteBalanceAndExposure() {
+        whiteBalance = .auto
+        isWhiteBalanceCustom = false
+        whiteBalanceKelvin = Constants.Camera.whiteBalanceManualStartKelvin
+        whiteBalanceTint = Constants.Camera.whiteBalanceManualStartTint
+        captureSession.apply(whiteBalance: .auto)
+        exposureBias = 0
+        exposureBiasAtDragStart = 0
+        captureSession.setExposureBias(0)
     }
 
     // MARK: Film stock (v4 F9 — collapsible like white balance)
 
     func selectFilmStock(_ stock: StripCustomization.FilmStock) {
         filmStock = stock
-        isFilmStockExpanded = false
+        if openPanel == .film { openPanel = nil }
     }
 
     func toggleFilmStockExpansion() {
-        isFilmStockExpanded.toggle()
-        if isFilmStockExpanded { isWhiteBalanceExpanded = false }
+        togglePanel(.film)
     }
 
     /// Collapsed shows only the active stock; expanded shows Off then the
@@ -411,6 +555,65 @@ final class CameraViewModel {
         review = nil
         isReviewPresented = false
         isEditorPresented = false
+    }
+
+    // MARK: Photo mode (v5 F4)
+
+    /// The edit session for the last Photo-mode capture; lives until it is
+    /// saved to the Roll, discarded or retaken.
+    private(set) var photoEdit: PhotoEditViewModel?
+    /// Drives the edit screen's cover. Stays false while
+    /// `Constants.PhotoEdit.presentsEditStep` is off, so the app can never
+    /// sit under a cover with no view behind it.
+    var isPhotoEditPresented = false
+
+    /// The shutter in Photo mode: capture, then open the edit step with the
+    /// camera's stock on that stock's defaults.
+    func captureForPhoto() async {
+        let stock = filmStock
+        let captureDate = Date.now
+        guard let photo = await capturePhoto() else { return }
+        guard let preview = UIImage(data: photo.jpegData) else {
+            errorState?.raise(.captureFailed(reason: "The photo data couldn't be read."))
+            return
+        }
+        let development: Task<UIImage, Never>? = photo.rawData == nil ? nil : Task { [weak self] in
+            guard let self else { return preview }
+            return await self.processRAWIfPresent(photo, fallback: preview)
+        }
+        beginPhotoEdit(preview: preview, stock: stock, captureDate: captureDate, development: development)
+    }
+
+    /// Opens the edit step for a fresh capture (the seam `captureForPhoto`
+    /// and tests share). A previous unfinished session is discarded.
+    @discardableResult
+    func beginPhotoEdit(
+        preview: UIImage,
+        stock: StripCustomization.FilmStock,
+        captureDate: Date = .now,
+        development: Task<UIImage, Never>? = nil,
+        savePhotoData: (@Sendable (Data) async throws -> Void)? = nil
+    ) -> PhotoEditViewModel {
+        photoEdit?.discard()
+        let edit = savePhotoData.map {
+            PhotoEditViewModel(
+                preview: preview, stock: stock, captureDate: captureDate,
+                development: development, savePhotoData: $0
+            )
+        } ?? PhotoEditViewModel(preview: preview, stock: stock, captureDate: captureDate, development: development)
+        edit.errorState = errorState
+        edit.onFinish = { [weak self] _ in self?.endPhotoEdit() }
+        photoEdit = edit
+        if Constants.PhotoEdit.presentsEditStep {
+            isPhotoEditPresented = true
+        }
+        return edit
+    }
+
+    /// Save, Discard and Retake all end here: back to the camera.
+    func endPhotoEdit() {
+        photoEdit = nil
+        isPhotoEditPresented = false
     }
 
     /// The developed shot plus the stock chosen when the shutter fired

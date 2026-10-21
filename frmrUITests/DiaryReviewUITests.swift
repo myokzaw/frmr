@@ -16,13 +16,16 @@ final class DiaryReviewUITests: XCTestCase {
         XCUIDevice.shared.orientation = .portrait
     }
 
-    // F9: the Film chip is collapsed to one chip, expands to all seven
+    // F9 (Diary and Film strip modes keep it, v5-2): the Film chip is collapsed to one chip, expands to all seven
     // stocks, and collapses again on a pick (in Diary and Film strip modes)
     @MainActor
     func testCameraFilmControlExpandsAndCollapses() throws {
         let app = XCUIApplication()
         app.launch()
         dismissInAppOverlays(app)
+        // v5: the app opens in Photo mode (stock dial); the Film chip is
+        // Diary / Film strip chrome
+        app.buttons["Diary"].tap()
 
         let filmChips = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'camera.film.'"))
         XCTAssertTrue(filmChips.firstMatch.waitForExistence(timeout: timeout), "Film chip missing")
@@ -115,6 +118,8 @@ final class DiaryReviewUITests: XCTestCase {
         skip.tap()
 
         app.tabBars.buttons["Library"].tap()
+        // v5: the Library opens on the Roll; the diary list is Entries
+        app.buttons["library.tab.entries"].tap()
         let firstEntry = app.collectionViews.buttons.firstMatch
         XCTAssertTrue(firstEntry.waitForExistence(timeout: timeout), "Diary list has no entries")
         saveScreenshot(named: "diary-list-cine500T", settle: 3)

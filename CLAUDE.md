@@ -137,6 +137,16 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
 
 ## Current build status (2026-07-31)
 
+**v5 built on branch `v5-photo-camera` (2026-10-21); simulator-verified, device checks outstanding.** The **camera is the main feature**: the app launches in Photo mode (`CameraViewModel.Mode.photo`). Diary and Film strip are the other modes. See **frmr-v5-spec.md**.
+- **Key types:**
+  - `FilmLook` (stock, print, B&W, effect strengths 0…1.5, where 1 = v4 and 0 = off, pixel-identical);
+  - `RollPhoto` and `RollViewModel` (non-destructive Roll);
+  - `PhotoEditViewModel` / `PhotoEditView` (editor after every Photo shot);
+  - `StockDial`, `CameraPanels` (white balance Kelvin/tint and ⅓-EV).
+- **Every sub-agent runs on Sonnet** (`model: "sonnet"`).
+- **Tests:** read `docs/testing.md` before adding one. It covers where each kind of test lives, the parameterised theme tests, and the "search before adding a test" rule.
+- **The v4 notes below still apply.**
+
 **v4 built (Parts 1 and 2, 2026-10-21); simulator-verified, device checks outstanding.** See **frmr-v4-spec.md** §Implementation status and **CHANGELOG.md**.
 - **Strip pipeline:** resize to slot → B&W luminance → halation → film colour cube (per-stock colour matrix → negative curve → print → shadow toe and black/white normalisation, `Features/Camera/FilmModel.swift`) → bloom → light leak → grain. Seeded by the global frame index, so re-renders are identical.
 - **`StripCustomization`:** `filmStock: FilmStock?` (nil = "As shot", each frame keeps its own stock), `printStock`, `effects`, `background` (paper white/black).
@@ -145,6 +155,7 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
   - Diary captures go through `DiaryReviewView` / `DiaryReviewViewModel` (stock row, OK, Retake, top-right Download via `ImageProcessor.renderFullLook`) before the editor.
   - Entries store the original photo plus `filmStockRaw` and render through `FilmLookCache`.
 - **Booth strip:** 4:5 frames, thin border and gaps, one-line captions, textured paper (OPEN v4-16).
+- **Before touching the film look:** read `docs/film-simulation.md`, the pipeline guide covering order, maths, constants, seeds, invariants and how to tune or extend it. Keep it updated in the same change.
 - **Rules:**
   - Never call `CIImage(image:)` on a photo; use `ImageProcessor.uprightCIImage(from:)`.
   - Personal test photos stay outside the repo: the gated `FilmStockSampleSheetTests` / `StripSampleRenderTests` read them via `TEST_RUNNER_FRMR_*` env vars.

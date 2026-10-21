@@ -27,22 +27,23 @@ struct SettingsView: View {
     @Environment(OnboardingViewModel.self) private var onboarding
 
     @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
-    // OPEN: WB persistence TBD — this toggle is stored but the camera always
-    // resets to Auto on launch until the decision lands (build notes)
-    @AppStorage(Constants.DefaultsKeys.rememberWhiteBalance) private var rememberWhiteBalance = Constants.rememberWhiteBalanceDefault
     @AppStorage(Constants.DefaultsKeys.stripBackground) private var stripBackground = StripCustomization.StripBackground.white.settingsName
     // v4 F12: stored as a String so As shot can be a sentinel; read and
     // written only through StripCustomization's stored-value helpers
     @AppStorage(Constants.DefaultsKeys.stripFilmStock) private var stripFilmStock = Constants.Strip.asShotStoredValue
     // nil (key absent) = the stock's own default print
     @AppStorage(Constants.DefaultsKeys.stripPrintStock) private var stripPrintStock: StripCustomization.PrintStock?
-    // A missing effect key means the stock default, which for halation is on
-    @AppStorage(Constants.DefaultsKeys.stripHalation) private var stripHalation = StripCustomization.FilmEffects.stockDefaults.halation
-    @AppStorage(Constants.DefaultsKeys.stripBloom) private var stripBloom = StripCustomization.FilmEffects.stockDefaults.bloom
-    @AppStorage(Constants.DefaultsKeys.stripLightLeak) private var stripLightLeak = StripCustomization.FilmEffects.stockDefaults.lightLeak
+    // v5 F5: strengths (0…1.5), not toggles. A missing key is the effect's
+    // default; a v4 Bool reads as 1 (on) or 0 (off).
+    @AppStorage(Constants.DefaultsKeys.stripHalation) private var stripHalation = FilmLook.Effect.halation.defaultStrength
+    @AppStorage(Constants.DefaultsKeys.stripHaze) private var stripHaze = FilmLook.Effect.haze.defaultStrength
+    @AppStorage(Constants.DefaultsKeys.stripLightLeak) private var stripLightLeak = FilmLook.Effect.lightLeak.defaultStrength
+    @AppStorage(Constants.DefaultsKeys.stripGrain) private var stripGrain = FilmLook.Effect.grain.defaultStrength
+    @AppStorage(Constants.DefaultsKeys.stripVignette) private var stripVignette = FilmLook.Effect.vignette.defaultStrength
     @AppStorage(Constants.DefaultsKeys.stripBlackAndWhite) private var stripBlackAndWhite = false
 
     @State private var isClearDiaryConfirmationPresented = false
+    @State private var isClearRollConfirmationPresented = false
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
 
@@ -91,11 +92,6 @@ struct SettingsView: View {
                 }
                 .listRowBackground(theme.card)
 
-                Section("Camera defaults") {
-                    Toggle("Remember white balance", isOn: $rememberWhiteBalance)
-                }
-                .listRowBackground(theme.card)
-
                 Section("Strip defaults") {
                     Picker("Background", selection: $stripBackground) {
                         // v4 F8: white and black only
@@ -122,15 +118,13 @@ struct SettingsView: View {
                         .accessibilityHint("The paper new strips are printed on. Stock default uses the film's own print.")
                     }
                     if areEffectsVisible {
-                        // OPEN: v4-2 — on/off toggles, not strength sliders
-                        // (Constants.ImageProcessing.Film.effectsAreToggles)
-                        Toggle("Halation", isOn: $stripHalation)
-                            .accessibilityHint("New strips start with a warm glow around bright highlights")
-                            .accessibilityIdentifier("settings.halation")
-                        Toggle("Bloom", isOn: $stripBloom)
-                            .accessibilityHint("New strips start with bright areas softened and spread")
-                        Toggle("Light leak", isOn: $stripLightLeak)
-                            .accessibilityHint("New strips start with a streak of light at the frame edge")
+                        EffectSliders(
+                            strength: effectStrength,
+                            setStrength: setEffectStrength,
+                            identifierPrefix: "settings.slider",
+                            textColor: theme.text,
+                            tint: theme.primary
+                        )
                     }
                     Toggle("Black & white", isOn: blackAndWhiteDefault)
                         .disabled(isBlackAndWhiteLocked)
@@ -152,6 +146,12 @@ struct SettingsView: View {
                         isClearDiaryConfirmationPresented = true
                     }
                     .foregroundStyle(Color.appRust)
+                    // v5 F6 (OPEN: v5-7): the Roll is cleared on its own
+                    Button("Clear roll", role: .destructive) {
+                        isClearRollConfirmationPresented = true
+                    }
+                    .foregroundStyle(Color.appRust)
+                    .accessibilityIdentifier("settings.clearRoll")
                 }
                 .listRowBackground(theme.card)
             }
@@ -166,6 +166,44 @@ struct SettingsView: View {
             ) {
                 Button("Delete everything", role: .destructive, action: clearDiary)
             }
+            .confirmationDialog(
+                "Delete every photo in your roll? This can't be undone.",
+                isPresented: $isClearRollConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Delete roll", role: .destructive, action: clearRoll)
+                    .accessibilityIdentifier("settings.clearRoll.confirm")
+            }
+        }
+    }
+
+    private func effectStrength(_ effect: FilmLook.Effect) -> Double {
+        switch effect {
+        case .halation: return stripHalation
+        case .haze: return stripHaze
+        case .lightLeak: return stripLightLeak
+        case .grain: return stripGrain
+        case .vignette: return stripVignette
+        }
+    }
+
+    private func setEffectStrength(_ value: Double, for effect: FilmLook.Effect) {
+        switch effect {
+        case .halation: stripHalation = value
+        case .haze: stripHaze = value
+        case .lightLeak: stripLightLeak = value
+        case .grain: stripGrain = value
+        case .vignette: stripVignette = value
+        }
+    }
+
+    private func clearRoll() {
+        do {
+            try RollViewModel.clearRoll(context: modelContext)
+        } catch let error as AppError {
+            errorState.raise(error)
+        } catch {
+            errorState.raise(.persistenceFailed(reason: error.localizedDescription))
         }
     }
 

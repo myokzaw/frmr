@@ -2,7 +2,38 @@
 
 What changed in each version of frmr, in plain language. Technical detail, decisions and test results live in the matching `frmr-v*-spec.md`.
 
-## v4 — Film pipeline (branch `v4-film-pipeline`)
+## v5 — The camera is the main feature (branch `v5-photo-camera`)
+
+**Status:** built and tested on the simulator (2026-10-21); device checks outstanding. Spec: `frmr-v5-spec.md`.
+
+- **Opens on the camera.** The app now opens straight into a Photo camera. Diary and Film strip are options in the mode switch (camera, book, film icons).
+- **Stock dial.** Swipe a dial of the seven stocks above the shutter; the viewfinder shows the look live.
+- **White balance and exposure.** Presets plus Kelvin and tint sliders, and exposure compensation in ⅓-stop steps (the swipe gesture still works). Only one panel opens at a time.
+- **Edit after every shot.**
+  - Change the stock, the print, black and white, and each effect's strength.
+  - Hold the photo to compare with the original.
+  - Download to Photos, or Save to roll.
+- **Effect sliders everywhere.** Halation, Haze (the old bloom), Light leak, Grain and a new Vignette are 0–150% sliders on the editor, strip screen, diary review and Settings. 0% is the same as off, and existing photos and strips look exactly as before.
+- **Roll.** A new first tab in the Library.
+  - Every saved photo keeps its original plus its look, so it can be re-edited.
+  - Export to Photos, delete, or pick up to four photos for a strip.
+  - Settings has a separate "Clear roll".
+- **Smaller changes.**
+  - The last photo's thumbnail sits beside the shutter.
+  - The walkthrough describes the camera as the main screen.
+  - The unused "Remember white balance" setting is gone.
+  - Dragging a strip slider no longer buzzes repeatedly.
+- **Docs.** New `docs/film-simulation.md` explains how the film look works for anyone (or any agent) changing it. New `docs/testing.md` maps where tests live.
+- **Leaner tests.** Repeated tests were merged into parameterised ones. The test file was split by theme, and the Xcode template UI tests were removed. 310 → 283 unit tests (151 parameterised cases) and 14 → 11 UI tests, with every removed test mapped to the one that now covers it.
+
+**Not yet checked on a real iPhone:**
+- a real capture flowing into the editor;
+- white balance and exposure on the real camera;
+- the dial's haptics;
+- export to Photos;
+- landscape layouts.
+
+## v4 — Film pipeline (released on `main`)
 
 ### Part 2: Film at capture — done on the simulator (2026-10-21), device checks outstanding
 

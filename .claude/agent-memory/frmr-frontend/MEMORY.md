@@ -1,1 +1,2 @@
 - [Camera rotate-in-place](camera-rotate-in-place.md) — chip/glyph rotation rules and headless-simulator limits
+- [v5 UI lessons](v5-ui-lessons.md) — dial, panels, edit step, Roll, UI-test fixtures

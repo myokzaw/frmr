@@ -53,6 +53,7 @@ final class DiaryViewModel {
     func saveEntry(
         image: UIImage?,
         filmStock: StripCustomization.FilmStock = .none,
+        look: FilmLook? = nil,
         capturedAt: Date? = nil,
         includeText: Bool,
         context: ModelContext
@@ -68,7 +69,8 @@ final class DiaryViewModel {
                 prompt: prompt,
                 response: includeText ? responseText : "",
                 filmStock: filmStock,
-                capturedAt: capturedAt
+                capturedAt: capturedAt,
+                look: look
             )
             context.insert(entry)
             try context.save()
@@ -104,12 +106,12 @@ final class DiaryViewModel {
     /// get the original file. nil when the photo can't be read.
     static func displayImage(for entry: DiaryEntry, size: CGSize, scale: CGFloat) async -> UIImage? {
         let id = entry.id
-        let stock = entry.filmStock
+        let look = entry.look
         let seed = StripGenerator.photoLookSeed(for: entry.lookSeedDate)
         let url = FileManager.documentsURL(forRelativePath: entry.photoPath)
         let pixels = pixelSize(size, scale: scale)
         return await Task.detached(priority: .userInitiated) {
-            FilmLookCache.shared.image(id: id, stock: stock, seed: seed, pixelSize: pixels) {
+            FilmLookCache.shared.image(id: id, look: look, seed: seed, pixelSize: pixels) {
                 UIImage(contentsOfFile: url.path())
             }
         }.value
@@ -118,7 +120,7 @@ final class DiaryViewModel {
     /// The cached display image if one is ready, so a view can show it on
     /// its first frame instead of flashing a placeholder.
     static func cachedDisplayImage(for entry: DiaryEntry, size: CGSize, scale: CGFloat) -> UIImage? {
-        FilmLookCache.shared.cachedImage(id: entry.id, stock: entry.filmStock, pixelSize: pixelSize(size, scale: scale))
+        FilmLookCache.shared.cachedImage(id: entry.id, look: entry.look, pixelSize: pixelSize(size, scale: scale))
     }
 
     nonisolated static func pixelSize(_ size: CGSize, scale: CGFloat) -> CGSize {

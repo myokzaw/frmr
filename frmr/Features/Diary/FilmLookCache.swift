@@ -20,7 +20,13 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
 
     /// The cached render for this (photo id, stock, pixel size), if any.
     func cachedImage(id: UUID, stock: StripCustomization.FilmStock, pixelSize: CGSize) -> UIImage? {
-        cache.object(forKey: Key(id: id, stock: stock, pixelSize: pixelSize))
+        cachedImage(id: id, look: .stockDefaults(for: stock), pixelSize: pixelSize)
+    }
+
+    /// The cached render for this (photo id, look, pixel size), if any
+    /// (v5): editing a look keys a new render, so a stale one is never shown.
+    func cachedImage(id: UUID, look: FilmLook, pixelSize: CGSize) -> UIImage? {
+        cache.object(forKey: Key(id: id, look: look, pixelSize: pixelSize))
     }
 
     /// The photo through its stock at `pixelSize` (upright pixels the view
@@ -37,14 +43,26 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
         pixelSize: CGSize,
         loadPhoto: () -> UIImage?
     ) -> UIImage? {
-        let key = Key(id: id, stock: stock, pixelSize: pixelSize)
+        image(id: id, look: .stockDefaults(for: stock), seed: seed, pixelSize: pixelSize, loadPhoto: loadPhoto)
+    }
+
+    /// The photo through its whole `FilmLook` (v5): same rules as the
+    /// stock overload.
+    func image(
+        id: UUID,
+        look: FilmLook,
+        seed: UInt64,
+        pixelSize: CGSize,
+        loadPhoto: () -> UIImage?
+    ) -> UIImage? {
+        let key = Key(id: id, look: look, pixelSize: pixelSize)
         if let cached = cache.object(forKey: key) { return cached }
         guard let photo = loadPhoto() else { return nil }
 
         let rendered: UIImage
         do {
             rendered = try ImageProcessor.renderFullLook(
-                of: photo, stock: stock, seed: seed, coveringPixelSize: pixelSize
+                of: photo, look: look, seed: seed, coveringPixelSize: pixelSize
             )
         } catch {
             // Display only: the original is still a faithful picture of the
@@ -68,13 +86,13 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
 
     private final class Key: NSObject {
         let id: UUID
-        let stock: StripCustomization.FilmStock
+        let look: FilmLook
         let width: Int
         let height: Int
 
-        init(id: UUID, stock: StripCustomization.FilmStock, pixelSize: CGSize) {
+        init(id: UUID, look: FilmLook, pixelSize: CGSize) {
             self.id = id
-            self.stock = stock
+            self.look = look
             self.width = Int(pixelSize.width.rounded())
             self.height = Int(pixelSize.height.rounded())
         }
@@ -82,7 +100,7 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
         override var hash: Int {
             var hasher = Hasher()
             hasher.combine(id)
-            hasher.combine(stock)
+            hasher.combine(look)
             hasher.combine(width)
             hasher.combine(height)
             return hasher.finalize()
@@ -90,7 +108,7 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
 
         override func isEqual(_ object: Any?) -> Bool {
             guard let other = object as? Key else { return false }
-            return id == other.id && stock == other.stock && width == other.width && height == other.height
+            return id == other.id && look == other.look && width == other.width && height == other.height
         }
     }
 }
