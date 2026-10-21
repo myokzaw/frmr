@@ -5,11 +5,20 @@ import SwiftData
 import UIKit
 
 // One source photo bound for a strip, with the diary entry it came from
-// (nil for photobooth shots, which have no entries or captions)
+// (nil for photobooth shots, which have no entries or captions) and the
+// stock it was taken on (v4 F11), which As shot renders it with
 struct StripItem {
     let image: UIImage?
     let caption: String
     let entryID: UUID?
+    let filmStock: StripCustomization.FilmStock
+
+    init(image: UIImage?, caption: String, entryID: UUID?, filmStock: StripCustomization.FilmStock = .none) {
+        self.image = image
+        self.caption = caption
+        self.entryID = entryID
+        self.filmStock = filmStock
+    }
 
     static let empty = StripItem(image: nil, caption: "", entryID: nil)
 }
@@ -35,19 +44,93 @@ final class StripViewModel {
 
     var areActionsDisabled: Bool { isRendering || stripImages.isEmpty }
 
+    // MARK: Controls card state (v4 F7) — the view binds to these rather
+    // than deciding visibility itself
+
+    /// Prints the picker offers for the override stock; none for As shot,
+    /// whose frames each use their own stock's default print (v4 F12).
+    var availablePrints: [StripCustomization.PrintStock] {
+        customization.filmStock?.availablePrints ?? []
+    }
+
+    /// Shown only for an override stock with a print choice: hidden for As
+    /// shot, Off and slide film (projection only).
+    var isPrintPickerVisible: Bool { customization.filmStock?.hasPrintChoice ?? false }
+
+    /// The print picker's selection: always one of `availablePrints` while
+    /// the picker is visible. Setting it records an explicit choice.
+    var selectedPrint: StripCustomization.PrintStock {
+        get { customization.resolvedPrint ?? .lab }
+        set { customization.printStock = newValue }
+    }
+
+    var areEffectsVisible: Bool {
+        Self.areEffectsVisible(override: customization.filmStock, frameStocks: items.map(\.filmStock))
+    }
+
+    /// Effects are strip-level, so they show while any frame would render
+    /// them: hidden only when every effective stock is Off (v4 F12).
+    nonisolated static func areEffectsVisible(
+        override: StripCustomization.FilmStock?,
+        frameStocks: [StripCustomization.FilmStock]
+    ) -> Bool {
+        if let override { return override.hasEffects }
+        return frameStocks.contains(where: \.hasEffects)
+    }
+
+    /// A monochrome override is always B&W: the toggle shows on and is
+    /// disabled. Under As shot, mono frames render B&W on their own and the
+    /// toggle still applies to the colour frames, so it stays enabled.
+    var isBlackAndWhiteLocked: Bool { customization.filmStock?.isMonochrome ?? false }
+
+    /// The B&W toggle's binding: reads on while locked, ignores writes then.
+    var blackAndWhiteToggle: Bool {
+        get { customization.rendersInBlackAndWhite }
+        set {
+            guard !isBlackAndWhiteLocked else { return }
+            customization.blackAndWhite = newValue
+        }
+    }
+
+    // Every toggle in the strip screen starts a render. Without cancelling
+    // the previous one they queued up and the strip lagged several taps
+    // behind (v4 F1). The generation counter decides which call owns
+    // `isRendering` and the result: only the newest.
+    private var renderTask: Task<[UIImage]?, Never>?
+    private var renderGeneration = 0
+
     func renderStrips() async {
+        renderTask?.cancel()
+        renderGeneration += 1
+        let generation = renderGeneration
         isRendering = true
-        defer { isRendering = false }
         Haptics.prepareStripComplete()
 
-        let cells = items.map { StripGenerator.Cell(image: $0.image, caption: $0.caption) }
+        let cells = items.map { StripGenerator.Cell(image: $0.image, caption: $0.caption, filmStock: $0.filmStock) }
         let chunks = StripGenerator.chunked(cells, paddingWith: .empty)
         let customization = customization
         let date = date
 
-        stripImages = await Task.detached(priority: .userInitiated) {
-            chunks.map { StripGenerator.render(strip: $0, customization: customization, date: date) }
-        }.value
+        let task = Task.detached(priority: .userInitiated) { () -> [UIImage]? in
+            var images: [UIImage] = []
+            for (stripIndex, chunk) in chunks.enumerated() {
+                if Task.isCancelled { return nil }
+                images.append(StripGenerator.render(
+                    strip: chunk, customization: customization, date: date, stripIndex: stripIndex
+                ))
+            }
+            return Task.isCancelled ? nil : images
+        }
+        renderTask = task
+        let rendered = await task.value
+
+        // A newer call superseded this one; it keeps the spinner and the result
+        guard generation == renderGeneration else { return }
+        renderTask = nil
+        isRendering = false
+        guard let rendered else { return }
+        // The previous strip stays on screen until this one is ready (no blanking)
+        stripImages = rendered
 
         if !stripImages.isEmpty {
             Haptics.stripCompleted()
@@ -93,23 +176,86 @@ final class StripViewModel {
     }
 
     private static func defaultCustomization() -> StripCustomization {
-        let defaults = UserDefaults.standard
+        loadDefaults(from: .standard)
+    }
+
+    // MARK: Strip defaults (Settings → Strip defaults)
+
+    /// The strip look Settings has chosen as the default, migrating values
+    /// stored by older versions. Pure over the given store so tests can use
+    /// a scratch suite.
+    nonisolated static func loadDefaults(from defaults: UserDefaults) -> StripCustomization {
+        typealias K = Constants.DefaultsKeys
         var customization = StripCustomization()
         customization.background = StripCustomization.StripBackground(
-            settingsName: defaults.string(forKey: Constants.DefaultsKeys.stripBackground)
+            settingsName: defaults.string(forKey: K.stripBackground)
         )
-        customization.filmStock = Self.defaultFilmStock(defaults)
-        customization.blackAndWhite = defaults.bool(forKey: Constants.DefaultsKeys.stripBlackAndWhite)
+        customization.filmStock = defaultFilmStock(defaults)
+        customization.printStock = defaults.string(forKey: K.stripPrintStock)
+            .flatMap(StripCustomization.PrintStock.init(rawValue:))
+        let stockEffects = StripCustomization.FilmEffects.defaults(for: customization.filmStock ?? .none)
+        // object(forKey:), not bool(forKey:): a missing key means "the stock's
+        // default", which for halation is on
+        customization.effects = StripCustomization.FilmEffects(
+            halation: defaults.object(forKey: K.stripHalation) as? Bool ?? stockEffects.halation,
+            bloom: defaults.object(forKey: K.stripBloom) as? Bool ?? stockEffects.bloom,
+            lightLeak: defaults.object(forKey: K.stripLightLeak) as? Bool ?? stockEffects.lightLeak
+        )
+        customization.blackAndWhite = defaults.bool(forKey: K.stripBlackAndWhite)
         return customization
     }
 
-    // v2 F5 replaced the grain Bool with a film stock. Installs that predate the
-    // picker still only have the old key, so fall back to it once.
-    private static func defaultFilmStock(_ defaults: UserDefaults) -> StripCustomization.FilmStock {
-        if let stored = defaults.string(forKey: Constants.DefaultsKeys.stripFilmStock),
-           let stock = StripCustomization.FilmStock(rawValue: stored) {
-            return stock
+    /// Stores `customization` as the strip defaults. A nil print removes the
+    /// key, so the stock's own default print applies.
+    nonisolated static func storeDefaults(_ customization: StripCustomization, in defaults: UserDefaults) {
+        typealias K = Constants.DefaultsKeys
+        defaults.set(customization.background.settingsName, forKey: K.stripBackground)
+        defaults.set(StripCustomization.storedValue(forStockChoice: customization.filmStock), forKey: K.stripFilmStock)
+        if let print = customization.printStock {
+            defaults.set(print.rawValue, forKey: K.stripPrintStock)
+        } else {
+            defaults.removeObject(forKey: K.stripPrintStock)
         }
-        return .migrating(fromLegacyGrainEnabled: defaults.bool(forKey: Constants.DefaultsKeys.stripFilmGrain))
+        defaults.set(customization.effects.halation, forKey: K.stripHalation)
+        defaults.set(customization.effects.bloom, forKey: K.stripBloom)
+        defaults.set(customization.effects.lightLeak, forKey: K.stripLightLeak)
+        defaults.set(customization.blackAndWhite, forKey: K.stripBlackAndWhite)
+    }
+
+    /// Rewrites a v2 stock value (or the pre-v2 grain Bool) and a pre-F8
+    /// background ("cream") in place, so Settings' pickers, which bind to
+    /// the raw stored strings, show the migrated value instead of no
+    /// selection. Idempotent; run at launch. A fresh install stores nothing,
+    /// so its stock default stays As shot.
+    nonisolated static func migrateLegacyDefaults(_ defaults: UserDefaults) {
+        typealias K = Constants.DefaultsKeys
+        let stored = defaults.string(forKey: K.stripFilmStock)
+        let hasLegacyGrain = defaults.object(forKey: K.stripFilmGrain) != nil
+        if stored != nil || hasLegacyGrain {
+            let migrated = StripCustomization.storedValue(forStockChoice: defaultFilmStock(defaults))
+            if stored != migrated {
+                defaults.set(migrated, forKey: K.stripFilmStock)
+            }
+        }
+
+        if let background = defaults.string(forKey: K.stripBackground) {
+            let migrated = StripCustomization.StripBackground(settingsName: background).settingsName
+            if background != migrated {
+                defaults.set(migrated, forKey: K.stripBackground)
+            }
+        }
+    }
+
+    // v4 F12: no stored stock means As shot (the new default). A value
+    // stored by v4 stays an override. v2 F5 replaced the grain Bool with a
+    // film stock and v4 replaced the ISO stocks; installs that predate the
+    // picker only have the old grain key, so fall back to it once.
+    nonisolated private static func defaultFilmStock(_ defaults: UserDefaults) -> StripCustomization.FilmStock? {
+        typealias K = Constants.DefaultsKeys
+        if let stored = defaults.string(forKey: K.stripFilmStock) {
+            return StripCustomization.stockChoice(fromStoredValue: stored)
+        }
+        guard defaults.object(forKey: K.stripFilmGrain) != nil else { return nil }
+        return .migrating(fromLegacyGrainEnabled: defaults.bool(forKey: K.stripFilmGrain))
     }
 }

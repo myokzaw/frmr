@@ -45,8 +45,18 @@ final class DiaryViewModel {
         return index
     }
 
-    // Returns true when the entry was persisted and the editor can close
-    func saveEntry(image: UIImage?, includeText: Bool, context: ModelContext) -> Bool {
+    // Returns true when the entry was persisted and the editor can close.
+    // `image` is the original development; `filmStock` is stored beside it
+    // and applied only on display (v4 F11, non-destructive). The default
+    // keeps callers that predate the review step compiling until the
+    // frontend passes the reviewed stock.
+    func saveEntry(
+        image: UIImage?,
+        filmStock: StripCustomization.FilmStock = .none,
+        capturedAt: Date? = nil,
+        includeText: Bool,
+        context: ModelContext
+    ) -> Bool {
         guard let image else {
             errorState?.raise(.persistenceFailed(reason: "There's no photo to save."))
             return false
@@ -56,7 +66,9 @@ final class DiaryViewModel {
             let entry = DiaryEntry(
                 photoPath: photoPath,
                 prompt: prompt,
-                response: includeText ? responseText : ""
+                response: includeText ? responseText : "",
+                filmStock: filmStock,
+                capturedAt: capturedAt
             )
             context.insert(entry)
             try context.save()
@@ -82,6 +94,35 @@ final class DiaryViewModel {
 
     static func loadPhoto(for entry: DiaryEntry) -> UIImage? {
         UIImage(contentsOfFile: FileManager.documentsURL(forRelativePath: entry.photoPath).path())
+    }
+
+    // MARK: Display in the entry's stock (v4 F11)
+
+    /// An entry's photo through its own stock, sized for a view of `size`
+    /// points at `scale`. Renders off the main actor and caches in memory
+    /// by (entry, stock, pixel size); old entries (no stock) are Off and
+    /// get the original file. nil when the photo can't be read.
+    static func displayImage(for entry: DiaryEntry, size: CGSize, scale: CGFloat) async -> UIImage? {
+        let id = entry.id
+        let stock = entry.filmStock
+        let seed = StripGenerator.photoLookSeed(for: entry.lookSeedDate)
+        let url = FileManager.documentsURL(forRelativePath: entry.photoPath)
+        let pixels = pixelSize(size, scale: scale)
+        return await Task.detached(priority: .userInitiated) {
+            FilmLookCache.shared.image(id: id, stock: stock, seed: seed, pixelSize: pixels) {
+                UIImage(contentsOfFile: url.path())
+            }
+        }.value
+    }
+
+    /// The cached display image if one is ready, so a view can show it on
+    /// its first frame instead of flashing a placeholder.
+    static func cachedDisplayImage(for entry: DiaryEntry, size: CGSize, scale: CGFloat) -> UIImage? {
+        FilmLookCache.shared.cachedImage(id: entry.id, stock: entry.filmStock, pixelSize: pixelSize(size, scale: scale))
+    }
+
+    nonisolated static func pixelSize(_ size: CGSize, scale: CGFloat) -> CGSize {
+        CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
     }
 
     struct DaySection: Identifiable {

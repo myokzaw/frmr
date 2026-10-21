@@ -1,1 +1,1 @@
-- [QA state](project_qa_state.md) — recurring bug classes, device-only items
+- [QA state](project_qa_state.md) — recurring bug classes, device-only items, v4 test recipe + oracle notes

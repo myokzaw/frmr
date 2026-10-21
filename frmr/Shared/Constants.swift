@@ -15,6 +15,30 @@ nonisolated enum Constants {
     enum Diary {
         // Fast enough not to feel slow, slow enough to register as deliberate
         static let promptTypewriterInterval: TimeInterval = 0.03
+
+        // v4 F10 diary review. Stock chips can be tapped quickly; waiting
+        // this long after the last tap renders once instead of per tap.
+        static let reviewRenderDebounce: TimeInterval = 0.15
+        // v4 F10: a diary capture opens DiaryReviewView before the prompt
+        // screen. false would go straight to the prompt with the camera's
+        // stock, as before F10. (Flipped by frontend with lead approval.)
+        static let presentsReviewStep = true
+
+        // v4 F13 Download: how long the "Saved" state shows
+        static let downloadSavedConfirmationDuration: TimeInterval = 1.5
+        // HEIC quality for the saved film-look photo; matches the JPEG
+        // capture quality so a download is no worse than the original
+        static let downloadHEICQuality: Double = 0.85
+        // OPEN: v4-15 — block a second Download of the same photo and stock?
+        // Default: allow it; each tap saves one photo.
+        static let blocksRepeatDownload = false
+        // OPEN: v4-13 — an entry's stock is fixed once saved (not editable
+        // in v4); DiaryEntry exposes it read-only
+        static let entryStockIsEditable = false
+
+        // v4 F11 display cache. OPEN: v4-11 — rendered copies are kept in
+        // memory only (never written to disk); this caps that memory.
+        static let displayCacheCostLimitBytes = 96 * 1024 * 1024
     }
 
     // MARK: Camera
@@ -71,6 +95,18 @@ nonisolated enum Constants {
         // rotates (would shift crop/composition under the user); chrome
         // counter-rotates in place instead so it still reads upright.
         static let orientationRotationDuration: TimeInterval = 0.3
+
+        // v4 F9 live film preview. The data output's connection is set to the
+        // portrait angle once (never re-angled to the horizon, see
+        // ios-camera-orientation); 90° is portrait for both cameras' sensors.
+        static let portraitPreviewRotationAngle: CGFloat = 90
+        // OPEN: v4-14 — 30 fps is the A15 target; measure on device
+        static let filmPreviewFramesPerSecond = 30
+        // OPEN: v4-10 — the camera's stock is its own default, not the strip's
+        static let filmStockSharesStripDefault = false
+        // OPEN: v4-12 — a gallery-picked photobooth photo takes the camera's
+        // current stock (false would add it as Off)
+        static let galleryPicksUseCameraStock = true
     }
 
     // MARK: CoreImage pipeline — translated from Iphone_Simple.xmp
@@ -106,71 +142,305 @@ nonisolated enum Constants {
         static let warmPushKelvin: Float = 5800
         static let warmPushTint: Float = 8
 
-        // Strip look filters (project.md §8)
-        static let stripGrainIntensity: Float = 0.06
+        // MARK: Film model (v4 F2/F3) — lives here so the numbers sit with the
+        // rest of the pipeline's. Curve shapes are aesthetic starting points.
+        // OPEN: v4-5 — tune every curve against published manufacturer
+        // characteristic curves and real captures on device. Never copy another
+        // app's stock data.
+        // Known trade-off of the v4 approximation (display-referred input treated
+        // as scene exposure): shadows below ~20% sRGB compress, and before the
+        // output normalisation stage a diffuse white printed at ~220–235/255.
+        enum Film {
+            // OPEN: v4-5 — sRGB-encoded value input white prints at, after
+            // the print stage (OutputNormalisation). Input black prints at
+            // each print's own `blackTarget` (Print below).
+            static let printWhiteTarget: Double = 0.96
+            // OPEN: v4-5 — shadow toe (ShadowToe in FilmModel). Below this
+            // linear input (mid grey) each channel's film response is
+            // replaced by a monotone curve that keeps shadow separation close
+            // to the untouched photo; at and above it nothing changes.
+            static let shadowToePivot: Double = 0.18
+            // How late the toe's slope climbs to the film's slope at the
+            // pivot: higher keeps deep-shadow separation nearer the untouched
+            // photo and moves the stock's extra contrast up toward mid grey.
+            // 8 keeps every stock on its default print within 25% of Off's
+            // separation for input 0.02–0.20.
+            static let shadowToeExponent: Double = 8
+            // The film's slope at the pivot is measured over pivot/this
+            static let shadowToeSlopeSamples = 256
+            static let midGrey: Double = 0.18
+            static let midGreyLogExposure: Double = log10(midGrey)
+            // Scales input before the log so 0.18 lands on each stock's x0
+            static let exposureScale: Double = 1.0
+            // Floor for log10 so pure black stays finite (−5 is far past every toe)
+            static let minimumExposure: Double = 1e-5
+            // Neutral 0.18 in comes out neutral 0.18 out (balanced print)
+            static let printMidGreyTarget: Double = 0.18
+            // Bisection bounds and iterations for the print offset solve.
+            // 200 halvings of ±20 is well below Double precision.
+            static let printOffsetSearchRange: Double = 20
+            static let printOffsetIterations = 200
 
-        // MARK: Luminosity-weighted grain (v2 F4)
-        // A U-curve over the luminance mask: heavy grain in shadows, lightest in
-        // midtones, heavy again (but less than shadows) in highlights. This is how
-        // real film responds, and it's what stops synthetic grain reading as a
-        // flat Photoshop texture.
-        // Control points are evenly spaced across the 0–1 luminance domain.
-        // OPEN: v2-4 — grain curve tuning; these need calibration against real RAW captures
-        static let grainLuminanceCurve: [Float] = [1.0, 0.3, 0.8]
-        // Softens the mask so grain doesn't cluster on hard edges
-        static let grainMaskBlurRadius: Float = 1.0
+            // 64³ is exact enough for 8-bit output (spec §F3)
+            static let lutDimension = 64
+            // 4 MB per cube at 64³; the spec's 48-entry worst case would be
+            // ~190 MB, so the cache keeps the most recent few only
+            static let lutCacheLimit = 8
+            // OPEN: v4-8 — decision flag: the film chain is a baked colour
+            // cube, not a Metal CIColorKernel (no -fcikernel build rules; the
+            // tested Swift produces the pixels). Flip only if profiling demands.
+            static let usesColourCube = true
+            // OPEN: v4-4 — decision flag: no strip-time vignette; the RAW
+            // development step already applies one (ImageProcessing.vignette*)
+            static let stripVignetteEnabled = false
 
-        // MARK: Film stock profiles (v2 F5)
-        // Bundles grain intensity, grain scale and a colour cast into one named
-        // creative choice. The cast is applied *before* the grain pass so the
-        // grain itself stays neutral-coloured.
-        struct FilmStockProfile: Sendable {
-            let grainIntensity: Float
-            let grainScale: CGFloat
-            /// Row-major 4×4 RGBA colour matrix, as consumed by CIColorMatrix.
-            let colourMatrix: [CGFloat]
+            // MARK: Halation (v4 F4)
+            // OPEN: v4-5 — threshold, radius, tint and strengths are aesthetic
+            // estimates; calibrate against real captures of point lights.
+            // Linear luminance above which light reaches the base and bounces back
+            static let halationThreshold: Double = 0.75
+            // Glow radius as a fraction of the slot's output width
+            static let halationRadiusFraction: Double = 0.012
+            // The bounce re-exposes the red-sensitive layer first: red-orange
+            static let halationTint = (r: 1.0, g: 0.30, b: 0.08)
+            enum HalationStrength {
+                static let daylight200: Double = 0.35
+                static let portrait400: Double = 0.30
+                // No anti-halation backing: by far the strongest
+                static let cine500T: Double = 0.90
+                static let slide100: Double = 0.20
+                static let mono400: Double = 0.30
+                static let mono3200: Double = 0.40
+            }
 
-            var isNeutral: Bool { colourMatrix == FilmStockProfile.identityMatrix }
+            // MARK: Grain v2 (v4 F5) — statistical stand-in for the Boolean
+            // grain model (Newson et al. 2017): two noise octaves whose
+            // amplitude follows print density.
+            // OPEN: v4-5 — intensities, sizes, chroma and the density curve
+            // are aesthetic estimates; calibrate against real scans.
+            // Relative transmittance fluctuation per speed. 100/400/3200 carry
+            // over v2's ISO 100/400/3200 values; others interpolate per stop.
+            static let grainIntensityByISO: [Int: Double] = [100: 0.04, 400: 0.12, 3200: 0.30]
+            // Fine-octave grain size in output pixels (the strip look runs at slot size)
+            static let grainSizePixels: [Int: Double] = [100: 1.0, 400: 1.4, 3200: 2.2]
+            // Full-frame looks (review screen, entry display, Download) are
+            // rendered at very different widths. Their grain is sized relative
+            // to the frame: grainSizePixels holds at this upright width and
+            // scales linearly with it, so a 12 MP Download has the same
+            // grain-to-frame proportion as the screen-size review render.
+            // OPEN: v4-5 — reference = a typical review render width (phone
+            // screen, in pixels); the strip slot keeps unscaled grain.
+            static let grainReferenceWidth: Double = 1080
+            // The coarse octave models clumping: bigger, weaker
+            static let grainCoarseSizeMultiplier: Double = 2.5
+            static let grainFineWeight: Double = 0.7
+            static let grainCoarseWeight: Double = 0.3
+            // Colour stocks: 0 = monochrome grain, 1 = fully independent dye layers
+            static let grainChroma: Double = 0.35
+            // Amplitude weight over normalised print density, evenly spaced
+            // from paper white (0) to the densest black (1). A tunable U:
+            // grain shows in highlights, hides in midtones, is heaviest in
+            // the deep shadows. Replaces v2's grainLuminanceCurve.
+            static let grainDensityCurve: [Double] = [0.8, 0.3, 1.0]
+            // Per-stock grain structure (v4 F14). Every stock uses the
+            // values above except where a profile below says otherwise.
+            enum Grain {
+                static let standard = GrainProfile(
+                    fineWeight: grainFineWeight,
+                    coarseWeight: grainCoarseWeight,
+                    coarseSizeMultiplier: grainCoarseSizeMultiplier,
+                    sizeScale: 1,
+                    densityCurve: grainDensityCurve
+                )
+                // OPEN: v4-5 — pushed 3200 B&W: fine-structured grain that is
+                // strong in the mids and backs off in bright, thin areas, so a
+                // bright sky reads as grain, not mottling. Less weight on a
+                // smaller coarse octave, a slightly finer size, and a density
+                // curve that rises from paper white to the mids.
+                static let mono3200 = GrainProfile(
+                    fineWeight: 0.85,
+                    coarseWeight: 0.15,
+                    coarseSizeMultiplier: 1.8,
+                    sizeScale: 0.8,
+                    densityCurve: [0.25, 0.9, 1.0]
+                )
+            }
+            // Print density that maps to 1 on the curve's axis
+            static let grainDensityRange: Double = 2.0
+            static let grainAmplitudeTableSize = 64
+            // Noise-tile offsets are drawn from 0..<range pixels per seed
+            static let grainSeedOffsetRange: UInt64 = 4096
+            // Per-effect salts: each random effect draws its own stream from
+            // the slot seed, so toggling one never reshuffles another
+            static let grainSeedSalt: UInt64 = 0x6772_6169_6E00_0001
+            static let lightLeakSeedSalt: UInt64 = 0x6C65_616B_0000_0002
 
-            static let identityMatrix: [CGFloat] = [
-                1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1,
+            // MARK: Bloom and light leak (v4 F6) — both off by default
+            // OPEN: v4-5 — radii, strengths and colours are aesthetic estimates
+            // Mist-filter glow radius as a fraction of the slot's output width
+            static let bloomRadiusFraction: Double = 0.03
+            // Screen-blend amount of the blurred copy
+            static let bloomStrength: Double = 0.25
+            // Linear-light glow colours, outermost first: amber, then red.
+            // OPEN: v4-3 — fixed per strip (seed from date and slot)
+            static let lightLeakColors: [(r: Double, g: Double, b: Double)] = [
+                (r: 1.0, g: 0.45, b: 0.10),
+                (r: 0.95, g: 0.12, b: 0.05),
             ]
+            static let lightLeakStrength: Double = 0.55
+            // First glow's radius, as a fraction of the slot's longer side
+            static let lightLeakRadiusFraction: Double = 0.75
+            // Each further glow is this much smaller and this far along the edge
+            static let lightLeakSpotFalloff: Double = 0.55
+            static let lightLeakSpotSpacing: Double = 0.12
+            // Centre sits this far outside the frame (fraction of the longer side)
+            static let lightLeakOutsideFraction: Double = 0.12
+            // Where along the chosen edge the leak may centre
+            static let lightLeakAlongRange: ClosedRange<Double> = 0.15...0.85
 
-            // Fine, almost invisible grain. Clean, documentary feel.
-            static let iso100 = FilmStockProfile(
-                grainIntensity: 0.04,
-                grainScale: 1.0,
-                colourMatrix: identityMatrix
-            )
+            // Orthochromatic-to-panchromatic sensitivity, applied to linear
+            // light. Each set sums to 1 so a neutral grey keeps its value.
+            enum Spectral {
+                // Rec. 709 luminance: a modern panchromatic emulsion
+                static let panchromatic = SpectralWeights(r: 0.2126, g: 0.7152, b: 0.0722)
+                // Extended red sensitivity, typical of fast pushed emulsions:
+                // skies darken less, skin lightens
+                static let extendedRed = SpectralWeights(r: 0.30, g: 0.60, b: 0.10)
+            }
+            // OPEN: v4-7 — a colour stock with B&W on renders through its own
+            // red curve pair with these weights
+            static let colourStockMonoWeights = Spectral.panchromatic
 
-            // Visible grain, classic 35mm look. The default.
-            // OPEN: v2-5 — cast values are aesthetic estimates, calibrate on device
-            static let iso400 = FilmStockProfile(
-                grainIntensity: 0.12,
-                grainScale: 1.5,
-                colourMatrix: [
-                    1.03, 0, 0, 0,
-                    0, 1.01, 0, 0,
-                    0, 0, 1.00, 0,
-                    0, 0, 0, 1,
-                ]
-            )
+            /// Builds a curve whose speed point sits `speedOffset` log units
+            /// from mid grey. Shifting one layer against the others is the
+            /// stock's crossover.
+            static func curve(dMin: Double, range: Double, gamma: Double, speedOffset: Double = 0) -> FilmCurve {
+                FilmCurve(dMin: dMin, dMax: dMin + range, gamma: gamma, x0: midGreyLogExposure + speedOffset)
+            }
 
-            // Heavy grain. Pushed film, night photography feel.
-            // OPEN: v2-5 — cast values are aesthetic estimates, calibrate on device
-            static let iso3200 = FilmStockProfile(
-                grainIntensity: 0.30,
-                grainScale: 2.5,
-                colourMatrix: [
-                    1.04, 0, 0, 0,
-                    0, 1.05, 0, 0,
-                    0, 0, 0.98, 0,
-                    0, 0, 0, 1,
-                ]
-            )
+            static func printCurve(dMin: Double, dMax: Double, gamma: Double) -> FilmCurve {
+                // A print's x0 is arbitrary: the balanced offset positions it
+                FilmCurve(dMin: dMin, dMax: dMax, gamma: gamma, x0: 0)
+            }
+
+            // OPEN: v4-6 — stored v2 raw values → v4 stock raw values (spec §F7).
+            // Anything not listed migrates to Off.
+            static let legacyStockMapping: [String: String] = [
+                "iso100": "daylight200",
+                "iso400": "portrait400",
+                "iso3200": "cine500T",
+            ]
+            // The pre-v2 grain toggle's "on" was v2's ISO 400
+            static let legacyGrainEnabledStock = "iso400"
+
+            // OPEN: v4-2 — effects are on/off toggles, not strength sliders
+            static let effectsAreToggles = true
+            // Halation defaults on for every stock, at the stock's own strength
+            static let halationOnByDefault = true
+
+            // MARK: Negatives
+            // OPEN: v4-5 — v4 F14 calibration against real-film references
+            // (research/v4-film-reference-calibration.md §1). Directional,
+            // judged on the user's sample sheets; not measured data.
+            enum Negative {
+                // Consumer 200 colour negative: punchy, warm yellow-orange mids
+                // and highlights (red steepest and fastest, blue slowest), a
+                // little extra saturation, and blues leaning teal
+                static let daylight200 = NegativeProfile(
+                    r: curve(dMin: 0.15, range: 5.0, gamma: 0.64, speedOffset: 0.04),
+                    g: curve(dMin: 0.15, range: 5.0, gamma: 0.58),
+                    b: curve(dMin: 0.15, range: 5.0, gamma: 0.50, speedOffset: -0.03),
+                    isMonochrome: false,
+                    monoWeights: colourStockMonoWeights,
+                    colour: ColourMatrix.blueIntoGreen(0.06).after(.saturation(1.12))
+                )
+                // Portrait 400 negative: clearly softer than Daylight — lower
+                // gamma, restrained saturation, a slight warm skin bias. A
+                // little blue into green keeps desaturated skies pastel cyan
+                // rather than lavender (user review of the sample sheets)
+                static let portrait400 = NegativeProfile(
+                    r: curve(dMin: 0.15, range: 4.2, gamma: 0.43, speedOffset: 0.02),
+                    g: curve(dMin: 0.15, range: 4.2, gamma: 0.42),
+                    b: curve(dMin: 0.15, range: 4.2, gamma: 0.41, speedOffset: -0.01),
+                    isMonochrome: false,
+                    monoWeights: colourStockMonoWeights,
+                    colour: ColourMatrix.blueIntoGreen(0.05).after(.saturation(0.85))
+                )
+                // Tungsten motion-picture negative in daylight: the red layer is
+                // the steep one, so shadows lose red and go teal/cyan while
+                // highlights stay a touch warm; saturated reds
+                static let cine500T = NegativeProfile(
+                    r: curve(dMin: 0.12, range: 5.0, gamma: 0.53, speedOffset: -0.02),
+                    g: curve(dMin: 0.12, range: 5.0, gamma: 0.56),
+                    b: curve(dMin: 0.12, range: 5.0, gamma: 0.57, speedOffset: 0.02),
+                    isMonochrome: false,
+                    monoWeights: colourStockMonoWeights,
+                    colour: .saturation(1.1)
+                )
+                // Reversal: all the contrast lives here (its print is
+                // `projection`); the most saturated stock, with red and blue a
+                // touch steeper than green for a slight warm-magenta bias
+                static let slide100 = NegativeProfile(
+                    r: curve(dMin: 0.1, range: 6.0, gamma: 1.76, speedOffset: 0.02),
+                    g: curve(dMin: 0.1, range: 6.0, gamma: 1.72),
+                    b: curve(dMin: 0.1, range: 6.0, gamma: 1.76),
+                    isMonochrome: false,
+                    monoWeights: colourStockMonoWeights,
+                    colour: ColourMatrix.redBlueCrosstalk(0.04).after(.saturation(1.35))
+                )
+                // Classic 400 B&W: a little gritty midtone contrast
+                static let mono400 = NegativeProfile(
+                    r: curve(dMin: 0.10, range: 4.0, gamma: 0.68),
+                    g: curve(dMin: 0.10, range: 4.0, gamma: 0.68),
+                    b: curve(dMin: 0.10, range: 4.0, gamma: 0.68),
+                    isMonochrome: true,
+                    monoWeights: Spectral.panchromatic
+                )
+                // Pushed: steep, so shadows block up and highlights snap
+                static let mono3200 = NegativeProfile(
+                    r: curve(dMin: 0.15, range: 5.0, gamma: 0.88),
+                    g: curve(dMin: 0.15, range: 5.0, gamma: 0.88),
+                    b: curve(dMin: 0.15, range: 5.0, gamma: 0.88),
+                    isMonochrome: true,
+                    monoWeights: Spectral.extendedRed
+                )
+            }
+
+            // MARK: Prints
+            enum Print {
+                // Neutral, moderate contrast
+                // OPEN: v4-5 — black targets (sRGB/255): lab 6, cinema 4,
+                // projection 3, matte a deliberate 28
+                static let lab = PrintProfile(
+                    r: printCurve(dMin: 0.0, dMax: 2.15, gamma: 2.8),
+                    g: printCurve(dMin: 0.0, dMax: 2.15, gamma: 2.8),
+                    b: printCurve(dMin: 0.0, dMax: 2.15, gamma: 2.8),
+                    blackTarget: 6.0 / 255
+                )
+                // Contrasty; green and blue share a lower Dmax, so the blacks
+                // lean teal/cyan rather than blue (v4 F14)
+                static let cinema = PrintProfile(
+                    r: printCurve(dMin: 0.0, dMax: 2.30, gamma: 3.2),
+                    g: printCurve(dMin: 0.0, dMax: 2.15, gamma: 3.1),
+                    b: printCurve(dMin: 0.0, dMax: 2.15, gamma: 3.1),
+                    blackTarget: 4.0 / 255
+                )
+                // Low Dmax lifts the blacks; a denser blue base tints paper white warm
+                static let matte = PrintProfile(
+                    r: printCurve(dMin: 0.0, dMax: 1.75, gamma: 2.6),
+                    g: printCurve(dMin: 0.01, dMax: 1.75, gamma: 2.6),
+                    b: printCurve(dMin: 0.04, dMax: 1.75, gamma: 2.6),
+                    blackTarget: 28.0 / 255
+                )
+                // Slide film is viewed directly: a gentle, wide curve that
+                // stands in for identity so the slide's own contrast shows
+                static let projection = PrintProfile(
+                    r: printCurve(dMin: 0.0, dMax: 2.4, gamma: 1.3),
+                    g: printCurve(dMin: 0.0, dMax: 2.4, gamma: 1.3),
+                    b: printCurve(dMin: 0.0, dMax: 2.4, gamma: 1.3),
+                    blackTarget: 3.0 / 255
+                )
+            }
         }
     }
 
@@ -187,37 +457,52 @@ nonisolated enum Constants {
 
     // MARK: Strip layout (project.md §10, logical points; rendered at renderScale)
     enum Strip {
-        // OPEN: square crop vs original aspect TBD — square is the conservative default
-        static let cellAspectRatio: CGFloat = 1.0
+        // v4 F15 booth strip. OPEN: v4-16 — proportions are tuned by eye
+        // against real booth strips: thin even border, frames nearly
+        // touching, a slim caption band under each frame.
+        // Width ÷ height of a frame: 4:5 portrait, like a booth print
+        static let cellAspectRatio: CGFloat = 0.8
         static let width: CGFloat = 150
-        static let paperBorder: CGFloat = 6      // white photobooth-paper border, all sides
-        static let contentPadding: CGFloat = 4
-        static let cellSpacing: CGFloat = 8
-        static let captionSpacing: CGFloat = 3   // gap between a photo and its caption
+        // Paper around the frames on all four sides
+        static let border: CGFloat = 6
+        // Paper between one frame's caption band and the next frame (and
+        // between the last caption band and the date stamp)
+        static let frameGap: CGFloat = 4
+        // Lines in each frame's caption band on the rendered strip: one keeps
+        // the band slim so frames stay nearly touching; longer captions
+        // truncate with an ellipsis (the full text stays in the diary)
+        static let boothCaptionLines = 1
+        // Booth prints have slightly soft frame corners
+        static let frameCornerRadius: CGFloat = 2.5
+        // OPEN: v4-9 — separate white paper border on a black strip. Default
+        // none: true would paint the border white around the background.
+        static let drawsPaperBorder = false
+        static let captionSpacing: CGFloat = 2   // gap between a photo and its caption
         static let captionFontSize: CGFloat = 9
         static let captionMaxLines = 2
         static let dateFontSize: CGFloat = 8
         static let dateLetterSpacing: CGFloat = 0.12
         static let renderScale: CGFloat = 2
         static let emptySlotAlpha: CGFloat = 0.08
+        // Odd 64-bit multiplier spreading slot indices across the seed space
+        // before mixing (v4 F4–F6 per-slot seeds)
+        static let slotSeedStride: UInt64 = 0x9E37_79B9_7F4A_7C15
 
-        // MARK: Film-edge detailing (v2 F7)
-        // Sprocket holes are punched into the white paper border on both edges.
-        static let sprocketHoleRadius: CGFloat = 3.5
-        static let sprocketHoleCount = 2            // per cell, per side
-        static let sprocketHoleInset: CGFloat = 3   // centre X, from the strip edge
-        // Punched through to the dark backing behind the paper
-        static let sprocketHoleColorHex = "001219"
+        // v4 F15 paper: warm off-white and near-black photographic paper
+        // (sRGB 0–1), never pure #FFFFFF or #000000
+        static let paperWhite: (r: Double, g: Double, b: Double) = (0.957, 0.941, 0.906)
+        static let paperBlack: (r: Double, g: Double, b: Double) = (0.090, 0.086, 0.082)
+        // Faint paper texture: ± this much sRGB per texture cell, cells of
+        // this many output pixels, smoothed by drawing the grid scaled up
+        static let paperTextureAmplitude: Double = 0.012
+        static let paperTextureCellPixels: CGFloat = 2
+        // Separates the paper texture's random stream from the frames' seeds
+        static let paperSeedSalt: UInt64 = 0x7061_7065_7200_0001
 
-        static let frameNumberFontSize: CGFloat = 6
-        static let frameNumberColorHex = "EE9B00"   // amber
-        static let frameNumberInset: CGFloat = 2    // gap below the photo edge
-
-        // Secondary DX-code-style date stamp running up the right border.
-        // Smaller than the bottom stamp so it fits inside the 6pt paper border;
-        // the sprocket holes are punched over it, exactly like real edge printing.
-        static let datestampRotationDegrees: CGFloat = -90
-        static let edgeDateFontSize: CGFloat = 5
+        // v4 F12: the stored Settings value for "As shot" (no strip-wide
+        // stock override). Not a FilmStock raw value, so a v4 build reading it
+        // falls back to Off rather than misreading it as a stock.
+        static let asShotStoredValue = "asShot"
     }
 
     // MARK: Camera UI (project.md §2, screens 1 & 3)
@@ -241,6 +526,14 @@ nonisolated enum Constants {
 
         // v3 F3 — collapsible white balance
         static let wbExpandAnimationDuration: TimeInterval = 0.2
+
+        // v4 F9 — Film chip: glyph over a short stock code inside the 44pt
+        // circle; the content width keeps "M3.2K" clear of the edge
+        static let filmChipSymbolSize: CGFloat = 10
+        static let filmChipCodeFontSize: CGFloat = 10
+        static let filmChipCodeMinScale: CGFloat = 0.7
+        static let filmChipLineSpacing: CGFloat = 1
+        static let filmChipContentWidth: CGFloat = 36
 
         // v3 F1 — device-side diagnosis switch: renders the live
         // rotation angle over the camera so a device photograph can prove
@@ -301,14 +594,41 @@ nonisolated enum Constants {
         static let textPanelMaxHeight: CGFloat = 260
     }
 
+    // MARK: Diary review screen (v4 F10/F13)
+    enum ReviewUI {
+        static let stockChipHeight: CGFloat = 44
+        static let stockChipHorizontalPadding: CGFloat = 14
+        static let stockChipFontSize: CGFloat = 13
+        static let stockChipSpacing: CGFloat = 8
+        static let downloadButtonSize: CGFloat = 44
+        static let downloadIconSize: CGFloat = 17
+        static let savedFontSize: CGFloat = 13
+        static let savedHorizontalPadding: CGFloat = 12
+        static let savedVerticalPadding: CGFloat = 6
+        static let overlayOpacity: CGFloat = 0.45
+        static let actionButtonHeight: CGFloat = 50
+        static let sectionSpacing: CGFloat = 16
+        static let feedbackAnimationDuration: TimeInterval = 0.2
+    }
+
     // MARK: Strip screen UI (project.md §2, screen 4)
     enum StripUI {
         static let swatchDiameter: CGFloat = 30
         static let swatchBorderWidth: CGFloat = 2
+        // v4 F8: hairline so a swatch matching the page stays visible
+        static let swatchRimWidth: CGFloat = 1
+        static let swatchTapTarget: CGFloat = 44
         static let actionCornerRadius: CGFloat = 10
         static let actionFontSize: CGFloat = 13
         static let previewShadowRadius: CGFloat = 24
         static let previewShadowOpacity: CGFloat = 0.25
+
+        // v4 F7 controls card: rows that appear or disappear with the stock
+        // (print, effects) fade rather than jump
+        static let controlRowAnimationDuration: TimeInterval = 0.2
+        // "Effects" group label inside the card (project.md §2 screen 6 label
+        // style); the font is .caption so it scales with Dynamic Type
+        static let groupLabelTracking: CGFloat = 0.96   // 0.08em at 12pt
     }
 
     // MARK: First-run walkthrough (v3 F5/F6)
@@ -350,5 +670,13 @@ nonisolated enum Constants {
         static let stripFilmStock = "stripDefaultFilmStock"
         static let stripFilmGrain = "stripDefaultFilmGrain"
         static let stripBlackAndWhite = "stripDefaultBlackAndWhite"
+        // v4 F7 strip defaults. stripFilmStock keeps its key; v2 values in it
+        // migrate on load (Constants.ImageProcessing.Film.legacyStockMapping).
+        static let stripPrintStock = "stripDefaultPrintStock"
+        static let stripHalation = "stripDefaultHalation"
+        static let stripBloom = "stripDefaultBloom"
+        static let stripLightLeak = "stripDefaultLightLeak"
+        // v4 F9: the camera's film stock (raw FilmStock value; missing = Off)
+        static let cameraFilmStock = "cameraFilmStock"
     }
 }

@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 // Full-screen view of a single diary entry: the photo at full size with the
@@ -5,7 +6,8 @@ import SwiftUI
 struct EntryDetailView: View {
     @Environment(\.dismiss) private var dismiss
 
-    let image: UIImage?
+    // v4 F11: the photo is shown through the entry's own stock
+    let entry: DiaryEntry
     let prompt: String
     let response: String
     let dateText: String
@@ -16,7 +18,7 @@ struct EntryDetailView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                DetailPhoto(image: image)
+                DetailPhoto(entry: entry)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 ScrollView {
@@ -45,14 +47,10 @@ struct EntryDetailView: View {
 }
 
 private struct DetailPhoto: View {
-    let image: UIImage?
+    let entry: DiaryEntry
 
     var body: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-        } else {
+        EntryLookImage(entry: entry, contentMode: .fit) {
             Text("This photo file is missing.")
                 .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
                 .italic()
@@ -93,10 +91,12 @@ struct CloseCircleButton: View {
 }
 
 #Preview {
+    // A missing photo path shows the "file is missing" state
     EntryDetailView(
-        image: nil,
+        entry: DiaryEntry(photoPath: "Photos/preview-missing.jpg", prompt: "", response: ""),
         prompt: "What made you take this picture?",
         response: "The light was doing something I'd never seen before.",
         dateText: "JUL 31, 2026"
     )
+    .modelContainer(for: DiaryEntry.self, inMemory: true)
 }

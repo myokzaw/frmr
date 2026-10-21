@@ -35,6 +35,14 @@ struct CameraView: View {
         .task {
             viewModel.errorState = errorState
             photobooth.errorState = errorState
+            #if DEBUG
+            // UI tests only: the simulator has no camera, so the review
+            // screen is reached through a fixture capture instead
+            if DiaryReviewFixture.isRequested {
+                DiaryReviewFixture.open(in: viewModel)
+                return
+            }
+            #endif
             await viewModel.startCamera()
             // startCamera suspends on the system permission dialog, so by here
             // it has been answered either way — the walkthrough may now run
@@ -44,8 +52,11 @@ struct CameraView: View {
         .onDisappear {
             viewModel.stopCamera()
         }
-        .fullScreenCover(isPresented: Bindable(viewModel).isEditorPresented.projectedValue) {
-            EntryEditorView(camera: viewModel)
+        // One cover for the whole diary flow (v4 F10): review, then the
+        // prompt screen. Two covers would have to dismiss one and present
+        // the other in the same update when OK is tapped.
+        .fullScreenCover(isPresented: diaryFlowPresented) {
+            DiaryFlowView(camera: viewModel)
         }
         .fullScreenCover(isPresented: Bindable(photobooth).isStripPresented.projectedValue) {
             StripView(items: photobooth.stripItems, isPhotobooth: true, onDone: photobooth.clear)
@@ -79,6 +90,8 @@ struct CameraView: View {
                         onSelect: viewModel.selectLens
                     )
                 }
+
+                filmStockControl
 
                 WhiteBalanceControl(
                     selected: viewModel.whiteBalance,
@@ -120,6 +133,7 @@ struct CameraView: View {
                             onSelect: viewModel.selectLens
                         )
                     }
+                    filmStockControl
                     WhiteBalanceControl(
                         selected: viewModel.whiteBalance,
                         isExpanded: viewModel.isWhiteBalanceExpanded,
@@ -136,6 +150,27 @@ struct CameraView: View {
                     PhotoboothView(viewModel: photobooth)
                 }
             }
+    }
+
+    // v4 F9: shown in both Diary and Film strip modes
+    private var filmStockControl: some View {
+        FilmStockControl(
+            selected: viewModel.filmStock,
+            isExpanded: viewModel.isFilmStockExpanded,
+            onToggle: viewModel.toggleFilmStockExpansion,
+            onSelect: viewModel.selectFilmStock
+        )
+    }
+
+    // Dismissing the cover (Retake, Save, Skip) goes through the view model,
+    // which clears both flags; the setter only runs on a system dismissal
+    private var diaryFlowPresented: Binding<Bool> {
+        Binding(
+            get: { viewModel.isReviewPresented || viewModel.isEditorPresented },
+            set: { isPresented in
+                if !isPresented { viewModel.retake() }
+            }
+        )
     }
 
     // v3 F1 step 3: proves on a device photograph which values actually reach
@@ -157,6 +192,15 @@ struct CameraView: View {
     // geometry with no conversion of our own.
     private var viewfinder: some View {
         CameraPreview(session: viewModel.session, onLayerReady: viewModel.registerPreviewLayer)
+            // v4 F9: the film viewfinder sits exactly over the preview layer
+            // and ignores touches, so every gesture below still lands on the
+            // layer's geometry. Off shows the plain layer.
+            .overlay {
+                if viewModel.showsFilmPreview {
+                    FilmViewfinder(renderer: viewModel.filmPreviewRenderer)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(GrainOverlayView())
             .overlay(alignment: .topLeading) {
                 if let point = viewModel.focusPoint {
@@ -235,6 +279,30 @@ private struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {}
+}
+
+private struct FilmViewfinder: UIViewRepresentable {
+    let renderer: FilmPreviewRenderer
+
+    func makeUIView(context: Context) -> FilmPreviewView {
+        FilmPreviewView(renderer: renderer)
+    }
+
+    func updateUIView(_ uiView: FilmPreviewView, context: Context) {}
+}
+
+// The diary flow's single full-screen cover: the review (v4 F10) until OK,
+// then the prompt screen
+private struct DiaryFlowView: View {
+    let camera: CameraViewModel
+
+    var body: some View {
+        if camera.isEditorPresented {
+            EntryEditorView(camera: camera)
+        } else if let review = camera.review {
+            DiaryReviewView(review: review, onConfirm: camera.confirmReview, onRetake: camera.retake)
+        }
+    }
 }
 
 // A static capsule holding two square icon segments. The capsule never
@@ -362,3 +430,37 @@ private struct PermissionDeniedOverlay: View {
             .opacity(isVisible ? 1 : 0)
     }
 }
+
+#if DEBUG
+// Compiled out of release. Launched with `-UITestDiaryReview`, the camera
+// opens the v4 F10 review on a generated photo (no camera, no files) whose
+// Download writes nowhere, so a UI test can drive review → OK → prompt
+// without touching the photo library.
+private enum DiaryReviewFixture {
+    static let launchArgument = "-UITestDiaryReview"
+    static let stock = StripCustomization.FilmStock.portrait400
+    static let size = CGSize(width: 900, height: 1200)
+
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.arguments.contains(launchArgument)
+    }
+
+    static func open(in camera: CameraViewModel) {
+        camera.beginReview(preview: photo(), stock: stock, savePhotoData: { _ in })
+    }
+
+    // A warm-to-cool diagonal gradient, so a film look visibly changes it
+    private static func photo() -> UIImage {
+        UIGraphicsImageRenderer(size: size).image { context in
+            let colors = [UIColor.systemOrange.cgColor, UIColor.systemTeal.cgColor] as CFArray
+            guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: nil) else { return }
+            context.cgContext.drawLinearGradient(
+                gradient,
+                start: .zero,
+                end: CGPoint(x: size.width, y: size.height),
+                options: []
+            )
+        }
+    }
+}
+#endif

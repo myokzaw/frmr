@@ -17,7 +17,8 @@ struct EntryEditorView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                CapturedPhotoHeader(image: camera.pendingDiaryImage)
+                // v4 F10: the header shows the look chosen on the review screen
+                CapturedPhotoHeader(image: camera.pendingDiaryDisplayImage)
                     .frame(height: geometry.size.height * Constants.EditorUI.photoHeightFraction)
                     .clipped()
                 editorForm
@@ -76,14 +77,26 @@ struct EntryEditorView: View {
     }
 
     private func saveEntry() {
-        if viewModel.saveEntry(image: camera.pendingDiaryImage, includeText: true, context: modelContext) {
+        if viewModel.saveEntry(
+            image: camera.pendingDiaryImage,
+            filmStock: camera.pendingDiaryStock,
+            capturedAt: camera.pendingDiaryCaptureDate,
+            includeText: true,
+            context: modelContext
+        ) {
             camera.discardPendingDiaryImage()
         }
     }
 
     // "Skip" keeps the photo but saves the entry without text (project.md §3)
     private func skipText() {
-        if viewModel.saveEntry(image: camera.pendingDiaryImage, includeText: false, context: modelContext) {
+        if viewModel.saveEntry(
+            image: camera.pendingDiaryImage,
+            filmStock: camera.pendingDiaryStock,
+            capturedAt: camera.pendingDiaryCaptureDate,
+            includeText: false,
+            context: modelContext
+        ) {
             camera.discardPendingDiaryImage()
         }
     }

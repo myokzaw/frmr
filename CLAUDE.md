@@ -4,7 +4,7 @@ You are a senior iOS engineer building a minimalist photography journaling app. 
 
 ## What this app is
 
-A journaling app where users take photos, receive a written prompt, write a short reflection, and collect entries into photobooth-style film strips. No AI. No network. No automation. Every action is user-initiated and intentional.
+A journaling app where users take photos on a chosen film stock, receive a written prompt, write a short reflection, and collect entries into photobooth-style strips. Since v4 the film look is physically based: per-layer characteristic curves, a negative → print chain, halation, exposure-dependent grain, bloom and light leaks, all on device (`frmr-v4-spec.md`). No AI. No network. No automation. Every action is user-initiated and intentional.
 
 ## Hard constraints — never violate these
 
@@ -137,7 +137,18 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
 
 ## Current build status (2026-07-31)
 
-**v4 in progress (2026-10-20).** See **frmr-v4-spec.md**. F0 is done: strip filters no longer rotate tagged photos. Never call `CIImage(image:)` on a photo; use `ImageProcessor.uprightCIImage(from:)`. F1–F7 (film curves, print stage, halation, grain v2, bloom/light leak, UI) are not started.
+**v4 built (Parts 1 and 2, 2026-10-21); simulator-verified, device checks outstanding.** See **frmr-v4-spec.md** §Implementation status and **CHANGELOG.md**.
+- **Strip pipeline:** resize to slot → B&W luminance → halation → film colour cube (per-stock colour matrix → negative curve → print → shadow toe and black/white normalisation, `Features/Camera/FilmModel.swift`) → bloom → light leak → grain. Seeded by the global frame index, so re-renders are identical.
+- **`StripCustomization`:** `filmStock: FilmStock?` (nil = "As shot", each frame keeps its own stock), `printStock`, `effects`, `background` (paper white/black).
+- **Film at capture (Part 2):**
+  - `CameraViewModel.filmStock` drives the Film chip and the live preview (`FilmPreviewRenderer` over the preview layer, which still owns taps).
+  - Diary captures go through `DiaryReviewView` / `DiaryReviewViewModel` (stock row, OK, Retake, top-right Download via `ImageProcessor.renderFullLook`) before the editor.
+  - Entries store the original photo plus `filmStockRaw` and render through `FilmLookCache`.
+- **Booth strip:** 4:5 frames, thin border and gaps, one-line captions, textured paper (OPEN v4-16).
+- **Rules:**
+  - Never call `CIImage(image:)` on a photo; use `ImageProcessor.uprightCIImage(from:)`.
+  - Personal test photos stay outside the repo: the gated `FilmStockSampleSheetTests` / `StripSampleRenderTests` read them via `TEST_RUNNER_FRMR_*` env vars.
+  - Run unit tests with `-parallel-testing-enabled NO` (parallel simulator clones fail on this machine).
 
 **v2 is complete.** All eight v2 features (tap-to-focus/expose, swipe exposure compensation, pinch-to-zoom, luminosity-weighted grain, film stock profiles, animated preview grain, sprocket holes + frame numbers, haptics + prompt typewriter) are implemented on top of v1. Clean build, zero warnings, 28 unit tests passing. See **frmr-v2-spec.md § "Implementation status — v2 build"** for per-feature status, the three deviations from the written spec, and what still needs a physical device (F1/F2/F3 and the haptics). **project.md §14a** summarises the API changes that affect other code — most importantly that `StripCustomization.filmGrain: Bool` is now `filmStock: FilmStock`, and that `ImageProcessor.applyStripLook` needs an `outputWidth:` whenever the result will be drawn smaller than the source.
 

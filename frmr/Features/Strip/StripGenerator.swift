@@ -8,6 +8,15 @@ nonisolated enum StripGenerator {
     struct Cell {
         let image: UIImage?
         let caption: String
+        /// The stock the photo was taken on (v4 F11). Used when the strip has
+        /// no stock override ("As shot", v4 F12).
+        let filmStock: StripCustomization.FilmStock
+
+        init(image: UIImage?, caption: String, filmStock: StripCustomization.FilmStock = .none) {
+            self.image = image
+            self.caption = caption
+            self.filmStock = filmStock
+        }
 
         static let empty = Cell(image: nil, caption: "")
     }
@@ -29,7 +38,15 @@ nonisolated enum StripGenerator {
         }
     }
 
-    static func render(strip: [Cell], customization: StripCustomization, date: Date) -> UIImage {
+    /// - Parameter stripIndex: this strip's position in a multi-strip render.
+    ///   Folded into each frame's seed so strip 2's frames never repeat strip
+    ///   1's grain or light leak; strip 0 keeps the single-strip seeds.
+    static func render(
+        strip: [Cell],
+        customization: StripCustomization,
+        date: Date,
+        stripIndex: Int = 0
+    ) -> UIImage {
         let layout = Layout()
         let format = UIGraphicsImageRendererFormat()
         format.scale = Constants.Strip.renderScale
@@ -39,71 +56,161 @@ nonisolated enum StripGenerator {
         return renderer.image { rendererContext in
             let context = rendererContext.cgContext
 
-            // Photobooth paper: white sheet with the chosen background inset
-            UIColor.white.setFill()
-            context.fill(CGRect(origin: .zero, size: layout.totalSize))
+            // v4 F8/F15: the paper fills the whole strip unless the white
+            // paper border comes back (OPEN: v4-9)
+            let full = CGRect(origin: .zero, size: layout.totalSize)
+            if Constants.Strip.drawsPaperBorder {
+                UIColor.white.setFill()
+                context.fill(full)
+            }
+            let paperRect = Constants.Strip.drawsPaperBorder ? layout.backgroundRect : full
             UIColor(customization.background.color).setFill()
-            context.fill(layout.backgroundRect)
+            context.fill(paperRect)
+            if let texture = paperTexture(
+                for: customization.background, size: paperRect.size, date: date, stripIndex: stripIndex
+            ) {
+                context.saveGState()
+                context.interpolationQuality = .low
+                UIImage(cgImage: texture).draw(in: paperRect)
+                context.restoreGState()
+            }
 
             for (index, cell) in strip.enumerated() {
-                draw(cell, at: index, layout: layout, customization: customization, in: context)
+                draw(
+                    cell, at: index, layout: layout, customization: customization, date: date,
+                    frame: frameIndex(strip: stripIndex, slot: index), in: context
+                )
             }
 
             drawDateStamp(date, layout: layout, customization: customization)
-
-            // v2 F7 — film-edge detailing. Drawn last so the holes punch through
-            // anything above them, including photo pixels that overflow a slot.
-            drawFrameNumbers(strip.count, layout: layout)
-            drawRotatedDateStamp(date, layout: layout, in: context)
-            drawSprocketHoles(layout: layout, in: context)
         }
+    }
+
+    /// Seed for one frame's random effects (v4 F4–F6). `slot` is the frame's
+    /// index across every strip rendered together (`frameIndex(strip:slot:)`),
+    /// so the date and that index fully determine it: re-rendering is
+    /// pixel-identical, and no two frames of one session share grain or a leak.
+    static func seed(for date: Date, slot: Int) -> UInt64 {
+        let seconds = UInt64(bitPattern: Int64(date.timeIntervalSince1970.rounded(.down)))
+        return SeededRandom.derive(seconds, salt: UInt64(slot) &* Constants.Strip.slotSeedStride)
+    }
+
+    /// Seed for one photo's own look outside a strip — the review screen,
+    /// Download and the diary display (OBS-V4-7): all three seed from the
+    /// capture date through here, so they show the same grain.
+    static func photoLookSeed(for captureDate: Date) -> UInt64 {
+        seed(for: captureDate, slot: 0)
+    }
+
+    /// A frame's index across every strip rendered together.
+    static func frameIndex(strip: Int, slot: Int) -> Int {
+        strip * Constants.entriesPerStrip + slot
     }
 
     // MARK: Layout
 
-    // All measurements from project.md §10, resolved once per render
-    private struct Layout {
+    /// The booth layout (v4 F15, proportions OPEN: v4-16): a thin even
+    /// border, 4:5 frames each with a slim caption band directly under it,
+    /// a thin gap to the next frame, and the date stamp at the bottom.
+    /// Internal so tests can check the geometry rather than re-derive it.
+    struct Layout {
         let totalSize: CGSize
         let backgroundRect: CGRect
-        let cellOriginX: CGFloat
-        let cellWidth: CGFloat
-        let photoHeight: CGFloat
+        let frameWidth: CGFloat
+        let frameHeight: CGFloat
         let captionHeight: CGFloat
-        let cellHeight: CGFloat
-        let firstCellY: CGFloat
         let dateY: CGFloat
         let dateHeight: CGFloat
-        // Reserved right-hand gutter in the caption band so a frame number can
-        // never collide with a long caption (v2 F7)
-        let frameNumberColumnWidth: CGFloat
 
-        func cellY(at index: Int) -> CGFloat {
-            firstCellY + CGFloat(index) * (cellHeight + Constants.Strip.cellSpacing)
+        /// Frame plus caption band: the vertical step from frame to frame
+        /// is this plus `frameGap`.
+        var cellHeight: CGFloat { frameHeight + Constants.Strip.captionSpacing + captionHeight }
+
+        func photoRect(at index: Int) -> CGRect {
+            typealias S = Constants.Strip
+            return CGRect(
+                x: S.border,
+                y: S.border + CGFloat(index) * (cellHeight + S.frameGap),
+                width: frameWidth,
+                height: frameHeight
+            )
+        }
+
+        func captionRect(at index: Int) -> CGRect {
+            let photo = photoRect(at: index)
+            return CGRect(
+                x: photo.minX, y: photo.maxY + Constants.Strip.captionSpacing,
+                width: frameWidth, height: captionHeight
+            )
+        }
+
+        var dateRect: CGRect {
+            CGRect(x: 0, y: dateY, width: totalSize.width, height: dateHeight)
         }
 
         init() {
             typealias S = Constants.Strip
-            let inset = S.paperBorder + S.contentPadding
-            cellOriginX = inset
-            cellWidth = S.width - inset * 2
-            photoHeight = cellWidth / S.cellAspectRatio
-            captionHeight = ceil(S.captionFontSize * 1.35) * CGFloat(S.captionMaxLines)
-            cellHeight = photoHeight + S.captionSpacing + captionHeight
-            firstCellY = inset
+            frameWidth = S.width - S.border * 2
+            frameHeight = frameWidth / S.cellAspectRatio
+            captionHeight = ceil(S.captionFontSize * 1.35) * CGFloat(S.boothCaptionLines)
             dateHeight = ceil(S.dateFontSize * 1.4)
-            frameNumberColumnWidth = ceil(S.frameNumberFontSize * 2.4)
 
             let cellCount = CGFloat(Constants.entriesPerStrip)
-            let cellsHeight = cellHeight * cellCount + S.cellSpacing * (cellCount - 1)
-            dateY = firstCellY + cellsHeight + S.cellSpacing
-            totalSize = CGSize(width: S.width, height: dateY + dateHeight + inset)
+            let cellHeight = frameHeight + S.captionSpacing + captionHeight
+            let cellsHeight = cellHeight * cellCount + S.frameGap * (cellCount - 1)
+            dateY = S.border + cellsHeight + S.frameGap
+            totalSize = CGSize(width: S.width, height: dateY + dateHeight + S.border)
             backgroundRect = CGRect(
-                x: S.paperBorder,
-                y: S.paperBorder,
-                width: S.width - S.paperBorder * 2,
-                height: totalSize.height - S.paperBorder * 2
+                x: S.border,
+                y: S.border,
+                width: S.width - S.border * 2,
+                height: totalSize.height - S.border * 2
             )
         }
+    }
+
+    // MARK: Paper (v4 F15)
+
+    /// A faint, deterministic paper texture: the paper tone ± a small seeded
+    /// value per cell, at cell resolution so drawing it scaled up softens it
+    /// into a surface rather than pixel noise. Seeded by the strip date and
+    /// strip index, so a re-render is identical and two strips differ.
+    static func paperTexture(
+        for background: StripCustomization.StripBackground,
+        size: CGSize,
+        date: Date,
+        stripIndex: Int
+    ) -> CGImage? {
+        typealias S = Constants.Strip
+        let cell = max(S.paperTextureCellPixels, 1)
+        let width = Int((size.width * S.renderScale / cell).rounded(.up))
+        let height = Int((size.height * S.renderScale / cell).rounded(.up))
+        guard width > 0, height > 0 else { return nil }
+
+        var random = SeededRandom(seed: SeededRandom.derive(
+            seed(for: date, slot: 0), salt: S.paperSeedSalt &+ UInt64(max(stripIndex, 0))
+        ))
+        let paper = background.paperRGB
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        func byte(_ value: Double) -> UInt8 { UInt8(min(max(value * 255, 0), 255).rounded()) }
+        for index in 0..<(width * height) {
+            // Same offset on all channels: texture, not colour noise
+            let offset = (random.nextUnit() * 2 - 1) * S.paperTextureAmplitude
+            bytes[index * 4] = byte(paper.r + offset)
+            bytes[index * 4 + 1] = byte(paper.g + offset)
+            bytes[index * 4 + 2] = byte(paper.b + offset)
+        }
+        guard
+            let space = CGColorSpace(name: CGColorSpace.sRGB),
+            let provider = CGDataProvider(data: Data(bytes) as CFData)
+        else {
+            return nil
+        }
+        return CGImage(
+            width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+            space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue),
+            provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent
+        )
     }
 
     // MARK: Drawing
@@ -113,35 +220,41 @@ nonisolated enum StripGenerator {
         at index: Int,
         layout: Layout,
         customization: StripCustomization,
+        date: Date,
+        frame: Int,
         in context: CGContext
     ) {
-        let cellY = layout.cellY(at: index)
-        let photoRect = CGRect(x: layout.cellOriginX, y: cellY, width: layout.cellWidth, height: layout.photoHeight)
+        let photoRect = layout.photoRect(at: index)
+        // Booth prints have softly rounded frame corners (v4 F15)
+        let frameShape = UIBezierPath(roundedRect: photoRect, cornerRadius: Constants.Strip.frameCornerRadius)
 
         if let image = cell.image {
-            // Grain is per-pixel, so the processor needs to know how small the
-            // photo is about to be drawn (v2 F4)
+            // A superseded render (the customization changed again) is thrown
+            // away by StripViewModel, so skip its filtering rather than finish
+            // work nobody will see. Outside a task this is always false.
+            guard !Task.isCancelled else { return }
+            // The processor resizes and crops to the slot itself, so it needs
+            // the slot's pixel width (v4 F1)
+            // Each frame renders on its effective stock: the strip's override,
+            // or the stock it was shot on (v4 F12)
             let filtered = ImageProcessor.applyStripLook(
                 to: image,
-                customization: customization,
-                outputWidth: photoRect.width * Constants.Strip.renderScale
+                customization: customization.effective(forFrameStock: cell.filmStock),
+                outputWidth: photoRect.width * Constants.Strip.renderScale,
+                seed: seed(for: date, slot: frame)
             )
-            drawAspectFilled(filtered, in: photoRect, context: context)
+            // Already slot-sized when filtered; the aspect fill still crops
+            // unfiltered photos, which keep the untouched fast path
+            drawAspectFilled(filtered, in: photoRect, clip: frameShape, context: context)
         } else {
             UIColor.black.withAlphaComponent(Constants.Strip.emptySlotAlpha).setFill()
-            context.fill(photoRect)
+            frameShape.fill()
         }
 
-        let captionRect = CGRect(
-            x: layout.cellOriginX,
-            y: photoRect.maxY + Constants.Strip.captionSpacing,
-            width: layout.cellWidth - layout.frameNumberColumnWidth,
-            height: layout.captionHeight
-        )
-        drawCaption(cell.caption, in: captionRect, customization: customization)
+        drawCaption(cell.caption, in: layout.captionRect(at: index), customization: customization)
     }
 
-    private static func drawAspectFilled(_ image: UIImage, in rect: CGRect, context: CGContext) {
+    private static func drawAspectFilled(_ image: UIImage, in rect: CGRect, clip: UIBezierPath, context: CGContext) {
         guard image.size.width > 0, image.size.height > 0 else { return }
         let scale = max(rect.width / image.size.width, rect.height / image.size.height)
         let drawSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
@@ -151,7 +264,7 @@ nonisolated enum StripGenerator {
         )
 
         context.saveGState()
-        context.clip(to: rect)
+        clip.addClip()
         image.draw(in: CGRect(origin: drawOrigin, size: drawSize))
         context.restoreGState()
     }
@@ -181,89 +294,7 @@ nonisolated enum StripGenerator {
             .kern: S.dateFontSize * S.dateLetterSpacing,
             .paragraphStyle: paragraph,
         ])
-        let rect = CGRect(x: 0, y: layout.dateY, width: layout.totalSize.width, height: layout.dateHeight)
-        attributed.draw(in: rect)
-    }
-
-    // MARK: Film-edge detailing (v2 F7)
-
-    // Two columns of punched circles in the white paper border. Drawn last, so
-    // they read as holes through the paper rather than dots printed on it.
-    private static func drawSprocketHoles(layout: Layout, in context: CGContext) {
-        typealias S = Constants.Strip
-        guard S.sprocketHoleCount > 0 else { return }
-
-        context.setFillColor(UIColor(Color(hex: S.sprocketHoleColorHex)).cgColor)
-        let columnsX = [S.sprocketHoleInset, S.width - S.sprocketHoleInset]
-
-        for index in 0..<Constants.entriesPerStrip {
-            let cellTop = layout.cellY(at: index)
-            // Holes are spaced evenly down the photo's height, one per band centre
-            let band = layout.photoHeight / CGFloat(S.sprocketHoleCount)
-            for hole in 0..<S.sprocketHoleCount {
-                let centreY = cellTop + band * (CGFloat(hole) + 0.5)
-                for centreX in columnsX {
-                    let rect = CGRect(
-                        x: centreX - S.sprocketHoleRadius,
-                        y: centreY - S.sprocketHoleRadius,
-                        width: S.sprocketHoleRadius * 2,
-                        height: S.sprocketHoleRadius * 2
-                    )
-                    context.addEllipse(in: rect)
-                }
-            }
-        }
-        context.fillPath()
-    }
-
-    // Amber monospace frame counters, right-aligned in the caption band's
-    // reserved gutter — the numbering printed alongside every 35mm frame.
-    private static func drawFrameNumbers(_ count: Int, layout: Layout) {
-        typealias S = Constants.Strip
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .right
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedSystemFont(ofSize: S.frameNumberFontSize, weight: .medium),
-            .foregroundColor: UIColor(Color(hex: S.frameNumberColorHex)),
-            .paragraphStyle: paragraph,
-        ]
-
-        for index in 0..<min(count, Constants.entriesPerStrip) {
-            let rect = CGRect(
-                x: layout.cellOriginX + layout.cellWidth - layout.frameNumberColumnWidth,
-                y: layout.cellY(at: index) + layout.photoHeight + S.captionSpacing + S.frameNumberInset,
-                width: layout.frameNumberColumnWidth,
-                height: ceil(S.frameNumberFontSize * 1.4)
-            )
-            NSAttributedString(string: String(format: "%02d", index + 1), attributes: attributes).draw(in: rect)
-        }
-    }
-
-    // A DX-code-style stamp running bottom-to-top up the right paper border.
-    // The bottom stamp stays for readability; this one is texture.
-    private static func drawRotatedDateStamp(_ date: Date, layout: Layout, in context: CGContext) {
-        typealias S = Constants.Strip
-        let height = ceil(S.edgeDateFontSize * 1.4)
-        let runLength = layout.totalSize.height - S.paperBorder * 2
-
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-
-        let attributed = NSAttributedString(string: date.stripDateStamp, attributes: [
-            .font: UIFont.monospacedSystemFont(ofSize: S.edgeDateFontSize, weight: .regular),
-            .foregroundColor: UIColor(Color(hex: S.frameNumberColorHex)),
-            .kern: S.edgeDateFontSize * S.dateLetterSpacing,
-            .paragraphStyle: paragraph,
-        ])
-
-        context.saveGState()
-        defer { context.restoreGState() }
-        // Anchor at the bottom of the right border, then rotate so the local
-        // +x axis runs up the strip.
-        context.translateBy(x: S.width - S.paperBorder / 2, y: layout.totalSize.height - S.paperBorder)
-        context.rotate(by: S.datestampRotationDegrees * .pi / 180)
-        attributed.draw(in: CGRect(x: 0, y: -height / 2, width: runLength, height: height))
+        attributed.draw(in: layout.dateRect)
     }
 
     // OPEN: spec calls for Newsreader italic; system serif until the font is bundled

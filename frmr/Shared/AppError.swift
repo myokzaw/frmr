@@ -9,6 +9,7 @@ enum AppError: LocalizedError {
     case rawProcessingFailed
     case saveToLibraryFailed
     case stripRenderFailed
+    case filmLookRenderFailed
     case persistenceFailed(reason: String)
 
     var errorDescription: String? {
@@ -25,6 +26,8 @@ enum AppError: LocalizedError {
             return "Couldn't save to your camera roll. Check your storage and permissions."
         case .stripRenderFailed:
             return "Couldn't generate the strip. Try again."
+        case .filmLookRenderFailed:
+            return "Couldn't develop the photo in its film stock. Try again."
         case .persistenceFailed(let reason):
             return "Couldn't save your entry. \(reason)"
         }

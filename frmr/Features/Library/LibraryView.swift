@@ -137,6 +137,7 @@ private struct StripsList: View {
                         )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("library.strip")
                 }
             }
             .padding()

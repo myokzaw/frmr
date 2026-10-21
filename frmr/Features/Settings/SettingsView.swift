@@ -30,13 +30,53 @@ struct SettingsView: View {
     // OPEN: WB persistence TBD — this toggle is stored but the camera always
     // resets to Auto on launch until the decision lands (build notes)
     @AppStorage(Constants.DefaultsKeys.rememberWhiteBalance) private var rememberWhiteBalance = Constants.rememberWhiteBalanceDefault
-    @AppStorage(Constants.DefaultsKeys.stripBackground) private var stripBackground = StripCustomization.StripBackground.cream.settingsName
-    @AppStorage(Constants.DefaultsKeys.stripFilmStock) private var stripFilmStock = StripCustomization.FilmStock.none.rawValue
+    @AppStorage(Constants.DefaultsKeys.stripBackground) private var stripBackground = StripCustomization.StripBackground.white.settingsName
+    // v4 F12: stored as a String so As shot can be a sentinel; read and
+    // written only through StripCustomization's stored-value helpers
+    @AppStorage(Constants.DefaultsKeys.stripFilmStock) private var stripFilmStock = Constants.Strip.asShotStoredValue
+    // nil (key absent) = the stock's own default print
+    @AppStorage(Constants.DefaultsKeys.stripPrintStock) private var stripPrintStock: StripCustomization.PrintStock?
+    // A missing effect key means the stock default, which for halation is on
+    @AppStorage(Constants.DefaultsKeys.stripHalation) private var stripHalation = StripCustomization.FilmEffects.stockDefaults.halation
+    @AppStorage(Constants.DefaultsKeys.stripBloom) private var stripBloom = StripCustomization.FilmEffects.stockDefaults.bloom
+    @AppStorage(Constants.DefaultsKeys.stripLightLeak) private var stripLightLeak = StripCustomization.FilmEffects.stockDefaults.lightLeak
     @AppStorage(Constants.DefaultsKeys.stripBlackAndWhite) private var stripBlackAndWhite = false
 
     @State private var isClearDiaryConfirmationPresented = false
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
+
+    /// The stored default as a picker choice; nil = As shot
+    private var stockChoice: StripCustomization.FilmStock? {
+        StripCustomization.stockChoice(fromStoredValue: stripFilmStock)
+    }
+
+    private var stockChoiceBinding: Binding<StripCustomization.FilmStock?> {
+        Binding(
+            get: { stockChoice },
+            set: { stripFilmStock = StripCustomization.storedValue(forStockChoice: $0) }
+        )
+    }
+
+    // The rules below mirror StripViewModel: As shot has no print row and
+    // keeps effects (its frames may carry stocks); only an explicit Off
+    // hides effects; only a mono override locks B&W
+    private var isPrintRowVisible: Bool { stockChoice?.hasPrintChoice ?? false }
+    private var printChoices: [StripCustomization.PrintStock] { stockChoice?.availablePrints ?? [] }
+    private var areEffectsVisible: Bool { stockChoice?.hasEffects ?? true }
+    private var isBlackAndWhiteLocked: Bool { stockChoice?.isMonochrome ?? false }
+
+    // Mirrors StripViewModel.blackAndWhiteToggle: a mono stock reads on and
+    // the stored preference is left untouched while it is locked
+    private var blackAndWhiteDefault: Binding<Bool> {
+        Binding(
+            get: { stripBlackAndWhite || isBlackAndWhiteLocked },
+            set: { newValue in
+                guard !isBlackAndWhiteLocked else { return }
+                stripBlackAndWhite = newValue
+            }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -58,18 +98,47 @@ struct SettingsView: View {
 
                 Section("Strip defaults") {
                     Picker("Background", selection: $stripBackground) {
-                        Text("Cream").tag(StripCustomization.StripBackground.cream.settingsName)
-                        Text("White").tag(StripCustomization.StripBackground.white.settingsName)
-                        Text("Black").tag(StripCustomization.StripBackground.black.settingsName)
-                    }
-                    Picker("Film stock", selection: $stripFilmStock) {
-                        ForEach(StripCustomization.FilmStock.allCases) { stock in
-                            Text(stock.label).tag(stock.rawValue)
+                        // v4 F8: white and black only
+                        ForEach(StripCustomization.StripBackground.allCases, id: \.settingsName) { background in
+                            Text(background.label).tag(background.settingsName)
                         }
                     }
-                    Toggle("Black & white", isOn: $stripBlackAndWhite)
+                    .accessibilityHint("The background new strips start with")
+                    .accessibilityIdentifier("settings.background")
+                    Picker("Film stock", selection: stockChoiceBinding) {
+                        ForEach(StripCustomization.stockChoices, id: \.self) { choice in
+                            Text(StripCustomization.label(forStockChoice: choice)).tag(choice)
+                        }
+                    }
+                    .accessibilityHint("The film new strips start on. As shot keeps each photo's own film.")
+                    .accessibilityIdentifier("settings.filmStock")
+                    if isPrintRowVisible {
+                        Picker("Print", selection: $stripPrintStock) {
+                            Text("Stock default").tag(StripCustomization.PrintStock?.none)
+                            ForEach(printChoices) { printStock in
+                                Text(printStock.label).tag(StripCustomization.PrintStock?.some(printStock))
+                            }
+                        }
+                        .accessibilityHint("The paper new strips are printed on. Stock default uses the film's own print.")
+                    }
+                    if areEffectsVisible {
+                        // OPEN: v4-2 — on/off toggles, not strength sliders
+                        // (Constants.ImageProcessing.Film.effectsAreToggles)
+                        Toggle("Halation", isOn: $stripHalation)
+                            .accessibilityHint("New strips start with a warm glow around bright highlights")
+                            .accessibilityIdentifier("settings.halation")
+                        Toggle("Bloom", isOn: $stripBloom)
+                            .accessibilityHint("New strips start with bright areas softened and spread")
+                        Toggle("Light leak", isOn: $stripLightLeak)
+                            .accessibilityHint("New strips start with a streak of light at the frame edge")
+                    }
+                    Toggle("Black & white", isOn: blackAndWhiteDefault)
+                        .disabled(isBlackAndWhiteLocked)
+                        .accessibilityHint("New strips start in black and white. Mono stocks are always black and white.")
+                        .accessibilityIdentifier("settings.blackAndWhite")
                 }
                 .listRowBackground(theme.card)
+                .animation(.easeInOut(duration: Constants.StripUI.controlRowAnimationDuration), value: stripFilmStock)
 
                 Section("Help") {
                     // OPEN: v3-3 — replay in landscape appears to do nothing

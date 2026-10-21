@@ -6,12 +6,22 @@ Full product specification. Read alongside `CLAUDE.md` (engineering rules). Toge
 
 ## §1 What this app is
 
-A minimalist iOS photography journal. Core loop:
+A minimalist iOS photography journal with a physically based film look. Core loop:
 
-1. Take a photo (single diary shot or 4-shot film strip sequence)
-2. Receive a reflective prompt
-3. Write a short entry
-4. Entries compile into photobooth-style film strips in a library
+1. Take a photo (single diary shot or 4-shot film strip sequence) on a chosen film stock
+2. *(v4 Part 2)* Review it and change the stock if wanted, then confirm
+3. Receive a reflective prompt
+4. Write a short entry
+5. Entries compile into strips in a library, each frame in its own stock or one stock for the whole strip
+
+The film look (v4) simulates film rather than filtering it:
+- per-layer characteristic curves
+- a negative → print chain
+- halation
+- exposure-dependent grain
+- bloom and light leaks
+
+It all runs on the device with Core Image. Six stocks: Daylight 200, Portrait 400, Cine 500T, Slide 100, Mono 400, Mono 3200. Prints: Lab, Cinema, Matte, Projection. See `frmr-v4-spec.md`.
 
 No network dependency. No AI. No automation. Every action is explicit and user-initiated.
 
@@ -72,16 +82,32 @@ Capture up to 4 shots that compile into one strip.
 
 ### Screen 4 — Strip preview & customization
 
-Review the compiled strip and adjust its look before saving/sharing.
+Review the compiled strip and adjust its look before saving/sharing. *(Updated for v4.)*
 
 **Layout**
-- Centered strip card, 150px wide, cream (`#E9D8A6`) background, 6px white border (photobooth paper look), 8px internal gap between 4 square photos and their italic captions (9px Newsreader italic)
-- Date stamp bottom, 8px monospace, letter-spacing 0.12em
+- Centered booth strip, 150pt wide, on warm off-white (≈`#F4F0E7`) or near-black (≈`#171614`) photo paper with a faint texture.
+- Thin even border (6pt) and thin gaps (4pt).
+- Four 4:5 portrait frames with slightly rounded corners.
+- A one-line italic caption under each frame.
+- Date stamp at the bottom, monospace, letter-spacing 0.12em.
 
 **Controls**
-- "Background" swatch row: 5 circular swatches, 30px, 2px border — selected swatch bordered in theme primary
-- Two toggle rows ("Film grain" on/teal, "Black & white" off/gray) — toggle track 46×26px pill, knob 22px white circle
-- Three equal-width action buttons (Save / Share / Archive): 10px radius, theme card background, 13px/600 system UI
+- "Background" swatch row: two swatches (White paper, Black paper), each with a rim and a 44pt target.
+- Film stock picker: "As shot" (default; each frame keeps the stock it was taken on) plus Off and the six stocks.
+- Print picker, shown only for an override stock with a print choice.
+- Effects: Halation, Bloom and Light leak toggles.
+- Black & white toggle, locked on for mono stocks.
+- Three equal-width action buttons (Save / Share / Archive): 10px radius, theme card background, 13px/600 system UI.
+
+### Screen 4b — Diary review (v4)
+
+Shown after a diary capture, before the prompt screen.
+- **Photo:** the photo in its chosen stock.
+- **Stock row:** a scrolling row of the seven stock chips under the photo.
+- **Buttons:**
+  - **OK** at the bottom left (primary) leads to the prompt screen.
+  - **Retake** at the bottom right discards the capture.
+  - A **Download** icon at the photo's top right saves the full-resolution film photo to the camera roll and shows "Saved". It creates no entry, and the user stays on this screen.
 
 ---
 
@@ -190,17 +216,17 @@ Appearance, camera defaults, strip defaults, data management.
 
 ## §8 Image processing pipeline
 
-CoreImage pipeline — no third-party libraries.
+CoreImage pipeline — no third-party libraries. **Superseded in v4:** the strip look is now a film pipeline, specified in `frmr-v4-spec.md`. In order: upright (resolve orientation tag) → resize to slot → B&W luminance → halation → film colour cube (negative curve → print → output normalisation, built in `FilmModel.swift`) → bloom → light leak → grain. Effects are seeded per frame, so re-rendering a strip is pixel-identical.
 
-Filters to support (configurable per strip):
-- **Film grain:** `CIFilter(name: "CINoiseReduction")` inverted or a custom `CIKernel` adding luminance noise. Intensity controlled by a constant.
-- **Black & white:** `CIFilter(name: "CIPhotoEffectMono")` or `CIColorControls` with saturation 0.
-- Filter chain order: B&W → grain (grain should be added to an already-desaturated image when both are on).
+The original v1 spec read: film grain plus `CIPhotoEffectMono` B&W, chained B&W → grain. That still describes Off + B&W, which uses `CIPhotoEffectMono`.
 
-All filter parameters live in `Constants.swift`.
+The same film chain also drives:
+- `ImageProcessor.renderFullLook`: the review screen, entry display and full-resolution Download. Grain is scaled to the frame, so Download matches the review.
+- `FilmPreviewRenderer`: the live viewfinder, which applies the colour cube only (no grain or effects).
+
+All filter parameters live in `Constants.swift` (`Constants.ImageProcessing.Film` for v4).
 
 ---
-
 ## §9 Camera — AVFoundation requirements
 
 - Session preset: `.photo`
@@ -213,18 +239,19 @@ All filter parameters live in `Constants.swift`.
 
 ## §10 Strip generation
 
-`StripGenerator` produces a `UIImage` from an array of 4 `UIImage` photos + `StripCustomization`.
+`StripGenerator` produces a `UIImage` from strips of 4 cells (photo, caption, film stock) plus `StripCustomization`. *(Updated for v4 booth strip, F15.)*
 
-Layout (at 2× resolution, logical units):
+Layout (at 2× resolution, logical units; all values in `Constants.Strip`, OPEN v4-16):
 - Strip width: 150pt → 300px
-- 4pt padding all sides
-- 4 square photo slots (width = strip width − 8pt, aspect 1:1), 8pt gap between slots
-- Below each photo: italic caption text (9pt Newsreader italic, truncated to 2 lines)
+- Border: 6pt, even on all sides
+- 4 portrait photo slots at 4:5 (`cellAspectRatio` 0.8) with a 2.5pt corner radius
+- Below each photo: a one-line italic caption band (2pt below the frame)
+- Gap: 4pt between a caption band and the next frame, and before the date
 - Date stamp at bottom: 8pt monospace, letter-spacing 0.12em
-- Background color: from `StripCustomization.background`
-- White border: 6pt all sides
+- Paper: `StripCustomization.background.color` (warm off-white or near-black) plus a faint texture seeded by the strip date and index
+- No sprocket holes, frame numbers or edge date (removed in v4 F8)
 
-Apply CoreImage filters to each photo before compositing.
+Each photo is filmed with its effective stock (the strip override, or the frame's own stock when "As shot") through `ImageProcessor.applyStripLook` before compositing.
 
 `StripGenerator` is pure logic (inputs in → image out) and must be fully unit-testable without a device.
 
@@ -329,13 +356,26 @@ All eight v2 features from `frmr-v2-spec.md` are implemented. Clean build, zero 
 
 Key changes future agents should know about:
 
-- **`StripCustomization.filmGrain: Bool` is gone**, replaced by `filmStock: FilmStock` (`.none` / `.iso100` / `.iso400` / `.iso3200`). Old UserDefaults values migrate on read via `FilmStock.migrating(fromLegacyGrainEnabled:)`. §4's `stripSettings` table entry is superseded.
+- **`StripCustomization.filmGrain: Bool` is gone**, replaced by `filmStock: FilmStock` (`.none` / `.iso100` / `.iso400` / `.iso3200`). Old UserDefaults values migrate on read via `FilmStock.migrating(fromLegacyGrainEnabled:)`. §4's `stripSettings` table entry is superseded. **Superseded again in v4:** the ISO cases are replaced by six named stocks plus `printStock` and `effects`. v2 values migrate at launch (`iso100` → Daylight 200, `iso400` → Portrait 400, `iso3200` → Cine 500T). See `frmr-v4-spec.md` §F7.
 - **`ImageProcessor.applyStripLook` takes an `outputWidth:`.** Grain is per-pixel, so it must be pre-scaled to the size the photo will actually be drawn at — otherwise downscaling into a strip slot averages it away completely. Always pass it when compositing into a smaller rect.
 - **`Shared/Haptics.swift`** owns the three feedback generators. Use it rather than instantiating `UIFeedbackGenerator` at a call site; the generators are pre-warmed.
 - **`CameraViewModel` holds the preview layer** (via `registerPreviewLayer`) purely to convert taps into device points. Gestures live on the preview view so tap coordinates need no conversion of our own.
 - Pure, unit-tested helpers now exist for the gesture maths: `CameraViewModel.exposureBias(fromDragHeight:base:)` and `CaptureSession.clampedZoom(_:min:max:)`.
 
 Full detail, spec deviations, and the remaining v2 open decisions (v2-1 … v2-5) are in `frmr-v2-spec.md` § "Implementation status — v2 build".
+
+---
+
+## §14b Implementation status — v4 build (2026-10-20)
+
+The v4 film pipeline is built:
+- **Part 1:** F0 orientation fix, F1 resize-first float pipeline, F2/F3 curves and print stage, F4 halation, F5 grain v2, F6 bloom and light leak, F7 controls and migration.
+- **Part 2:**
+  - F8 plain strip, F9 camera film stock with live preview, F10 diary review, F11 per-photo stock, F12 As shot / override, F13 Download.
+  - F14 stock calibration against real film, after a shadow / black-point fix found on real DNGs.
+  - F15 booth strip.
+
+Verification: QA verified everything on the simulator; device checks are outstanding. Full per-feature status, timings, deviations, QA findings and the device checklist are in `frmr-v4-spec.md` §Implementation status.
 
 ---
 

@@ -1,13 +1,21 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import ImageIO
+import UniformTypeIdentifiers
 import UIKit
 
 // All CoreImage filter logic lives here. Two pipelines:
 //  - process(rawData:) — the full RAW development look (Constants.ImageProcessing)
-//  - applyStripLook(to:customization:) — B&W / grain applied at strip render time
+//  - applyStripLook(to:customization:outputWidth:) — the strip-time film look,
+//    applied after resizing to the strip slot
 nonisolated enum ImageProcessor {
     private static let context = CIContext()
+
+    // The strip look gets its own half-float context: curves and glows banded
+    // visibly in 8-bit. One static instance, because building a CIContext per
+    // render costs more than the render itself at slot size (v4 F1).
+    private static let stripContext = CIContext(options: [.workingFormat: CIFormat.RGBAh])
+    private static let stripOutputColorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
 
     static func process(rawData: Data) throws -> UIImage {
         guard let rawFilter = CIRAWFilter(imageData: rawData, identifierHint: nil) else {
@@ -97,50 +105,236 @@ nonisolated enum ImageProcessor {
         return CIImage(cgImage: cgImage).oriented(cgOrientation(from: image.imageOrientation))
     }
 
-    /// - Parameter outputWidth: the width in pixels the result will be drawn at.
-    ///   Grain is a per-pixel effect, so a full-resolution capture composited
-    ///   into a 260px strip slot averages its grain away to nothing. Passing the
-    ///   destination width scales the noise tile up to compensate.
+    /// - Parameter outputWidth: the slot width in pixels the result will be
+    ///   drawn at. Required: the photo is resized and centre-cropped to the
+    ///   slot (`outputWidth × outputWidth / Strip.cellAspectRatio`) before any
+    ///   effect runs, so every effect works in output pixels (v4 F1).
+    /// - Returns: the original image untouched when no filter is active
+    ///   (the caller aspect-fills it), otherwise an upright, slot-sized image.
+    /// - Parameter seed: drives every random element (grain, light leak).
+    ///   StripGenerator derives it from the strip date and slot index, so the
+    ///   same strip re-renders pixel-identically.
     static func applyStripLook(
         to image: UIImage,
         customization: StripCustomization,
-        outputWidth: CGFloat? = nil
+        outputWidth: CGFloat,
+        seed: UInt64 = 0
     ) -> UIImage {
-        let profile = customization.filmStock.profile
-        guard customization.blackAndWhite || profile != nil else {
+        // One photo has one stock: StripGenerator resolves As shot per frame
+        // (`effective(forFrameStock:)`) before calling, so a nil here has no
+        // frame stock to fall back on and renders as Off
+        let stock = customization.filmStock ?? .none
+        guard customization.blackAndWhite || stock != .none else {
             return image
         }
-        guard let input = uprightCIImage(from: image) else {
+        guard
+            let upright = uprightCIImage(from: image),
+            let input = resizedToSlot(upright, outputWidth: outputWidth)
+        else {
             // Cosmetic filters only — falling back to the unfiltered photo loses no
             // data and keeps the strip render from failing outright.
             print("[ImageProcessor] Could not read image for strip filters; using original")
             return image
         }
 
-        var output = input
-        // Filter order is fixed: B&W first, then the film stock's colour cast,
-        // then grain (project.md §8, extended by v2 F5). The cast lands before
-        // the grain so the grain itself stays neutral-coloured.
-        if customization.blackAndWhite {
-            let mono = CIFilter.photoEffectMono()
-            mono.inputImage = output
-            output = mono.outputImage ?? output
-        }
-        if let profile {
-            // A B&W strip should stay neutral, so the cast is skipped there
-            if !customization.blackAndWhite, !profile.isNeutral {
-                output = applyColourCast(profile.colourMatrix, to: output)
-            }
-            let shrinkFactor = outputWidth.map { max(1, input.extent.width / $0) } ?? 1
-            output = addGrain(to: output, profile: profile, sizeCompensation: shrinkFactor)
-        }
-
         do {
-            return try render(output)
+            return try renderStrip(filmLook(input, customization: customization, outputWidth: outputWidth, seed: seed))
         } catch {
             print("[ImageProcessor] Strip filter render failed; using original: \(error)")
             return image
         }
+    }
+
+    /// One photo through its stock's full look (v4 F10, F11, F13): the
+    /// stock's default print and effects, grain included — the same chain
+    /// as the strip, but on the whole frame instead of a square slot.
+    ///
+    /// Works in sensor space and returns the source's orientation tag, so a
+    /// saved file is tagged exactly like the capture. Effects are sized
+    /// from the upright width, as the strip sizes them from the slot width.
+    ///
+    /// - Parameter coveringPixelSize: an upright display size in pixels. The
+    ///   photo is first scaled down (never up) to the smallest size that
+    ///   still covers it, for the review screen and thumbnails. nil keeps
+    ///   full resolution (Download).
+    /// - Returns: `image` itself for stock Off.
+    static func renderFullLook(
+        of image: UIImage,
+        stock: StripCustomization.FilmStock,
+        seed: UInt64,
+        coveringPixelSize: CGSize? = nil
+    ) throws -> UIImage {
+        guard stock != .none else { return image }
+        guard let cgImage = image.cgImage else { throw AppError.filmLookRenderFailed }
+        let orientation = image.imageOrientation
+        var input = CIImage(cgImage: cgImage)
+        var scale = image.scale
+
+        if let target = coveringPixelSize,
+           let resized = resized(input, toCover: sensorSpaceSize(of: target, for: orientation)) {
+            input = resized
+            scale = 1
+        }
+        // The swap is its own inverse, so it also maps sensor size to upright
+        let uprightWidth = sensorSpaceSize(of: input.extent.size, for: orientation).width
+        // Blurs and the leak are already fractions of the width; grain is
+        // in pixels, so it scales with the frame (OPEN: v4-5,
+        // Constants.ImageProcessing.Film.grainReferenceWidth)
+        let output = filmLook(
+            input, customization: .stockDefaults(for: stock), outputWidth: uprightWidth, seed: seed,
+            grainScale: Double(uprightWidth) / Constants.ImageProcessing.Film.grainReferenceWidth
+        )
+        guard let rendered = stripContext.createCGImage(
+            output, from: input.extent, format: .RGBA8, colorSpace: stripOutputColorSpace
+        ) else {
+            throw AppError.filmLookRenderFailed
+        }
+        return UIImage(cgImage: rendered, scale: scale, orientation: orientation)
+    }
+
+    /// An upright size expressed in the sensor-space pixels of a photo
+    /// tagged `orientation`: quarter-turned tags swap width and height.
+    static func sensorSpaceSize(of upright: CGSize, for orientation: UIImage.Orientation) -> CGSize {
+        switch orientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            return CGSize(width: upright.height, height: upright.width)
+        default:
+            return upright
+        }
+    }
+
+    /// Lanczos downscale to the smallest size covering `target`, keeping
+    /// the aspect ratio and the origin at zero. nil when no shrink is
+    /// needed, so a full-size render never resamples.
+    private static func resized(_ image: CIImage, toCover target: CGSize) -> CIImage? {
+        let source = image.extent
+        guard source.width > 0, source.height > 0, target.width >= 1, target.height >= 1 else { return nil }
+        let scale = max(target.width / source.width, target.height / source.height)
+        guard scale < 1 else { return nil }
+        let lanczos = CIFilter.lanczosScaleTransform()
+        lanczos.inputImage = image.clampedToExtent()
+        lanczos.scale = Float(scale)
+        lanczos.aspectRatio = 1
+        guard let scaled = lanczos.outputImage else { return nil }
+        let size = CGRect(
+            x: 0, y: 0,
+            width: (source.width * scale).rounded(),
+            height: (source.height * scale).rounded()
+        )
+        return scaled.cropped(to: size)
+    }
+
+    /// HEIC data for the camera roll (v4 F13), carrying the image's
+    /// orientation as its EXIF tag rather than rotating pixels.
+    static func heicData(from image: UIImage, quality: Double = Constants.Diary.downloadHEICQuality) throws -> Data {
+        guard let cgImage = image.cgImage else { throw AppError.filmLookRenderFailed }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data as CFMutableData, UTType.heic.identifier as CFString, 1, nil
+        ) else {
+            throw AppError.filmLookRenderFailed
+        }
+        let properties: [CFString: Any] = [
+            kCGImagePropertyOrientation: cgOrientation(from: image.imageOrientation).rawValue,
+            kCGImageDestinationLossyCompressionQuality: quality,
+        ]
+        CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { throw AppError.filmLookRenderFailed }
+        return data as Data
+    }
+
+    /// The film chain on an already-sized image: everything after the
+    /// resize, shared by the strip slot and the full-frame look.
+    private static func filmLook(
+        _ input: CIImage,
+        customization: StripCustomization,
+        outputWidth: CGFloat,
+        seed: UInt64,
+        grainScale: Double = 1
+    ) -> CIImage {
+        let stock = customization.filmStock ?? .none
+        // Order is part of the spec (v4 §Theme C): monochrome luminance,
+        // halation, the film cube, bloom, light leak, then grain last so it
+        // sits on top of the print.
+        var output = input
+        if let negative = stock.negative, let printProfile = customization.resolvedPrint?.profile {
+            let monochrome = customization.rendersInBlackAndWhite
+            if monochrome {
+                output = luminance(of: output, weights: negative.monoWeights)
+            }
+            if customization.effects.halation {
+                output = applyHalation(to: output, strength: stock.halationStrength, outputWidth: outputWidth)
+            }
+            output = applyFilmCube(negative: negative, print: printProfile, monochrome: monochrome, to: output)
+        } else if customization.blackAndWhite {
+            // No stock: the plain B&W look from v1, unchanged
+            let mono = CIFilter.photoEffectMono()
+            mono.inputImage = output
+            output = mono.outputImage ?? skipping("B&W (no stock)", output)
+        }
+        // OPEN: v4-4 — no strip-time vignette (Constants.ImageProcessing.Film
+        // .stripVignetteEnabled is false): the RAW development step already
+        // applies one. If it is ever enabled it belongs here, after the cube.
+        if stock != .none {
+            if customization.effects.bloom {
+                output = applyBloom(to: output, outputWidth: outputWidth)
+            }
+            if customization.effects.lightLeak {
+                output = applyLightLeak(
+                    to: output,
+                    seed: SeededRandom.derive(seed, salt: Constants.ImageProcessing.Film.lightLeakSeedSalt)
+                )
+            }
+            output = addGrain(
+                to: output,
+                intensity: stock.grainIntensity,
+                // The strip passes 1: its grain is tuned at slot size
+                sizePixels: stock.grainSizePixels * grainScale,
+                monochrome: customization.rendersInBlackAndWhite,
+                seed: SeededRandom.derive(seed, salt: Constants.ImageProcessing.Film.grainSeedSalt),
+                profile: stock.grainProfile
+            )
+        }
+        return output.cropped(to: input.extent)
+    }
+
+    // Filtering a 12 MP capture for a 260 px slot spent nearly all its time on
+    // pixels that were thrown away when the strip drew it smaller. Resizing
+    // first makes every later effect cost output pixels only, and lets grain
+    // and blur sizes be stated directly in output pixels (v4 F1).
+    /// Aspect-fills `image` into the strip slot for `outputWidth` and
+    /// centre-crops it, returning an image whose extent starts at the origin.
+    static func resizedToSlot(_ image: CIImage, outputWidth: CGFloat) -> CIImage? {
+        let source = image.extent
+        let width = outputWidth.rounded()
+        let height = (outputWidth / Constants.Strip.cellAspectRatio).rounded()
+        guard
+            source.width > 0, source.height > 0, !source.isInfinite,
+            width >= 1, height >= 1
+        else {
+            return nil
+        }
+
+        let scale = max(width / source.width, height / source.height)
+        let lanczos = CIFilter.lanczosScaleTransform()
+        // Clamping first stops the resampler pulling transparent black in
+        // from outside the photo, which would darken the slot's edges.
+        lanczos.inputImage = image
+            .transformed(by: CGAffineTransform(translationX: -source.minX, y: -source.minY))
+            .clampedToExtent()
+        lanczos.scale = Float(scale)
+        lanczos.aspectRatio = 1
+        guard let scaled = lanczos.outputImage else { return nil }
+
+        let crop = CGRect(
+            x: ((source.width * scale - width) / 2).rounded(.down),
+            y: ((source.height * scale - height) / 2).rounded(.down),
+            width: width,
+            height: height
+        )
+        return scaled
+            .cropped(to: crop)
+            .transformed(by: CGAffineTransform(translationX: -crop.minX, y: -crop.minY))
     }
 
     private static func applyLook(to input: CIImage) -> CIImage {
@@ -199,106 +393,295 @@ nonisolated enum ImageProcessor {
         return image
     }
 
-    // MARK: Grain (v2 F4 / F5)
+    // MARK: Halation (v4 F4)
 
-    private static func applyColourCast(_ matrix: [CGFloat], to input: CIImage) -> CIImage {
-        guard matrix.count == 16 else { return input }
-        let filter = CIFilter.colorMatrix()
-        filter.inputImage = input
-        filter.rVector = CIVector(x: matrix[0], y: matrix[1], z: matrix[2], w: matrix[3])
-        filter.gVector = CIVector(x: matrix[4], y: matrix[5], z: matrix[6], w: matrix[7])
-        filter.bVector = CIVector(x: matrix[8], y: matrix[9], z: matrix[10], w: matrix[11])
-        filter.aVector = CIVector(x: matrix[12], y: matrix[13], z: matrix[14], w: matrix[15])
-        return filter.outputImage ?? input
+    /// Adds the red-orange glow that light bouncing off the film base leaves
+    /// around highlights. Works in linear light on the scene side of the
+    /// cube, so the glow goes through the film's shoulder like real light.
+    /// A strength of 0, or an image with nothing above the threshold, adds
+    /// exactly nothing.
+    static func applyHalation(to input: CIImage, strength: Double, outputWidth: CGFloat) -> CIImage {
+        typealias F = Constants.ImageProcessing.Film
+        guard strength > 0 else { return input }
+        let extent = input.extent
+        let t = F.halationThreshold
+        let weights = F.Spectral.panchromatic
+
+        // Highlight key: max(0, L − t) / (1 − t), as a grey image
+        let gain = 1 / (1 - t)
+        let row = CIVector(
+            x: CGFloat(weights.r * gain), y: CGFloat(weights.g * gain), z: CGFloat(weights.b * gain), w: 0
+        )
+        let keyMatrix = CIFilter.colorMatrix()
+        keyMatrix.inputImage = input
+        keyMatrix.rVector = row
+        keyMatrix.gVector = row
+        keyMatrix.bVector = row
+        keyMatrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        keyMatrix.biasVector = CIVector(x: CGFloat(-t * gain), y: CGFloat(-t * gain), z: CGFloat(-t * gain), w: 0)
+        let clamp = CIFilter.colorClamp()
+        clamp.inputImage = keyMatrix.outputImage
+        clamp.minComponents = CIVector(x: 0, y: 0, z: 0, w: 0)
+        clamp.maxComponents = CIVector(x: 1, y: 1, z: 1, w: 1)
+        guard let key = clamp.outputImage else { return skipping("Halation key", input) }
+
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = key.clampedToExtent()
+        blur.radius = Float(F.halationRadiusFraction * Double(outputWidth))
+        guard let spread = blur.outputImage?.cropped(to: extent) else { return skipping("Halation blur", input) }
+
+        let tint = CIFilter.colorMatrix()
+        tint.inputImage = spread
+        tint.rVector = CIVector(x: CGFloat(F.halationTint.r * strength), y: 0, z: 0, w: 0)
+        tint.gVector = CIVector(x: 0, y: CGFloat(F.halationTint.g * strength), z: 0, w: 0)
+        tint.bVector = CIVector(x: 0, y: 0, z: CGFloat(F.halationTint.b * strength), w: 0)
+        tint.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        guard let glow = tint.outputImage else { return skipping("Halation tint", input) }
+
+        // Linear dodge is plain S + D on opaque images. CIAdditionCompositing
+        // would also add the alphas, and a zero-alpha glow is wiped out by
+        // CIColorMatrix's premultiply, so neither works for an additive light.
+        let add = CIFilter.linearDodgeBlendMode()
+        add.inputImage = glow
+        add.backgroundImage = input
+        return add.outputImage?.cropped(to: extent) ?? skipping("Halation blend", input)
     }
 
-    // Luminosity-weighted grain: a flat noise overlay reads as a Photoshop
-    // texture, so the grain layer's opacity is shaped by a U-curve over the
-    // image's own luminance — heavy in shadows, lightest in midtones, heavy
-    // again in highlights. That U-curve is what makes it read as film.
-    private static func addGrain(
-        to input: CIImage,
-        profile: Constants.ImageProcessing.FilmStockProfile,
-        sizeCompensation: CGFloat
+    // MARK: Film model (v4 F2/F3)
+
+    // Linear-light luminance with the emulsion's own spectral weights. The
+    // cube would compute the same thing, but doing it first means later
+    // effects that run before the cube (halation, F4) already see monochrome.
+    private static func luminance(of input: CIImage, weights: SpectralWeights) -> CIImage {
+        let row = CIVector(x: CGFloat(weights.r), y: CGFloat(weights.g), z: CGFloat(weights.b), w: 0)
+        let matrix = CIFilter.colorMatrix()
+        matrix.inputImage = input
+        matrix.rVector = row
+        matrix.gVector = row
+        matrix.bVector = row
+        matrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        return matrix.outputImage ?? skipping("Luminance", input)
+    }
+
+    // The negative→print chain is baked into a colour cube by the pure
+    // FilmLUT, so the pixels come from exactly the maths the tests check.
+    // OPEN: v4-8 — cube, not a Metal CIColorKernel
+    // (Constants.ImageProcessing.Film.usesColourCube); switch only if
+    // profiling shows the cube build or lookup is the bottleneck.
+    // sRGB colour space: the cube is indexed by gamma-encoded values, which
+    // spend its 64 steps evenly across what the eye sees.
+    private static func applyFilmCube(
+        negative: NegativeProfile,
+        print printProfile: PrintProfile,
+        monochrome: Bool,
+        to input: CIImage
     ) -> CIImage {
+        let dimension = Constants.ImageProcessing.Film.lutDimension
+        let cube = CIFilter.colorCubeWithColorSpace()
+        cube.inputImage = input
+        cube.cubeDimension = Float(dimension)
+        cube.cubeData = FilmLUT.cachedCube(
+            negative: negative, print: printProfile, monochrome: monochrome, dimension: dimension
+        )
+        cube.colorSpace = stripOutputColorSpace
+        return cube.outputImage ?? skipping("Film cube", input)
+    }
+
+    // MARK: Bloom and light leak (v4 F6)
+
+    /// Mist-filter bloom: a blurred copy screened back at `bloomStrength`.
+    /// Highlights spread and contrast drops a little while detail stays
+    /// sharp, because the original is never blurred. Screen only brightens.
+    static func applyBloom(to input: CIImage, outputWidth: CGFloat) -> CIImage {
+        typealias F = Constants.ImageProcessing.Film
+        let extent = input.extent
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = input.clampedToExtent()
+        blur.radius = Float(F.bloomRadiusFraction * Double(outputWidth))
+        let strength = CGFloat(F.bloomStrength)
+        let fade = CIFilter.colorMatrix()
+        fade.inputImage = blur.outputImage?.cropped(to: extent)
+        fade.rVector = CIVector(x: strength, y: 0, z: 0, w: 0)
+        fade.gVector = CIVector(x: 0, y: strength, z: 0, w: 0)
+        fade.bVector = CIVector(x: 0, y: 0, z: strength, w: 0)
+        let screen = CIFilter.screenBlendMode()
+        screen.inputImage = fade.outputImage
+        screen.backgroundImage = input
+        return screen.outputImage?.cropped(to: extent) ?? skipping("Bloom", input)
+    }
+
+    /// Procedural light leak: warm radial glows centred just outside a
+    /// seeded frame edge, screened over the photo. No image assets. Each
+    /// glow fades to black, and screening black changes nothing, so a leak
+    /// can only brighten.
+    static func applyLightLeak(to input: CIImage, seed: UInt64) -> CIImage {
+        typealias F = Constants.ImageProcessing.Film
+        let extent = input.extent
+        let linear = CGColorSpace(name: CGColorSpace.linearSRGB) ?? CGColorSpaceCreateDeviceRGB()
+        let spots = LightLeak.spots(seed: seed, width: Double(extent.width), height: Double(extent.height))
+        var output = input
+        for spot in spots {
+            let s = F.lightLeakStrength
+            guard
+                let inner = CIColor(
+                    red: CGFloat(spot.red * s), green: CGFloat(spot.green * s), blue: CGFloat(spot.blue * s),
+                    alpha: 1, colorSpace: linear
+                ),
+                let outer = CIColor(red: 0, green: 0, blue: 0, alpha: 1, colorSpace: linear)
+            else {
+                _ = skipping("Light leak colour", output)
+                continue
+            }
+            let gradient = CIFilter.radialGradient()
+            gradient.center = CGPoint(x: extent.minX + spot.centreX, y: extent.minY + spot.centreY)
+            gradient.radius0 = 0
+            gradient.radius1 = Float(spot.radius)
+            gradient.color0 = inner
+            gradient.color1 = outer
+            let screen = CIFilter.screenBlendMode()
+            screen.inputImage = gradient.outputImage?.cropped(to: extent)
+            screen.backgroundImage = output
+            output = screen.outputImage?.cropped(to: extent) ?? skipping("Light leak blend", output)
+        }
+        return output
+    }
+
+    // MARK: Grain v2 (v4 F5)
+
+    /// Density-shaped, mean-preserving film grain.
+    ///
+    /// Grain is a fluctuation in how much light the print passes, so it
+    /// multiplies linear light: out = in · (1 + a · g), with g zero-mean noise
+    /// in −1…1 and a the amplitude. The mean of a flat patch is unchanged and
+    /// the result never goes negative, unlike adding noise, which clips at
+    /// black and brightens the shadows on average. a follows the print's
+    /// density through `grainDensityCurve`, applied after the curves so it
+    /// sees the density the viewer sees.
+    static func addGrain(
+        to input: CIImage,
+        intensity: Double,
+        sizePixels: Double,
+        monochrome: Bool,
+        seed: UInt64,
+        profile: GrainProfile = Constants.ImageProcessing.Film.Grain.standard
+    ) -> CIImage {
+        typealias F = Constants.ImageProcessing.Film
+        guard intensity > 0 else { return input }
+        let sizePixels = sizePixels * profile.sizeScale
+        guard let noise = CIFilter.randomGenerator().outputImage else { return skipping("Grain noise", input) }
+        let extent = input.extent
+        var random = SeededRandom(seed: seed)
+
+        // One octave: the noise tile shifted by a seeded whole-pixel offset,
+        // scaled to grain size, mixed toward monochrome and weighted. Every
+        // intermediate stays non-negative: Core Image's blend filters clamp
+        // negative values, which would bias the grain bright.
+        func octave(size: Double, weight: Double) -> CIImage? {
+            let dx = CGFloat(random.next() % F.grainSeedOffsetRange)
+            let dy = CGFloat(random.next() % F.grainSeedOffsetRange)
+            let scale = CGFloat(max(size, 1))
+            // CIRandomGenerator randomises alpha too; colour filters would
+            // unpremultiply by it and skew the noise, so make it opaque first
+            let tile = noise
+                .transformed(by: CGAffineTransform(translationX: -dx, y: -dy))
+                .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                .settingAlphaOne(in: extent)
+            // Mono grain takes every channel from red; colour grain keeps a
+            // `grainChroma` share of each dye layer's own noise
+            let chroma = monochrome ? 0 : F.grainChroma
+            let shared = (1 - chroma) * weight
+            let own = chroma * weight
+            let mix = CIFilter.colorMatrix()
+            mix.inputImage = tile
+            mix.rVector = CIVector(x: CGFloat(weight), y: 0, z: 0, w: 0)
+            mix.gVector = CIVector(x: CGFloat(shared), y: CGFloat(own), z: 0, w: 0)
+            mix.bVector = CIVector(x: CGFloat(shared), y: 0, z: CGFloat(own), w: 0)
+            mix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+            return mix.outputImage?.cropped(to: extent)
+        }
         guard
-            let grain = grainLayer(for: input, profile: profile, sizeCompensation: sizeCompensation),
-            let mask = luminanceMask(for: input)
+            let fine = octave(size: sizePixels, weight: profile.fineWeight),
+            let coarse = octave(size: sizePixels * profile.coarseSizeMultiplier, weight: profile.coarseWeight),
+            let amplitude = grainAmplitudeMask(for: input, intensity: intensity, curve: profile.densityCurve)
         else {
-            return input
+            return skipping("Grain octaves or amplitude mask", input)
         }
 
-        let shaped = CIFilter.blendWithMask()
-        shaped.inputImage = grain
-        shaped.backgroundImage = CIImage(color: .clear).cropped(to: input.extent)
-        shaped.maskImage = mask
-        guard let shapedGrain = shaped.outputImage else { return input }
+        // n: the two octaves summed, uniform-ish in 0…1 with mean 0.5
+        let sum = CIFilter.linearDodgeBlendMode()
+        sum.inputImage = fine
+        sum.backgroundImage = coarse
+        guard let n = sum.outputImage else { return skipping("Grain octave sum", input) }
 
-        let composite = CIFilter.sourceOverCompositing()
-        composite.inputImage = shapedGrain.cropped(to: input.extent)
-        composite.backgroundImage = input
-        return composite.outputImage ?? input
+        // in·(1 + a·(2n − 1)) = in·(1 − a) + in·(2a·n), both terms positive
+        let keep = CIFilter.colorMatrix()
+        keep.inputImage = amplitude
+        keep.rVector = CIVector(x: -1, y: 0, z: 0, w: 0)
+        keep.gVector = CIVector(x: 0, y: -1, z: 0, w: 0)
+        keep.bVector = CIVector(x: 0, y: 0, z: -1, w: 0)
+        keep.biasVector = CIVector(x: 1, y: 1, z: 1, w: 0)
+        let doubled = CIFilter.colorMatrix()
+        doubled.inputImage = amplitude
+        doubled.rVector = CIVector(x: 2, y: 0, z: 0, w: 0)
+        doubled.gVector = CIVector(x: 0, y: 2, z: 0, w: 0)
+        doubled.bVector = CIVector(x: 0, y: 0, z: 2, w: 0)
+
+        let grain = CIFilter.multiplyCompositing()
+        grain.inputImage = n
+        grain.backgroundImage = doubled.outputImage
+        let term1 = CIFilter.multiplyCompositing()
+        term1.inputImage = keep.outputImage
+        term1.backgroundImage = input
+        let term2 = CIFilter.multiplyCompositing()
+        term2.inputImage = grain.outputImage
+        term2.backgroundImage = input
+        let total = CIFilter.linearDodgeBlendMode()
+        total.inputImage = term2.outputImage
+        total.backgroundImage = term1.outputImage
+        return total.outputImage?.cropped(to: extent) ?? skipping("Grain blend", input)
     }
 
-    private static func grainLayer(
-        for input: CIImage,
-        profile: Constants.ImageProcessing.FilmStockProfile,
-        sizeCompensation: CGFloat
-    ) -> CIImage? {
-        guard let noise = CIFilter.randomGenerator().outputImage else { return nil }
-
-        // Scaling the tile up enlarges the individual grains — the difference
-        // between fine ISO 100 and chunky pushed ISO 3200. The size compensation
-        // keeps grains the same apparent size once the photo is downscaled into
-        // its strip slot.
-        let tileScale = profile.grainScale * sizeCompensation
-        let scaled = tileScale == 1
-            ? noise
-            : noise.transformed(by: CGAffineTransform(scaleX: tileScale, y: tileScale))
-
-        let desaturate = CIFilter.colorControls()
-        desaturate.inputImage = scaled
-        desaturate.saturation = 0
-        guard let grayNoise = desaturate.outputImage else { return nil }
-
-        // Alpha carries the grain strength; the mask scales it further per-pixel
-        let faded = CIFilter.colorMatrix()
-        faded.inputImage = grayNoise
-        faded.aVector = CIVector(x: 0, y: 0, z: 0, w: CGFloat(profile.grainIntensity))
-        return faded.outputImage?.cropped(to: input.extent)
+    /// Every cosmetic stage falls back to its input when Core Image cannot
+    /// build it. Logging the stage keeps a missing effect diagnosable on a
+    /// device instead of silently vanishing from the strip.
+    private static func skipping(_ stage: String, _ input: CIImage) -> CIImage {
+        print("[ImageProcessor] \(stage) failed; skipping")
+        return input
     }
 
-    private static func luminanceMask(for input: CIImage) -> CIImage? {
-        let desaturate = CIFilter.colorControls()
-        desaturate.inputImage = input
-        desaturate.saturation = 0
-        guard let gray = desaturate.outputImage else { return nil }
-
-        // A soft mask keeps grain from clustering along hard edges
-        let blur = CIFilter.gaussianBlur()
-        blur.inputImage = gray
-        blur.radius = Constants.ImageProcessing.grainMaskBlurRadius
-        let softened = (blur.outputImage ?? gray).cropped(to: input.extent)
+    /// Grey image holding the grain amplitude per pixel: the density curve
+    /// read at the pixel's luminance, times the stock's intensity.
+    private static func grainAmplitudeMask(for input: CIImage, intensity: Double, curve: [Double]) -> CIImage? {
+        let weights = Constants.ImageProcessing.Film.Spectral.panchromatic
+        let luminance = self.luminance(of: input, weights: weights)
 
         let curves = CIFilter.colorCurves()
-        curves.inputImage = softened
+        curves.inputImage = luminance
         curves.curvesDomain = CIVector(x: 0, y: 1)
-        curves.curvesData = grainCurveData
-        curves.colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        return curves.outputImage?.cropped(to: input.extent)
+        curves.curvesData = grainCurveData(curve)
+        curves.colorSpace = stripOutputColorSpace
+        guard let weight = curves.outputImage else { return nil }
+
+        let scale = CIFilter.colorMatrix()
+        scale.inputImage = weight
+        scale.rVector = CIVector(x: CGFloat(intensity), y: 0, z: 0, w: 0)
+        scale.gVector = CIVector(x: 0, y: CGFloat(intensity), z: 0, w: 0)
+        scale.bVector = CIVector(x: 0, y: 0, z: CGFloat(intensity), w: 0)
+        return scale.outputImage?.cropped(to: input.extent)
     }
 
-    // CIColorCurves takes an evenly-spaced RGB lookup table as raw Float32 data.
-    // The same value goes in all three channels: the mask is greyscale.
-    private static let grainCurveData: Data = {
-        let values = Constants.ImageProcessing.grainLuminanceCurve
+    // CIColorCurves takes an evenly spaced RGB lookup table as raw Float32
+    // data; the same weight goes in all three channels.
+    // 64 entries: cheap enough to build per render rather than cache per stock
+    private static func grainCurveData(_ curve: [Double]) -> Data {
+        let values = FilmGrain.amplitudeTable(curve: curve)
         var floats: [Float] = []
         floats.reserveCapacity(values.count * 3)
         for value in values {
             floats.append(contentsOf: [value, value, value])
         }
         return floats.withUnsafeBufferPointer { Data(buffer: $0) }
-    }()
+    }
 
     // MARK: Live preview grain (v2 F6)
 
@@ -336,5 +719,19 @@ nonisolated enum ImageProcessor {
             throw AppError.rawProcessingFailed
         }
         return UIImage(cgImage: cgImage, scale: 1, orientation: orientation)
+    }
+
+    // Float working space in, 8-bit sRGB out: the strip is drawn into an
+    // ordinary UIGraphicsImageRenderer, so there is no point keeping half floats.
+    private static func renderStrip(_ image: CIImage) throws -> UIImage {
+        guard let cgImage = stripContext.createCGImage(
+            image,
+            from: image.extent,
+            format: .RGBA8,
+            colorSpace: stripOutputColorSpace
+        ) else {
+            throw AppError.stripRenderFailed
+        }
+        return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
     }
 }

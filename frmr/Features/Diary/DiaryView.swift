@@ -18,7 +18,7 @@ struct DiaryView: View {
                         selectedEntry = entry
                     } label: {
                         EntryRow(
-                            image: DiaryViewModel.loadPhoto(for: entry),
+                            entry: entry,
                             excerpt: entry.response.isEmpty ? entry.prompt : entry.response,
                             textColor: theme.text
                         )
@@ -40,7 +40,7 @@ struct DiaryView: View {
         .overlay(EmptyDiaryHint(isVisible: entries.isEmpty, color: theme.muted))
         .fullScreenCover(item: $selectedEntry) { entry in
             EntryDetailView(
-                image: DiaryViewModel.loadPhoto(for: entry),
+                entry: entry,
                 prompt: entry.prompt,
                 response: entry.response,
                 dateText: entry.createdAt.entryDetailTimestamp
@@ -50,13 +50,13 @@ struct DiaryView: View {
 }
 
 private struct EntryRow: View {
-    let image: UIImage?
+    let entry: DiaryEntry
     let excerpt: String
     let textColor: Color
 
     var body: some View {
         HStack(spacing: Constants.LibraryUI.rowSpacing) {
-            Thumbnail(image: image)
+            Thumbnail(entry: entry)
             Text(excerpt)
                 .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
                 .italic()
@@ -67,26 +67,15 @@ private struct EntryRow: View {
     }
 }
 
+// v4 F11: the thumbnail shows the entry in its own stock
 private struct Thumbnail: View {
-    let image: UIImage?
+    let entry: DiaryEntry
 
     var body: some View {
         Color.appBlack.opacity(Constants.Strip.emptySlotAlpha)
             .frame(width: Constants.LibraryUI.thumbnailSize, height: Constants.LibraryUI.thumbnailSize)
-            .overlay(ThumbnailImage(image: image))
+            .overlay(EntryLookImage(entry: entry, contentMode: .fill) { EmptyView() })
             .clipShape(RoundedRectangle(cornerRadius: Constants.LibraryUI.thumbnailCornerRadius))
-    }
-}
-
-private struct ThumbnailImage: View {
-    let image: UIImage?
-
-    var body: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-        }
     }
 }
 

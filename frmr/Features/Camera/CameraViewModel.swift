@@ -13,11 +13,42 @@ final class CameraViewModel {
     var errorState: ErrorState?
 
     private let captureSession = CaptureSession()
+    @ObservationIgnored private let defaults: UserDefaults
 
     var mode: Mode = .diary
     var whiteBalance: WBMode = .auto
     // View state, not user data: resets on every camera appear (v3 F3)
     private(set) var isWhiteBalanceExpanded = false
+
+    // MARK: Film stock (v4 F9)
+
+    /// The stock the next capture is stored with, in both modes. Persisted
+    /// as its own default, separate from the strip's (OPEN: v4-10,
+    /// Constants.Camera.filmStockSharesStripDefault).
+    private(set) var filmStock: StripCustomization.FilmStock {
+        didSet {
+            defaults.set(filmStock.rawValue, forKey: Constants.DefaultsKeys.cameraFilmStock)
+            filmPreviewRenderer.setStock(filmStock)
+            captureSession.setVideoFramesEnabled(showsFilmPreview)
+        }
+    }
+    // View state like the WB list: collapsed on every camera appear
+    private(set) var isFilmStockExpanded = false
+
+    /// The live film viewfinder's engine (v4 F9). Embed with
+    /// `FilmPreviewView(renderer:)` over the plain preview layer.
+    @ObservationIgnored let filmPreviewRenderer = FilmPreviewRenderer()
+
+    /// Whether the film viewfinder is drawn. Off shows the plain preview
+    /// layer underneath, which is the same picture for less work.
+    var showsFilmPreview: Bool { filmStock != .none }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        self.filmStock = Self.storedFilmStock(in: defaults)
+        filmPreviewRenderer.setStock(filmStock)
+        captureSession.setVideoFrameDelegate(filmPreviewRenderer.frameSink)
+    }
     private(set) var cameraPosition: CameraPosition = .back
     private(set) var selectedLens: CameraLens = .wide
     private(set) var availableLenses: [CameraLens] = []
@@ -57,10 +88,23 @@ final class CameraViewModel {
     // A zero-width range means the camera can't zoom (typical of the front lens)
     var isZoomEnabled: Bool { zoomRange.upperBound > zoomRange.lowerBound }
 
-    // Diary flow: a capture sets this and presents the entry editor. The JPEG
-    // preview appears immediately; the processed RAW replaces it when ready.
-    var pendingDiaryImage: UIImage?
+    // Diary flow (v4 F10): a capture opens a review of the original photo,
+    // which OK hands on to the entry editor. The JPEG preview appears
+    // immediately; the processed RAW replaces it when ready. The review
+    // object lives until the entry is saved, skipped or retaken.
+    private(set) var review: DiaryReviewViewModel?
+    var isReviewPresented = false
     var isEditorPresented = false
+
+    /// The original photo the entry will save (never film-processed).
+    var pendingDiaryImage: UIImage? { review?.photo }
+    /// The stock chosen on the review screen; what `saveEntry` must store.
+    var pendingDiaryStock: StripCustomization.FilmStock { review?.stock ?? .none }
+    /// When the pending photo was taken; `saveEntry(capturedAt:)` stores it
+    /// so the diary shows the grain the review showed (OBS-V4-7).
+    var pendingDiaryCaptureDate: Date? { review?.captureDate }
+    /// The pending photo in its chosen look, for the editor header.
+    var pendingDiaryDisplayImage: UIImage? { review?.renderedPhoto ?? review?.photo }
 
     var session: AVCaptureSession { captureSession.session }
 
@@ -100,9 +144,11 @@ final class CameraViewModel {
     }
 
     func userTapped(at location: CGPoint) {
-        // Tapping the viewfinder dismisses the expanded WB list (v3 F3) —
-        // before the guard, so it works even if the preview isn't up yet
+        // Tapping the viewfinder dismisses the expanded WB and Film lists
+        // (v3 F3, v4 F9) — before the guard, so it works even if the preview
+        // isn't up yet
         isWhiteBalanceExpanded = false
+        isFilmStockExpanded = false
         guard let previewLayer else { return }
         let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: location)
         captureSession.setFocusAndExposure(atDevicePoint: devicePoint)
@@ -192,9 +238,11 @@ final class CameraViewModel {
         // OPEN: WB persistence TBD — always reset to Auto on launch for now
         whiteBalance = .auto
         isWhiteBalanceExpanded = false
+        isFilmStockExpanded = false
         availableLenses = CaptureSession.availableBackLenses()
         hasFrontCamera = CaptureSession.hasFrontCamera()
         captureSession.start()
+        captureSession.setVideoFramesEnabled(showsFilmPreview)
         zoomRange = await captureSession.zoomRange()
         // Warm the Taptic Engine so the shutter tap doesn't lag the first capture
         Haptics.prepareShutter()
@@ -270,6 +318,35 @@ final class CameraViewModel {
 
     func toggleWhiteBalanceExpansion() {
         isWhiteBalanceExpanded.toggle()
+        // Only one list open at a time (v4 F9)
+        if isWhiteBalanceExpanded { isFilmStockExpanded = false }
+    }
+
+    // MARK: Film stock (v4 F9 — collapsible like white balance)
+
+    func selectFilmStock(_ stock: StripCustomization.FilmStock) {
+        filmStock = stock
+        isFilmStockExpanded = false
+    }
+
+    func toggleFilmStockExpansion() {
+        isFilmStockExpanded.toggle()
+        if isFilmStockExpanded { isWhiteBalanceExpanded = false }
+    }
+
+    /// Collapsed shows only the active stock; expanded shows Off then the
+    /// six stocks in declaration order.
+    static func visibleStocks(
+        expanded: Bool,
+        selected: StripCustomization.FilmStock
+    ) -> [StripCustomization.FilmStock] {
+        expanded ? StripCustomization.FilmStock.allCases : [selected]
+    }
+
+    /// The camera's persisted stock; a missing or unknown value is Off.
+    /// Also read by PhotoboothViewModel for gallery picks (OPEN: v4-12).
+    nonisolated static func storedFilmStock(in defaults: UserDefaults) -> StripCustomization.FilmStock {
+        .migrating(fromStoredValue: defaults.string(forKey: Constants.DefaultsKeys.cameraFilmStock))
     }
 
     // Collapsed shows only the active mode; expanded shows the full bank in
@@ -279,33 +356,78 @@ final class CameraViewModel {
     }
 
     func captureForDiary() async {
+        let stock = filmStock
+        let captureDate = Date.now
         guard let photo = await capturePhoto() else { return }
         guard let preview = UIImage(data: photo.jpegData) else {
             errorState?.raise(.captureFailed(reason: "The photo data couldn't be read."))
             return
         }
-        pendingDiaryImage = preview
-        isEditorPresented = true
+        let development: Task<UIImage, Never>? = photo.rawData == nil ? nil : Task { [weak self] in
+            guard let self else { return preview }
+            return await self.processRAWIfPresent(photo, fallback: preview)
+        }
+        beginReview(preview: preview, stock: stock, captureDate: captureDate, development: development)
+    }
 
-        let processed = await processRAWIfPresent(photo, fallback: preview)
-        // The user may have saved or retaken while the RAW was developing
-        if isEditorPresented {
-            pendingDiaryImage = processed
+    /// Opens the review for a fresh capture (the seam captureForDiary and
+    /// tests share). Until the review screen exists the flow goes straight
+    /// to the editor with the camera's stock (Constants.Diary.presentsReviewStep).
+    func beginReview(
+        preview: UIImage,
+        stock: StripCustomization.FilmStock,
+        captureDate: Date = .now,
+        development: Task<UIImage, Never>? = nil,
+        savePhotoData: (@Sendable (Data) async throws -> Void)? = nil
+    ) {
+        review?.discard()
+        let review = savePhotoData.map {
+            DiaryReviewViewModel(
+                preview: preview, stock: stock, captureDate: captureDate,
+                development: development, savePhotoData: $0
+            )
+        } ?? DiaryReviewViewModel(preview: preview, stock: stock, captureDate: captureDate, development: development)
+        review.errorState = errorState
+        self.review = review
+        if Constants.Diary.presentsReviewStep {
+            isReviewPresented = true
+        } else {
+            isEditorPresented = true
         }
     }
 
-    func captureForPhotobooth() async -> UIImage? {
+    /// OK on the review screen: the chosen stock travels with the pending
+    /// photo to the editor (`pendingDiaryStock`).
+    func confirmReview() {
+        guard review != nil else { return }
+        isReviewPresented = false
+        isEditorPresented = true
+    }
+
+    /// Retake on the review screen: the capture is dropped and the camera
+    /// is back. A photo already downloaded stays in the camera roll.
+    func retake() {
+        review?.discard()
+        review = nil
+        isReviewPresented = false
+        isEditorPresented = false
+    }
+
+    /// The developed shot plus the stock chosen when the shutter fired
+    /// (v4 F11), not when development finished.
+    func captureForPhotobooth() async -> PhotoboothShot? {
+        let stock = filmStock
         guard let photo = await capturePhoto() else { return nil }
         guard let preview = UIImage(data: photo.jpegData) else {
             errorState?.raise(.captureFailed(reason: "The photo data couldn't be read."))
             return nil
         }
-        return await processRAWIfPresent(photo, fallback: preview)
+        return PhotoboothShot(image: await processRAWIfPresent(photo, fallback: preview), filmStock: stock)
     }
 
+    // The editor's save, skip and retake all end the pending capture
     func discardPendingDiaryImage() {
-        pendingDiaryImage = nil
-        isEditorPresented = false
+        retake()
     }
 
     private func capturePhoto() async -> CapturedPhoto? {

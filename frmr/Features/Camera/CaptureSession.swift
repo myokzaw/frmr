@@ -52,6 +52,13 @@ nonisolated final class CaptureSession: @unchecked Sendable {
 
     private let sessionQueue = DispatchQueue(label: "frmr.captureSession")
     private let photoOutput = AVCapturePhotoOutput()
+    // v4 F9 live film preview: frames for the film cube. Its own delivery
+    // queue, so a slow frame never holds up session work.
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let videoQueue = DispatchQueue(label: "frmr.captureSession.video")
+    // The output holds its delegate weakly; this keeps it alive
+    private var videoFrameDelegate: FilmPreviewFrameSink?
+    private var cameraPosition: CameraPosition = .back
     private var camera: AVCaptureDevice?
     private var isConfigured = false
     // Gravity-driven source of the capture rotation angle. The interface is
@@ -109,6 +116,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
             if self.session.canAddInput(input) {
                 self.session.addInput(input)
                 self.camera = device
+                self.cameraPosition = position
                 self.makeRotationCoordinator(for: device)
             } else {
                 // Restore the previous camera so capture keeps working
@@ -118,6 +126,47 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                 print("[CaptureSession] Could not attach \(position)/\(lens); keeping previous camera")
             }
             self.session.commitConfiguration()
+            // A new input means a new video connection: give it the portrait
+            // angle and mirroring once
+            self.configureVideoConnection()
+        }
+    }
+
+    // MARK: Live film preview (v4 F9)
+
+    /// Where preview frames go. Set once by the view model; frames start
+    /// arriving when the session runs and frames are enabled.
+    func setVideoFrameDelegate(_ delegate: FilmPreviewFrameSink) {
+        sessionQueue.async {
+            self.videoFrameDelegate = delegate
+            self.videoOutput.setSampleBufferDelegate(delegate, queue: self.videoQueue)
+        }
+    }
+
+    /// Off needs no frames (the plain preview layer shows), so the
+    /// connection is disabled rather than filtering frames nobody sees.
+    func setVideoFramesEnabled(_ enabled: Bool) {
+        sessionQueue.async {
+            self.videoOutput.connection(with: .video)?.isEnabled = enabled
+        }
+    }
+
+    /// The portrait angle, set once per connection and never re-angled to
+    /// the horizon (ios-camera-orientation: the interface is portrait-locked
+    /// and the preview must not shift under the user). The front camera is
+    /// mirrored to match AVCaptureVideoPreviewLayer's default.
+    private func configureVideoConnection() {
+        guard let connection = videoOutput.connection(with: .video) else { return }
+        let angle = Constants.Camera.portraitPreviewRotationAngle
+        // Unsupported angles raise an Objective-C exception Swift can't catch
+        if connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+        } else {
+            print("[CaptureSession] Preview rotation \(angle)° unsupported; frames stay in sensor orientation")
+        }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = cameraPosition == .front
         }
     }
 
@@ -366,6 +415,19 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         photoOutput.maxPhotoQualityPrioritization = .quality
         camera = device
         makeRotationCoordinator(for: device)
+
+        // BGRA so Core Image reads frames directly; late frames are dropped
+        // rather than queued, so the preview never lags the scene
+        videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        videoOutput.alwaysDiscardsLateVideoFrames = true
+        if session.canAddOutput(videoOutput) {
+            session.addOutput(videoOutput)
+            configureVideoConnection()
+        } else {
+            // Safe to continue: capture is unaffected; the film preview stays
+            // dark and the plain preview layer underneath still shows
+            print("[CaptureSession] Could not add the video data output; live film preview unavailable")
+        }
     }
 
     // RAW + processed pair where supported; processed-only otherwise (project.md §9).

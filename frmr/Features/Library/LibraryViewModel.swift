@@ -31,7 +31,8 @@ final class LibraryViewModel {
                 StripItem(
                     image: DiaryViewModel.loadPhoto(for: entry),
                     caption: entry.response,
-                    entryID: entry.id
+                    entryID: entry.id,
+                    filmStock: entry.filmStock
                 )
             }
     }

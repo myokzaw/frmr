@@ -31,6 +31,7 @@ struct StripView: View {
                     BackgroundSwatchRow(
                         selected: viewModel.customization.background,
                         borderColor: theme.primary,
+                        rimColor: theme.cardBorder,
                         onSelect: selectBackground
                     )
                     toggleCard
@@ -73,21 +74,79 @@ struct StripView: View {
         .padding(.vertical)
     }
 
+    // v4 F7 controls card. Which rows show is decided by the ViewModel; the
+    // previous strip stays on screen while a change re-renders.
     private var toggleCard: some View {
         VStack(spacing: 0) {
-            Picker("Film stock", selection: $viewModel.customization.filmStock) {
-                ForEach(StripCustomization.FilmStock.allCases) { stock in
-                    Text(stock.label).tag(stock)
+            // Outside a Form a menu Picker shows only its value, so the row
+            // supplies its own label (the Picker keeps it for VoiceOver)
+            StripPickerRow(title: "Film stock") {
+                Picker("Film stock", selection: $viewModel.customization.filmStock) {
+                    // nil = As shot: every frame keeps the stock it was taken on
+                    ForEach(StripCustomization.stockChoices, id: \.self) { choice in
+                        Text(StripCustomization.label(forStockChoice: choice)).tag(choice)
+                    }
                 }
+                .accessibilityHint("Chooses the film the strip is rendered on. As shot keeps each photo's own film.")
+                .accessibilityIdentifier("strip.filmStock")
             }
-            .padding()
+
+            if viewModel.isPrintPickerVisible {
+                Divider()
+                StripPickerRow(title: "Print") {
+                    Picker("Print", selection: $viewModel.selectedPrint) {
+                        ForEach(viewModel.availablePrints) { printStock in
+                            Text(printStock.label).tag(printStock)
+                        }
+                    }
+                    .accessibilityHint("Chooses the paper the film is printed on")
+                    .accessibilityIdentifier("strip.print")
+                }
+                .transition(.opacity)
+            }
+
+            if viewModel.areEffectsVisible {
+                effectRows
+                    .transition(.opacity)
+            }
+
             Divider()
-            Toggle("Black & white", isOn: $viewModel.customization.blackAndWhite)
+            Toggle("Black & white", isOn: $viewModel.blackAndWhiteToggle)
+                .disabled(viewModel.isBlackAndWhiteLocked)
                 .padding()
+                .accessibilityHint("Renders the strip in black and white. Mono stocks are always black and white.")
+                .accessibilityIdentifier("strip.blackAndWhite")
         }
         .tint(theme.primary)
         .foregroundStyle(theme.text)
         .background(theme.card, in: RoundedRectangle(cornerRadius: Constants.EditorUI.cardCornerRadius))
+        .animation(
+            .easeInOut(duration: Constants.StripUI.controlRowAnimationDuration),
+            value: viewModel.customization.filmStock
+        )
+    }
+
+    // OPEN: v4-2 — on/off toggles, not strength sliders
+    // (Constants.ImageProcessing.Film.effectsAreToggles)
+    private var effectRows: some View {
+        VStack(spacing: 0) {
+            Divider()
+            StripGroupLabel(title: "Effects", color: theme.muted)
+            Toggle("Halation", isOn: $viewModel.customization.effects.halation)
+                .padding()
+                .accessibilityHint("Adds a warm glow around bright highlights")
+                .accessibilityIdentifier("strip.halation")
+            Divider()
+            Toggle("Bloom", isOn: $viewModel.customization.effects.bloom)
+                .padding()
+                .accessibilityHint("Softens and spreads bright areas")
+                .accessibilityIdentifier("strip.bloom")
+            Divider()
+            Toggle("Light leak", isOn: $viewModel.customization.effects.lightLeak)
+                .padding()
+                .accessibilityHint("Adds a streak of light at the frame edge")
+                .accessibilityIdentifier("strip.lightLeak")
+        }
     }
 
     private var actionRow: some View {
@@ -134,19 +193,20 @@ struct StripView: View {
 private struct BackgroundSwatchRow: View {
     let selected: StripCustomization.StripBackground
     let borderColor: Color
+    let rimColor: Color
     let onSelect: (StripCustomization.StripBackground) -> Void
 
-    private let options: [StripCustomization.StripBackground] = [
-        .cream, .white, .black, .custom(.appTealLight), .custom(.appAmber),
-    ]
-
+    // v4 F8: white and black only
     var body: some View {
         HStack(spacing: Constants.CameraUI.chipSpacing) {
-            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+            ForEach(StripCustomization.StripBackground.allCases, id: \.settingsName) { option in
                 SwatchButton(
                     color: option.color,
+                    label: option.label,
+                    identifier: "strip.background.\(option.settingsName)",
                     isSelected: option == selected,
                     borderColor: borderColor,
+                    rimColor: rimColor,
                     action: { onSelect(option) }
                 )
             }
@@ -156,24 +216,76 @@ private struct BackgroundSwatchRow: View {
 
 private struct SwatchButton: View {
     let color: Color
+    let label: String
+    let identifier: String
     let isSelected: Bool
     let borderColor: Color
+    let rimColor: Color
     let action: () -> Void
 
     private var ringColor: Color {
         isSelected ? borderColor : .clear
     }
 
+    // The selection ring is visual only; VoiceOver hears it as a trait
+    private var selectionTraits: AccessibilityTraits {
+        isSelected ? .isSelected : []
+    }
+
     var body: some View {
         Button(action: action) {
             Circle()
                 .fill(color)
-                .frame(width: Constants.StripUI.swatchDiameter, height: Constants.StripUI.swatchDiameter)
+                // A hairline rim keeps the swatch that matches the page
+                // (black in dark mode) visible
+                .overlay(
+                    Circle().strokeBorder(rimColor, lineWidth: Constants.StripUI.swatchRimWidth)
+                )
                 .overlay(
                     Circle().strokeBorder(ringColor, lineWidth: Constants.StripUI.swatchBorderWidth)
                 )
+                .frame(width: Constants.StripUI.swatchDiameter, height: Constants.StripUI.swatchDiameter)
+                .frame(minWidth: Constants.StripUI.swatchTapTarget, minHeight: Constants.StripUI.swatchTapTarget)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(label) background")
+        .accessibilityAddTraits(selectionTraits)
+        .accessibilityIdentifier(identifier)
+    }
+}
+
+// A titled row holding a menu Picker, laid out like the card's Toggle rows
+private struct StripPickerRow<Content: View>: View {
+    let title: String
+    @ViewBuilder let picker: Content
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .accessibilityHidden(true)
+            Spacer()
+            picker
+                .labelsHidden()
+        }
+        .padding()
+    }
+}
+
+// Uppercase muted label that opens a group of rows inside the controls card
+private struct StripGroupLabel: View {
+    let title: String
+    let color: Color
+
+    var body: some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .textCase(.uppercase)
+            .tracking(Constants.StripUI.groupLabelTracking)
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding([.horizontal, .top])
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
