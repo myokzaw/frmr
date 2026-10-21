@@ -70,6 +70,33 @@ nonisolated enum ImageProcessor {
         }
     }
 
+    /// Inverse of `uiOrientation(from:)`, spelled out for the same reason.
+    static func cgOrientation(from orientation: UIImage.Orientation) -> CGImagePropertyOrientation {
+        switch orientation {
+        case .up: return .up
+        case .upMirrored: return .upMirrored
+        case .down: return .down
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .right: return .right
+        case .rightMirrored: return .rightMirrored
+        case .left: return .left
+        @unknown default: return .up
+        }
+    }
+
+    // Captures are unrotated pixels plus an orientation tag (post-v3 fix).
+    // `CIImage(image:)` ignores that tag, so filtering through it and
+    // rendering as `.up` laid every landscape-held photo on its side as soon
+    // as grain or B&W was on. Resolve the tag into the pixels up front.
+    private static func uprightCIImage(from image: UIImage) -> CIImage? {
+        guard let cgImage = image.cgImage else {
+            // CIImage-backed UIImages carry no separate tag to resolve
+            return CIImage(image: image)
+        }
+        return CIImage(cgImage: cgImage).oriented(cgOrientation(from: image.imageOrientation))
+    }
+
     /// - Parameter outputWidth: the width in pixels the result will be drawn at.
     ///   Grain is a per-pixel effect, so a full-resolution capture composited
     ///   into a 260px strip slot averages its grain away to nothing. Passing the
@@ -83,7 +110,7 @@ nonisolated enum ImageProcessor {
         guard customization.blackAndWhite || profile != nil else {
             return image
         }
-        guard let input = CIImage(image: image) else {
+        guard let input = uprightCIImage(from: image) else {
             // Cosmetic filters only — falling back to the unfiltered photo loses no
             // data and keeps the strip render from failing outright.
             print("[ImageProcessor] Could not read image for strip filters; using original")
@@ -299,8 +326,8 @@ nonisolated enum ImageProcessor {
     }
 
     /// - Parameter orientation: how the result should be read. Defaults to
-    ///   upright: the strip-look path feeds in a `CIImage(image:)`, which has
-    ///   already resolved its source's orientation into the pixels.
+    ///   upright: the strip-look path resolves its source's orientation into
+    ///   the pixels first (`uprightCIImage(from:)`).
     private static func render(
         _ image: CIImage,
         orientation: UIImage.Orientation = .up

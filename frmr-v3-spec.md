@@ -543,7 +543,7 @@ oriented preview for a flattened, sideways final image.
 | File | Change |
 |---|---|
 | `Features/Camera/CaptureSession.swift` | Added an `AVCaptureDevice.RotationCoordinator`, rebuilt whenever the active camera changes (it holds its device weakly). `applyCaptureRotation()` sets the photo connection's `videoRotationAngle` from `videoRotationAngleForHorizonLevelCapture` immediately before each capture, guarded by `isVideoRotationAngleSupported` — an unsupported value raises `NSInvalidArgumentException`, which Swift cannot catch. |
-| `Features/Camera/ImageProcessor.swift` | `process(rawData:)` reads the capture's EXIF orientation, develops with `rawFilter.orientation = .up` (sensor space), and tags the result. `render(_:orientation:)` takes the orientation, defaulting to `.up` for the strip-look path, whose `CIImage(image:)` has already resolved orientation into pixels. |
+| `Features/Camera/ImageProcessor.swift` | `process(rawData:)` reads the capture's EXIF orientation, develops with `rawFilter.orientation = .up` (sensor space), and tags the result. `render(_:orientation:)` takes the orientation, defaulting to `.up` for the strip-look path, whose `CIImage(image:)` has already resolved orientation into pixels. **Correction (v4 F0):** that claim was wrong — `CIImage(image:)` ignores the tag, which rotated strip photos whenever a filter was on. See frmr-v4-spec.md §F0. |
 
 **Why the coordinator rather than `UIDevice.orientation`:** it resolves against
 gravity, so a phone held at an angle snaps to the nearest upright quarter-turn

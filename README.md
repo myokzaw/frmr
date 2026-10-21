@@ -68,6 +68,7 @@ qa/bugs/          QA bug reports
 | [project.md](project.md) | Full product specification and v1/v2 implementation status |
 | [frmr-v2-spec.md](frmr-v2-spec.md) | v2 features and build status |
 | [frmr-v3-spec.md](frmr-v3-spec.md) | v3 features, build status, and the post-v3 rotate-in-place rework with v4 carry-forward |
+| [frmr-v4-spec.md](frmr-v4-spec.md) | v4 film pipeline: orientation fix, characteristic curves, print stage, halation, grain, bloom and light leak |
 
 ## Status
 

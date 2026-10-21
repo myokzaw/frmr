@@ -367,6 +367,53 @@ struct ImageProcessorTests {
         #expect(Set(mapped.map(\.rawValue)).count == quarterTurns.count)
     }
 
+    @Test func cgOrientationRoundTripsEveryCase() {
+        let all: [CGImagePropertyOrientation] = [
+            .up, .upMirrored, .down, .downMirrored, .leftMirrored, .right, .rightMirrored, .left,
+        ]
+        for exif in all {
+            #expect(ImageProcessor.cgOrientation(from: ImageProcessor.uiOrientation(from: exif)) == exif)
+        }
+    }
+
+    // Regression (v4 F0): captures are unrotated pixels plus a tag, and the
+    // strip look used to drop the tag — a landscape-held photo came back on
+    // its side as soon as grain or B&W was on.
+    @Test func stripLookKeepsATaggedPhotoUpright() throws {
+        // Sensor-space pixels: red on the left, blue on the right. Tagged
+        // .right, the left edge reads as the top of the photo.
+        let sensorSize = CGSize(width: 64, height: 32)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let sensor = UIGraphicsImageRenderer(size: sensorSize, format: format).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+            UIColor.blue.setFill()
+            context.fill(CGRect(x: 32, y: 0, width: 32, height: 32))
+        }
+        let cgImage = try #require(sensor.cgImage)
+        let tagged = UIImage(cgImage: cgImage, scale: 1, orientation: .right)
+
+        for blackAndWhite in [false, true] {
+            var customization = StripCustomization()
+            customization.filmStock = .iso100
+            customization.blackAndWhite = blackAndWhite
+            let output = ImageProcessor.applyStripLook(to: tagged, customization: customization)
+
+            #expect(output.size == tagged.size, "B&W \(blackAndWhite): output must keep the upright size")
+            #expect(output.imageOrientation == .up)
+            let buffer = try #require(PixelBuffer(output))
+            #expect(buffer.width == 32 && buffer.height == 64)
+            if !blackAndWhite {
+                let top = buffer.rgb(x: 16, y: 8)
+                let bottom = buffer.rgb(x: 16, y: 56)
+                #expect(top.r > top.b, "top of the upright photo should be the red edge")
+                #expect(bottom.b > bottom.r, "bottom of the upright photo should be the blue edge")
+            }
+        }
+    }
+
     @Test func liveGrainTileShiftsBetweenFrames() throws {
         // v2 F6: a tile that doesn't move between frames reads as a filter
         let size = CGSize(width: 32, height: 32)

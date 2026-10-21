@@ -137,6 +137,8 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
 
 ## Current build status (2026-07-31)
 
+**v4 in progress (2026-10-20).** See **frmr-v4-spec.md**. F0 is done: strip filters no longer rotate tagged photos. Never call `CIImage(image:)` on a photo; use `ImageProcessor.uprightCIImage(from:)`. F1–F7 (film curves, print stage, halation, grain v2, bloom/light leak, UI) are not started.
+
 **v2 is complete.** All eight v2 features (tap-to-focus/expose, swipe exposure compensation, pinch-to-zoom, luminosity-weighted grain, film stock profiles, animated preview grain, sprocket holes + frame numbers, haptics + prompt typewriter) are implemented on top of v1. Clean build, zero warnings, 28 unit tests passing. See **frmr-v2-spec.md § "Implementation status — v2 build"** for per-feature status, the three deviations from the written spec, and what still needs a physical device (F1/F2/F3 and the haptics). **project.md §14a** summarises the API changes that affect other code — most importantly that `StripCustomization.filmGrain: Bool` is now `filmStock: FilmStock`, and that `ImageProcessor.applyStripLook` needs an `outputWidth:` whenever the result will be drawn smaller than the source.
 
 ### v1 baseline
