@@ -9,37 +9,36 @@ struct CoachBubble: View {
     let onSkip: () -> Void
     let onGotIt: () -> Void
 
+    // Glass over the dark scrim, so the text is always light
     var body: some View {
         VStack(alignment: .leading, spacing: Constants.Onboarding.bubbleInnerSpacing) {
             Text(title)
-                .font(.system(size: Constants.Onboarding.bubbleTitleFontSize, weight: .semibold))
-                .foregroundStyle(Color.appBlack)
+                .font(.headline)
+                .foregroundStyle(.white)
 
             Text(bodyText)
-                .font(.system(size: Constants.Onboarding.bubbleBodyFontSize))
-                .foregroundStyle(Color.appBlack.opacity(Constants.Onboarding.bubbleBodyOpacity))
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(Constants.Onboarding.bubbleBodyOpacity))
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
                 Button("Skip", action: onSkip)
-                    .font(.system(size: Constants.Onboarding.bubbleBodyFontSize))
-                    .foregroundStyle(Color.appBlack.opacity(Constants.Onboarding.bubbleBodyOpacity))
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(Constants.Onboarding.bubbleBodyOpacity))
 
                 Spacer()
 
                 if isLastStep {
                     Button("Got it", action: onGotIt)
-                        .font(.system(size: Constants.Onboarding.bubbleBodyFontSize, weight: .semibold))
-                        .foregroundStyle(Color.appTealDark)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.appAmber)
                 }
             }
         }
-        .padding()
+        .padding(Constants.Onboarding.bubblePadding)
         .frame(maxWidth: Constants.Onboarding.bubbleMaxWidth, alignment: .leading)
-        .background(
-            .white,
-            in: RoundedRectangle(cornerRadius: Constants.Onboarding.bubbleCornerRadius)
-        )
+        .frmrAdaptiveGlass(in: RoundedRectangle(cornerRadius: Constants.Onboarding.bubbleCornerRadius))
+        .environment(\.colorScheme, .dark)
     }
 }
 

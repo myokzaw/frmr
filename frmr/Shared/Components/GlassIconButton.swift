@@ -24,8 +24,10 @@ struct GlassIconGlyph: View {
     }
 }
 
-// The one round icon button every screen shares: a glass disc with an SF
-// Symbol. Icon-only, so the label carries the meaning for VoiceOver.
+// The one round icon button every screen shares (camera, editor, strip
+// screen, viewers): a glass disc with an SF Symbol. Icon-only, so the label
+// carries the meaning for VoiceOver. Merged from the v5.1 camera and restyle
+// branches: `isEnabled` is the restyle spelling of `!isDisabled`.
 struct GlassIconButton: View {
     let systemImage: String
     let label: String
@@ -34,6 +36,7 @@ struct GlassIconButton: View {
     var size: CGFloat = Constants.ScrubberUI.glassButtonSize
     var foreground: Color = .white
     var isDisabled = false
+    var isEnabled = true
     var rotates = true
     let action: () -> Void
 
@@ -42,8 +45,8 @@ struct GlassIconButton: View {
             GlassIconGlyph(systemImage: systemImage, size: size, foreground: foreground, rotates: rotates)
         }
         .buttonStyle(.plain)
-        .disabled(isDisabled)
-        .opacity(isDisabled ? Constants.CameraUI.disabledControlOpacity : 1)
+        .disabled(isDisabled || !isEnabled)
+        .opacity(isDisabled || !isEnabled ? Constants.CameraUI.disabledControlOpacity : 1)
         .accessibilityLabel(label)
         .accessibilityValue(value)
         .accessibilityIdentifier(identifier)

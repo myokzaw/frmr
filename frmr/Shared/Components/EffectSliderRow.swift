@@ -18,9 +18,12 @@ struct EffectSliderRow: View {
         return "\(Int(percent))%"
     }
 
+    // v5.1 F10: one compact line (the editor and strip screens stack five of
+    // these): quiet SF title, amber slider, the value in monospaced digits
     var body: some View {
         HStack(spacing: Constants.CameraUI.chipSpacing) {
             Text(title)
+                .font(.subheadline)
                 .foregroundStyle(textColor)
                 .lineLimit(1)
                 .minimumScaleFactor(Constants.EffectSliderUI.titleMinScale)
@@ -33,8 +36,8 @@ struct EffectSliderRow: View {
                 .accessibilityHint(hint)
                 .accessibilityIdentifier(identifier)
             Text(Self.percentText(value))
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(textColor)
+                .font(.system(.subheadline, design: .monospaced))
+                .foregroundStyle(textColor.opacity(Constants.SettingsUI.valueOpacity))
                 .frame(minWidth: Constants.EffectSliderUI.percentWidth, alignment: .trailing)
                 .accessibilityHidden(true)
         }

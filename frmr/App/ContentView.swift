@@ -13,7 +13,28 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     @State private var onboarding = OnboardingViewModel()
+
+    init() {
+        Self.configureTabBarAppearance()
+    }
+
+    // v5.1 F8: iOS 26 draws the bar in Liquid Glass itself; on 17–25 it gets
+    // the same frosted blur the app's other glass uses, with quiet small titles
+    private static func configureTabBarAppearance() {
+        guard #unavailable(iOS 26) else { return }
+        let appearance = UITabBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        let title: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: Constants.TabBarUI.titleFontSize, weight: .medium)]
+        for item in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
+            item.normal.titleTextAttributes = title
+            item.selected.titleTextAttributes = title
+        }
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
 
     private var preferredScheme: ColorScheme? {
         AppearanceMode(rawValue: appearanceMode)?.colorScheme
@@ -31,7 +52,8 @@ struct ContentView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppTab.settings)
         }
-        .tint(.appTealDark)
+        // The camera is always dark, whatever the system scheme
+        .tint(ThemePalette.accent(for: onboarding.selectedTab == .camera ? .dark : colorScheme))
         .preferredColorScheme(preferredScheme)
         .overlay(alignment: .bottom) { tabItemAnchorProxies }
         .overlayPreferenceValue(TabItemAnchorKey.self) { anchors in
@@ -50,6 +72,14 @@ struct ContentView: View {
         // OnboardingViewModel; for now the single comparison lives in applyOrientationLock.
         .onAppear { applyOrientationLock() }
         .onChange(of: onboarding.selectedTab) { applyOrientationLock() }
+        // The bubbles point at the tab bar over the camera. The bar isn't covered
+        // by the overlay, so a tap on it mid-walkthrough would leave a bubble
+        // over the wrong screen: hold the camera until the walkthrough ends.
+        .onChange(of: onboarding.selectedTab) {
+            if onboarding.visibleStep != nil && onboarding.selectedTab != .camera {
+                onboarding.selectedTab = .camera
+            }
+        }
         .onChange(of: scenePhase) { if scenePhase == .active { applyOrientationLock() } }
         .task {
             onboarding.errorState = errorState
@@ -58,6 +88,9 @@ struct ContentView: View {
             // UI tests only: a Roll with photos in it, without a camera
             if RollSeedFixture.isRequested {
                 RollSeedFixture.seed(in: modelContext)
+            }
+            if LibrarySeedFixture.isRequested {
+                LibrarySeedFixture.seed(in: modelContext)
             }
             #endif
         }

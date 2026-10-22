@@ -10,6 +10,8 @@ struct CoachMarkOverlay: View {
     let onAdvance: () -> Void
     let onSkip: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         GeometryReader { proxy in
             if let step, let anchor = anchors[step] {
@@ -17,7 +19,7 @@ struct CoachMarkOverlay: View {
             }
         }
         .animation(
-            .easeInOut(duration: Constants.Onboarding.stepTransitionDuration),
+            reduceMotion ? nil : .easeInOut(duration: Constants.Onboarding.stepTransitionDuration),
             value: step
         )
     }
@@ -32,6 +34,17 @@ struct CoachMarkOverlay: View {
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onAdvance)
+
+            // A ring on the tab itself, so the bubble can't be read as pointing
+            // at whatever sits behind it
+            Capsule()
+                .strokeBorder(.white, lineWidth: Constants.Onboarding.targetRingWidth)
+                .frame(
+                    width: target.width + Constants.Onboarding.targetRingPadding * 2,
+                    height: target.height + Constants.Onboarding.targetRingPadding * 2
+                )
+                .position(x: target.midX, y: target.midY)
+                .accessibilityHidden(true)
 
             CoachArrow()
                 .stroke(.white, style: StrokeStyle(
