@@ -110,8 +110,14 @@ run_ui() {
   # $@ = optional UI test class names; default = every XCTestCase in frmrUITests
   local classes=("$@")
   if [ ${#classes[@]} -eq 0 ]; then
+    # Heaviest classes first (by number of test methods), so the round-robin
+    # below spreads the slow work across shards instead of stacking it.
     while IFS= read -r c; do classes+=("$c"); done < <(
-      grep -hoE "class [A-Za-z0-9_]+ *: *XCTestCase" frmrUITests/*.swift | awk '{print $2}' | tr -d ':' | sort -u)
+      for f in frmrUITests/*.swift; do
+        cls=$(grep -oE "class [A-Za-z0-9_]+ *: *XCTestCase" "$f" | awk '{print $2}' | tr -d ':' | head -1)
+        [ -n "$cls" ] || continue
+        echo "$(grep -cE "func test[A-Za-z0-9_]*\(" "$f") $cls"
+      done | sort -rn | awk '{print $2}')
   fi
   [ ${#classes[@]} -gt 0 ] || die "no UI test classes found"
   local n=${#UI_SHARDS[@]} pids=() logs=() i=0 rc=0
@@ -123,7 +129,12 @@ run_ui() {
   for shard in "${UI_SHARDS[@]}"; do
     local id flags=() j
     id="$(udid_for "$shard")"
-    for ((j = i; j < ${#classes[@]}; j += n)); do flags+=("-only-testing:frmrUITests/${classes[$j]}"); done
+    for ((j = 0; j < ${#classes[@]}; j++)); do
+      # Snake order (0,1,2,2,1,0,…) balances better than plain round-robin
+      local round=$(( j / n )) pos=$(( j % n )) target
+      if (( round % 2 == 0 )); then target=$pos; else target=$(( n - 1 - pos )); fi
+      (( target == i )) && flags+=("-only-testing:frmrUITests/${classes[$j]}")
+    done
     i=$((i + 1))
     [ ${#flags[@]} -gt 0 ] || continue
     local log="$LOGS/$ROLE-ui-$shard-$STAMP.log"; logs+=("$log")
