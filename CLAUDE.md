@@ -137,6 +137,11 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
 
 ## Current build status (2026-07-31)
 
+**v5.2 on branch `v5.2-makeover` (2026-10-22): UI makeover.** Read **project.md §5a (design tokens)** before any UI work.
+- **Use the tokens:** `Font.frmr*`, `Constants.DesignUI`, `ThemePalette.resolve(for:surface:contrast:)`, `frmrGlass`, `frmrPrimaryButtonStyle`, `FrmrMotion`. No fixed font sizes and no raw hex.
+- **New pieces:** `FilmLook.exposure` (in the film cube), `ChromePlacement`, `HapticEvent` / `Haptics.play`, `FilmSwatch`, editor stock/print previews, and TipKit tips (`FrmrTips.swift`). The old coach-mark walkthrough and `Features/Onboarding` are gone.
+- **Agents:** the user prefers 2 per round (one frontend, one backend).
+
 **v5 + v5.1 on branch `v5-photo-camera` (2026-10-21); simulator-verified, device checks outstanding.** The **camera is the main feature**: the app launches in Photo mode, and the modes are Photo and Film strip (`CameraViewModel.Mode` = `.photo`/`.photobooth`), both using the same chrome (`CameraChrome.swift`). The diary is reached from the editor with **Continue to diary**: it saves to the Roll and the `DiaryEntry` links via `rollPhotoID`. UI uses glass via `frmrGlass` / `frmrAdaptiveGlass` (`GlassBackground.swift`). Constants live in `frmr/Shared/Constants/`, one file per namespace. See **frmr-v5.1-spec.md** and **frmr-v5.2-spec.md** (next).
 - **Key types:**
   - `FilmLook` (stock, print, B&W, effect strengths 0…1.5, where 1 = v4 and 0 = off, pixel-identical);

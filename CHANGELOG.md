@@ -2,9 +2,46 @@
 
 What changed in each version of frmr, in plain language. Technical detail, decisions and test results live in the matching `frmr-v*-spec.md`.
 
+## v5.2 — UI makeover (branch `v5.2-makeover`)
+
+**Status:** built and tested on the simulator (2026-10-22). The QA accessibility pass is next, and device checks are outstanding. Spec: `frmr-v5.2-spec.md`; research behind it: `research/v5.2-ui-makeover.md`.
+
+- **Exposure in the editor.** A new first tool: −2 to +2 stops in ⅓-stop steps, applied before the film look. Bright areas roll off like overexposed film instead of clipping, and the setting is saved with the photo.
+- **Camera.**
+  - On tall phones the dial and shutter sit below a 3:4 viewfinder, so nothing covers the image.
+  - The dial shows a colour swatch for each stock.
+  - White balance and exposure show their values when you change them, and a brief flash shows the new setting.
+- **Film strip.** The four slots live in a small strip next to the shutter. Tap it for gallery, Roll, undo and Generate.
+- **Editor.**
+  - Film and Print show small previews of your photo in each option.
+  - Effect icons show a ring for their strength.
+  - Compare is a button.
+  - A fresh photo fades in as it "develops".
+- **Strip screen.** One "Keep strip" button, with Share and Download as icons.
+- **Prompt screen.** Redesigned around the photo and your words.
+- **Library.**
+  - The Roll is a contact sheet grouped by day.
+  - Entries show what you wrote first.
+  - Strips sit in two columns.
+  - Empty screens use the system style.
+- **Settings.** A grouped list with a Default look page, plus two new switches: **Edit after each shot** (turn it off to keep shooting and edit later) and **Film-advance haptics**.
+- **Tips instead of a tour.** The walkthrough is replaced by short tips that point at the real controls.
+- **Accessibility everywhere.**
+  - Text scales with Dynamic Type.
+  - Every control is at least 44pt.
+  - High-contrast colours, with Increase Contrast variants.
+  - Reduce Motion and Reduce Transparency are respected.
+- **Shared design system.** One set of type, spacing, colour, glass and motion values (`project.md` §5a).
+
+**Not yet checked on a real iPhone:**
+- the shutter's film-advance haptic;
+- the new camera layout on different phone sizes;
+- the Liquid Glass look and the blur on older iOS;
+- the tips appearing over the real camera permission prompt.
+
 ## v5.1 — Diary from the editor, and a modern look (branch `v5-photo-camera`)
 
-**Status:** built and tested on the simulator (2026-10-21); QA pass in progress; device checks outstanding. Spec: `frmr-v5.1-spec.md`.
+**Status:** built and tested on the simulator, and QA-verified (2026-10-21); device checks outstanding. Spec: `frmr-v5.1-spec.md`.
 
 - **Diary is part of taking a photo.** The mode switch is now Photo / Film strip.
   - After a shot, **Continue to diary** (next to Save to roll) saves the photo to your Roll and opens the prompt.
