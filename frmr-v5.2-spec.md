@@ -14,6 +14,33 @@
 | Film strip buttons | **Mini-strip sheet:** the four slots become a small strip in the thumbnail position. Tapping it opens gallery / Roll / undo / Generate, keeping Photo and Strip chrome identical. |
 | Walkthrough | **Replace the custom coach marks with TipKit tips** anchored to real controls. |
 
+## F-EXP — Exposure in the editor (user request, 2026-10-22)
+
+After taking a picture, the editor has an **Exposure** tool alongside the film tools.
+
+**How it works:** the tool sets a new `FilmLook.exposure` value in EV.
+- **Range and steps:** −2…+2 in ⅓-stop steps, matching the camera's EV control. Default 0.
+- **Where in the pipeline:** applied to the photo **in linear light before the film cube**, by scaling scene exposure by 2^EV ahead of the negative curve. It therefore behaves like over- or under-exposing film: highlights roll off through the shoulder and shadows lift through the toe, rather than clipping like a plain brightness slider. Halation and grain follow, since they read the exposed image and the print density.
+- **With stock Off:** exposure still applies as a plain linear 2^EV gain, so the photo counts as "altered" whenever exposure ≠ 0.
+- **Where it applies:** stored per photo in the Roll (non-destructive, re-editable), Download, and diary entries via the live link. Strips render each frame's own exposure under As shot.
+
+**UI:** the first tool in the editor toolbar, `plus.forwardslash.minus`, labelled "Exposure". It uses the same tick-mark scrubber with an EV readout ("+0.3 EV"), a firm tick at 0, a light tick each ⅓ stop, and reset to 0. VoiceOver adjusts it in ⅓-stop steps and reads the value.
+
+**Tests:**
+- 0 EV is pixel-identical to no change (add it to `OffIsIdentityTests`);
+- +1 EV brightens mid grey monotonically and never makes the output darker;
+- highlights compress, rather than clip, under film stocks;
+- `FilmLook` Codable round-trip, with old looks without exposure decoding as 0;
+- determinism.
+
+**Owners:**
+- **Backend:** `FilmLook.exposure`, Codable migration, pipeline stage, `PhotoEditViewModel` binding, tests, and an update to `docs/film-simulation.md` §3 (pipeline order) and §9 (recipes).
+- **Frontend A:** the toolbar entry and the EV scrubber mode.
+
+**Open:**
+- **v5.2-11:** should Exposure also appear on the strip screen as a strip-wide offset? Default: **no**, per photo only.
+- **v5.2-12:** should there be separate highlights/shadows controls? Default: **no**, exposure only.
+
 ## Remaining open questions (proposed defaults)
 
 | # | Question | Proposed default |
@@ -63,5 +90,5 @@ See `research/v5.2-ui-makeover.md` §7. The order:
 |---|---|
 | v5.1 pushed; worktrees cleaned | ✅ `26d8e66` |
 | M0 design tokens + M4 44pt floor (agent T, Sonnet, solo) | In progress |
-| Parallel round: A (camera/editor/prompt/strip), B (Library/viewers/Settings/TipKit), backend (stockPreviews, chromePlacement, Library accessors, haptics, swatches, edit-after-shot setting) | Queued after M0 |
+| Parallel round: A (camera/editor/prompt/strip + Exposure tool UI), B (Library/viewers/Settings/TipKit), backend (stockPreviews, chromePlacement, Library accessors, haptics, swatches, edit-after-shot setting, **FilmLook.exposure + pipeline**) | Queued after M0 |
 | QA accessibility pass | Queued |
