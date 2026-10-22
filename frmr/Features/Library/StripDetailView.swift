@@ -1,6 +1,8 @@
 import SwiftUI
 
-// Full-screen view of a saved strip, presented from the Library's Strips tab.
+// Full-screen view of a saved strip, presented from the Library's Strips tab
+// (v5.1 F10): the strip as the hero, a glass top bar with close and save
+// icons, the date in the bar.
 struct StripDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ErrorState.self) private var errorState
@@ -15,44 +17,29 @@ struct StripDetailView: View {
     }
 
     private var detailContent: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             Color.appBlack
                 .ignoresSafeArea()
 
-            VStack(spacing: Constants.EditorUI.buttonPadding) {
-                StripImage(image: image)
-                Text(dateText)
-                    .font(.system(size: Constants.LibraryUI.sectionFontSize, design: .monospaced))
-                    .textCase(.uppercase)
-                    .kerning(1)
-                    .foregroundStyle(Color.appTealLight)
-                SaveToCameraRollButton(isEnabled: image != nil, action: onSaveToCameraRoll)
+            StripImage(image: image)
+                .padding(.horizontal, Constants.DetailUI.photoInset)
+                .padding(.top, Constants.DetailUI.stripInset)
+                .padding(.bottom, Constants.DetailUI.photoInset)
+
+            VStack {
+                DetailTopBar(title: dateText, onClose: { dismiss() }) {
+                    GlassIconButton(
+                        systemImage: "square.and.arrow.down",
+                        label: "Save to camera roll",
+                        identifier: "detail.save",
+                        isEnabled: image != nil,
+                        action: onSaveToCameraRoll
+                    )
+                }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding()
-
-            CloseCircleButton(action: { dismiss() })
-                .padding()
         }
-    }
-}
-
-private struct SaveToCameraRollButton: View {
-    let isEnabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label("Save to camera roll", systemImage: "square.and.arrow.down")
-                .font(.system(size: Constants.StripUI.actionFontSize, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, Constants.EditorUI.buttonPadding)
-                .padding(.vertical, Constants.CameraUI.generateButtonVerticalPadding)
-                .background(Color.appTeal, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : Constants.CameraUI.disabledControlOpacity)
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -64,15 +51,16 @@ private struct StripImage: View {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: Constants.LibraryUI.stripCornerRadius))
                 .shadow(
                     color: .black.opacity(Constants.StripUI.previewShadowOpacity),
                     radius: Constants.StripUI.previewShadowRadius / 2
                 )
+                .accessibilityLabel("Film strip")
         } else {
             Text("This strip file is missing.")
-                .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
-                .italic()
-                .foregroundStyle(Color.appCream.opacity(Constants.CameraUI.captionOpacity))
+                .font(.callout)
+                .foregroundStyle(.white.opacity(Constants.DetailUI.promptOpacity))
         }
     }
 }

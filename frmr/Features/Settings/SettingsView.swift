@@ -44,8 +44,12 @@ struct SettingsView: View {
 
     @State private var isClearDiaryConfirmationPresented = false
     @State private var isClearRollConfirmationPresented = false
+    // v5.1-12: how many diary entries link to Roll photos, read when the prompt opens
+    @State private var linkedEntryCount = 0
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
+    private var accent: Color { ThemePalette.accent(for: colorScheme) }
+    private var destructive: Color { ThemePalette.destructive(for: colorScheme) }
 
     /// The stored default as a picker choice; nil = As shot
     private var stockChoice: StripCustomization.FilmStock? {
@@ -82,17 +86,19 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Appearance") {
+                Section {
                     Picker("Appearance", selection: $appearanceMode) {
                         ForEach(AppearanceMode.allCases) { mode in
                             Text(mode.label).tag(mode.rawValue)
                         }
                     }
                     .pickerStyle(.segmented)
+                } header: {
+                    SettingsHeader(title: "Appearance", color: theme.muted)
                 }
                 .listRowBackground(theme.card)
 
-                Section("Strip defaults") {
+                Section {
                     Picker("Background", selection: $stripBackground) {
                         // v4 F8: white and black only
                         ForEach(StripCustomization.StripBackground.allCases, id: \.settingsName) { background in
@@ -123,39 +129,46 @@ struct SettingsView: View {
                             setStrength: setEffectStrength,
                             identifierPrefix: "settings.slider",
                             textColor: theme.text,
-                            tint: theme.primary
+                            tint: accent
                         )
                     }
                     Toggle("Black & white", isOn: blackAndWhiteDefault)
                         .disabled(isBlackAndWhiteLocked)
                         .accessibilityHint("New strips start in black and white. Mono stocks are always black and white.")
                         .accessibilityIdentifier("settings.blackAndWhite")
+                } header: {
+                    SettingsHeader(title: "Strip defaults", color: theme.muted)
                 }
                 .listRowBackground(theme.card)
                 .animation(.easeInOut(duration: Constants.StripUI.controlRowAnimationDuration), value: stripFilmStock)
 
-                Section("Help") {
+                Section {
                     // OPEN: v3-3 — replay in landscape appears to do nothing
                     // until the phone is upright; no extra copy for now
                     Button("Show intro again", action: onboarding.replayWalkthrough)
+                } header: {
+                    SettingsHeader(title: "Help", color: theme.muted)
                 }
                 .listRowBackground(theme.card)
 
-                Section("Data") {
+                Section {
                     Button("Clear diary", role: .destructive) {
                         isClearDiaryConfirmationPresented = true
                     }
-                    .foregroundStyle(Color.appRust)
+                    .foregroundStyle(destructive)
                     // v5 F6 (OPEN: v5-7): the Roll is cleared on its own
                     Button("Clear roll", role: .destructive) {
-                        isClearRollConfirmationPresented = true
+                        askToClearRoll()
                     }
-                    .foregroundStyle(Color.appRust)
+                    .foregroundStyle(destructive)
                     .accessibilityIdentifier("settings.clearRoll")
+                } header: {
+                    SettingsHeader(title: "Data", color: theme.muted)
                 }
                 .listRowBackground(theme.card)
             }
-            .tint(theme.primary)
+            .tint(accent)
+            .frmrTabBarScrollInsets()
             .scrollContentBackground(.hidden)
             .background(theme.background)
             .navigationTitle("Settings")
@@ -167,12 +180,11 @@ struct SettingsView: View {
                 Button("Delete everything", role: .destructive, action: clearDiary)
             }
             .confirmationDialog(
-                "Delete every photo in your roll? This can't be undone.",
+                clearRollTitle,
                 isPresented: $isClearRollConfirmationPresented,
                 titleVisibility: .visible
             ) {
-                Button("Delete roll", role: .destructive, action: clearRoll)
-                    .accessibilityIdentifier("settings.clearRoll.confirm")
+                clearRollButtons
             }
         }
     }
@@ -197,9 +209,36 @@ struct SettingsView: View {
         }
     }
 
-    private func clearRoll() {
+    // v5.1-7/12: with linked diary entries the prompt offers both; Keep
+    // entries is the default and keeps the old confirm identifier so the
+    // flow reads the same to the UI tests
+    private var clearRollTitle: String {
+        guard linkedEntryCount > 0 else { return "Delete every photo in your roll? This can't be undone." }
+        let entryText = linkedEntryCount == 1 ? "1 diary entry is" : "\(linkedEntryCount) diary entries are"
+        return "\(entryText) about photos in your roll. Delete them too, or keep them with their own copy of the photo?"
+    }
+
+    @ViewBuilder
+    private var clearRollButtons: some View {
+        if linkedEntryCount > 0 {
+            Button("Keep entries") { clearRoll(entries: .keepEntry) }
+                .accessibilityIdentifier("settings.clearRoll.confirm")
+            Button("Delete photos and diary entries", role: .destructive) { clearRoll(entries: .deleteBoth) }
+                .accessibilityIdentifier("settings.clearRoll.deleteBoth")
+        } else {
+            Button("Delete roll", role: .destructive) { clearRoll(entries: .keepEntry) }
+                .accessibilityIdentifier("settings.clearRoll.confirm")
+        }
+    }
+
+    private func askToClearRoll() {
+        linkedEntryCount = RollViewModel.linkedEntryCount(in: modelContext)
+        isClearRollConfirmationPresented = true
+    }
+
+    private func clearRoll(entries: RollViewModel.RollDeletion) {
         do {
-            try RollViewModel.clearRoll(context: modelContext)
+            try RollViewModel.clearRoll(entries: entries, context: modelContext)
         } catch let error as AppError {
             errorState.raise(error)
         } catch {
@@ -226,6 +265,18 @@ struct SettingsView: View {
         for directory in directories where FileManager.default.fileExists(atPath: directory.path()) {
             try FileManager.default.removeItem(at: directory)
         }
+    }
+}
+
+private struct SettingsHeader: View {
+    let title: String
+    let color: Color
+
+    var body: some View {
+        Text(title)
+            .font(.footnote.weight(.medium))
+            .textCase(nil)
+            .foregroundStyle(color)
     }
 }
 
