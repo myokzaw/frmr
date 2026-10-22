@@ -9,7 +9,16 @@ nonisolated extension Constants {
         // sit under a cover with no view). Flipped by frontend with lead approval.
         static let presentsEditStep = true
         // Slider drags render once per this pause, last value wins
-        static let renderDebounce: TimeInterval = 0.12
+        // (shorter under the DEBUG launch argument -UITestFast)
+        static var renderDebounce: TimeInterval {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("-UITestFast") { return uiTestRenderDebounce }
+            #endif
+            return 0.12
+        }
+        #if DEBUG
+        static let uiTestRenderDebounce: TimeInterval = 0.02
+        #endif
         // Download "Saved" confirmation, same as the diary review
         static let downloadSavedConfirmationDuration: TimeInterval = 1.5
         // Roll originals are re-edited and re-encoded later, so they are

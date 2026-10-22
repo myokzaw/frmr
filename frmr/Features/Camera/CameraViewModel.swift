@@ -68,6 +68,12 @@ final class CameraViewModel {
     private(set) var isWhiteBalanceCustom = false
 
     /// The preset to highlight; nil while a slider-set balance is active.
+    /// White balance is off Auto: a preset other than Auto, or a custom
+    /// Kelvin/tint. Drives the chip's amber state.
+    var isWhiteBalanceAdjusted: Bool { whiteBalance != .auto || activeWhiteBalancePreset == nil }
+    /// Exposure compensation is not 0 EV.
+    var isExposureAdjusted: Bool { exposureBias != 0 }
+
     var activeWhiteBalancePreset: WBMode? { isWhiteBalanceCustom ? nil : whiteBalance }
     /// The chip's text: "AUTO", or the Kelvin in force ("5600K").
     var whiteBalanceChipText: String {

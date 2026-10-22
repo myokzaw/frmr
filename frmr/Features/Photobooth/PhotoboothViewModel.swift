@@ -7,6 +7,15 @@ import SwiftUI
 struct PhotoboothShot {
     let image: UIImage
     let filmStock: StripCustomization.FilmStock
+    /// A Roll photo's full look (stock, print, B&W, strengths), v5-8; nil for
+    /// camera and gallery shots, which carry only their stock.
+    let look: FilmLook?
+
+    init(image: UIImage, filmStock: StripCustomization.FilmStock, look: FilmLook? = nil) {
+        self.image = image
+        self.filmStock = look?.stock ?? filmStock
+        self.look = look
+    }
 }
 
 @Observable
@@ -23,13 +32,16 @@ final class PhotoboothViewModel {
     var hasShots: Bool { !shots.isEmpty }
     var remainingSlots: Int { slotCount - shots.count }
 
+    /// "1 of 4": shots taken so far out of the strip's slots.
+    var stripProgressText: String { "\(shots.count) of \(slotCount)" }
+
     var capturedCountText: String {
         "live viewfinder — \(shots.count) of \(slotCount) captured"
     }
 
     // Photobooth shots carry no captions and no diary entries
     var stripItems: [StripItem] {
-        shots.map { StripItem(image: $0.image, caption: "", entryID: nil, filmStock: $0.filmStock) }
+        shots.map { StripItem(image: $0.image, caption: "", entryID: nil, filmStock: $0.filmStock, look: $0.look) }
     }
 
     /// The slot's original photo, without its stock's look.
@@ -53,6 +65,15 @@ final class PhotoboothViewModel {
     func add(_ shot: PhotoboothShot) {
         guard !isFull else { return }
         shots.append(shot)
+    }
+
+    /// A Roll photo joins a slot linked (v5-8): its original image plus its
+    /// current full look, rendered at Generate time exactly like
+    /// `RollViewModel.stripItems(from:)`. Does nothing when the strip is full
+    /// or the file can't be read.
+    func add(rollPhoto: RollPhoto) {
+        guard !isFull, let image = RollViewModel.loadPhoto(for: rollPhoto) else { return }
+        add(PhotoboothShot(image: image, filmStock: rollPhoto.look.stock, look: rollPhoto.look))
     }
 
     func removeLastShot() {

@@ -120,15 +120,12 @@ struct CameraView: View {
         }
     }
 
-    // CONTRACT REQUEST — need `isWhiteBalanceAdjusted: Bool` and
-    // `isExposureAdjusted: Bool` on CameraViewModel (false on Auto / 0 EV),
-    // so the buttons' tint isn't derived here.
     private var controlButtons: some View {
         CameraControlButtons(
             whiteBalanceText: viewModel.whiteBalanceChipText,
             exposureText: viewModel.exposureReadout,
-            isWhiteBalanceAdjusted: viewModel.whiteBalance != .auto || viewModel.activeWhiteBalancePreset == nil,
-            isExposureAdjusted: viewModel.exposureBias != 0,
+            isWhiteBalanceAdjusted: viewModel.isWhiteBalanceAdjusted,
+            isExposureAdjusted: viewModel.isExposureAdjusted,
             onToggleWhiteBalance: viewModel.toggleWhiteBalanceExpansion,
             onToggleExposure: viewModel.toggleExposurePanel
         )

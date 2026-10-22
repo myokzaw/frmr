@@ -15,7 +15,6 @@ struct PhotoEditView: View {
     @Environment(ErrorState.self) private var errorState
 
     @Bindable var edit: PhotoEditViewModel
-    @State private var tool: EditorTool = .film
     @State private var isDeleteConfirmationPresented = false
     // Looked up when Delete is tapped, so the dialog can offer the entry choice
     @State private var linkedEntryCount = 0
@@ -30,12 +29,12 @@ struct PhotoEditView: View {
                 .padding(.horizontal, UI.horizontalPadding)
             ToolIconBar(
                 items: EditorTool.items,
-                selectedID: tool.id,
+                selectedID: edit.tool.id,
                 modifiedIDs: modifiedToolIDs,
                 identifierPrefix: "edit.tool",
                 selectedColor: .appAmber,
                 idleColor: .appCream,
-                onSelect: { tool = EditorTool(id: $0) }
+                onSelect: { edit.tool = EditorTool(id: $0) }
             )
             actionRow
         }
@@ -171,7 +170,7 @@ struct PhotoEditView: View {
     // MARK: Tool control
 
     @ViewBuilder private var toolControl: some View {
-        switch tool {
+        switch edit.tool {
         case .film: filmChips
         case .print: printControls
         case .effect(let effect): effectScrubber(for: effect)
@@ -326,34 +325,15 @@ struct PhotoEditView: View {
 }
 
 // What the tool icon bar offers, in order: Film, Print, then the five
-// effects. The selection is view state: the view model only cares about the
-// look it produces.
-private enum EditorTool: Hashable {
-    case film
-    case print
-    case effect(FilmLook.Effect)
+// effects. The selection lives in the view model (`PhotoEditViewModel.tool`).
+private typealias EditorTool = PhotoEditViewModel.Tool
 
+private extension PhotoEditViewModel.Tool {
     static let items: [ToolIconItem] = [
         ToolIconItem(id: "film", title: "Film", systemImage: "film", hint: "Choose the film stock"),
         ToolIconItem(id: "print", title: "Print", systemImage: "printer", hint: "Choose the print and black and white"),
     ] + FilmLook.Effect.allCases.map {
         ToolIconItem(id: $0.rawValue, title: $0.label, systemImage: $0.toolSymbolName, hint: $0.toolHint)
-    }
-
-    init(id: String) {
-        switch id {
-        case "film": self = .film
-        case "print": self = .print
-        default: self = FilmLook.Effect(rawValue: id).map(EditorTool.effect) ?? .film
-        }
-    }
-
-    var id: String {
-        switch self {
-        case .film: return "film"
-        case .print: return "print"
-        case .effect(let effect): return effect.rawValue
-        }
     }
 }
 

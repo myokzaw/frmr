@@ -13,9 +13,7 @@ struct PhotoboothView: View {
     @Bindable var viewModel: PhotoboothViewModel
     @State private var isRollPickerPresented = false
 
-    private var countText: String {
-        "\(viewModel.shots.count) of \(viewModel.slotCount)"
-    }
+    private var countText: String { viewModel.stripProgressText }
 
     var body: some View {
         VStack(spacing: Constants.CameraUI.stripCountSpacing) {
@@ -70,12 +68,9 @@ struct PhotoboothView: View {
         }
     }
 
-    // A Roll photo joins the strip as its original on the stock it was
-    // edited with. CONTRACT REQUEST: PhotoboothViewModel.add(rollPhoto:) that
-    // keeps the full look (print, effects).
+    // A Roll photo joins the strip linked, with its full look (v5-8)
     private func pickFromRoll(_ photo: RollPhoto) {
-        guard let image = RollViewModel.loadPhoto(for: photo) else { return }
-        viewModel.add(PhotoboothShot(image: image, filmStock: photo.look.stock))
+        viewModel.add(rollPhoto: photo)
     }
 }
 

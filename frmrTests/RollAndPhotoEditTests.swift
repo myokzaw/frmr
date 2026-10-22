@@ -205,6 +205,41 @@ struct RollStoreTests {
         #expect(items[0].filmStock == .cine500T, "As shot falls back to the look's stock")
     }
 
+    /// Pick from Roll keeps the whole look (print, B&W, strengths), the same
+    /// strip item the Roll's own Generate builds.
+    @MainActor
+    @Test func aRollPhotoPickedIntoAStripKeepsItsFullLook() throws {
+        let context = try makeContext()
+        var look = FilmLook.stockDefaults(for: .portrait400)
+        look.printStock = look.stock.availablePrints.last
+        look.blackAndWhite = true
+        look.strengths.grain = 1.2
+        look.strengths.vignette = 0.7
+        let row = try RollViewModel.insert(original: photo(), look: look, capturedAt: .now, context: context)
+        defer { removeFiles([row]) }
+
+        let booth = PhotoboothViewModel()
+        booth.add(rollPhoto: row)
+        let picked = try #require(booth.stripItems.first)
+        let expected = try #require(RollViewModel.stripItems(from: [row]).first)
+
+        #expect(booth.stripProgressText == "1 of 4")
+        #expect(picked.look == look && picked.look == expected.look)
+        #expect(picked.filmStock == expected.filmStock && picked.caption == expected.caption && picked.entryID == expected.entryID)
+        #expect(picked.image?.size == expected.image?.size)
+
+        // linked: an edit before Generate shows up
+        var edited = look
+        edited.strengths.halation = 0.3
+        try RollViewModel.update(row, look: edited, context: context)
+        let second = PhotoboothViewModel()
+        second.add(rollPhoto: row)
+        #expect(second.stripItems.first?.look == edited)
+
+        for _ in 0..<5 { booth.add(rollPhoto: row) }
+        #expect(booth.shots.count == booth.slotCount, "a full strip ignores further picks")
+    }
+
     @Test func exportSavesFullResolutionHEICInEachPhotosLook() async throws {
         let context = try makeContext()
         let rows = [
@@ -320,6 +355,22 @@ struct PhotoEditStateTests {
         #expect(edit.isPrintPickerVisible && edit.availablePrints == [.lab, .cinema, .matte])
         edit.setStrength(7, for: .vignette)
         #expect(edit.strength(of: .vignette) == Constants.ImageProcessing.Film.Strength.sliderMaximum)
+    }
+
+    @Test func theSelectedToolIsEditorStateAndIdsRoundTrip() {
+        let edit = PhotoEditViewModel(preview: photo(), stock: .daylight200)
+        #expect(edit.tool == .film)
+        edit.tool = .effect(.grain)
+        #expect(edit.tool.id == "grain")
+        let ids = ["film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
+        #expect(ids.map { PhotoEditViewModel.Tool(id: $0).id } == ids)
+        #expect(PhotoEditViewModel.Tool(id: "nonsense") == .film)
+    }
+
+    @Test func theRenderDebounceIsShortUnderUITestFast() {
+        let fast = ProcessInfo.processInfo.arguments.contains("-UITestFast")
+        #expect(Constants.PhotoEdit.renderDebounce == (fast ? Constants.PhotoEdit.uiTestRenderDebounce : 0.12))
+        #expect(Constants.PhotoEdit.uiTestRenderDebounce < 0.12)
     }
 
     @Test func theDevelopedRAWReplacesThePreview() async {

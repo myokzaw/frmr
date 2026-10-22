@@ -84,6 +84,7 @@ struct PerPhotoStockModelTests {
         let captured = PhotoboothViewModel()
         for stock in stocks { captured.add(PhotoboothShot(image: photo, filmStock: stock)) }
         #expect(captured.stripItems.map(\.filmStock) == stocks)
+        #expect(captured.stripProgressText == "4 of 4" && PhotoboothViewModel().stripProgressText == "0 of 4")
     }
 }
 

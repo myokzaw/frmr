@@ -13,9 +13,7 @@ enum UITestSupport {
 
     static func applyLaunchArguments() {
         if isFast {
-            // OPEN: the render debounce (Constants.PhotoEdit.renderDebounce)
-            // is backend-owned; shortening it for tests needs a contract
-            // request. Animations are the UI-only cost.
+            // The render debounce shortens itself (Constants.PhotoEdit.renderDebounce).
             UIView.setAnimationsEnabled(false)
         }
     }

@@ -18,10 +18,29 @@ import UIKit
 /// Download writes a photo to the camera roll and creates no Roll record.
 @Observable
 final class PhotoEditViewModel: Identifiable {
-    enum Tool: CaseIterable {
+    /// The editor's tools, in tool-bar order: Film, Print, then one per effect.
+    enum Tool: Hashable {
         case film
         case print
-        case effects
+        case effect(FilmLook.Effect)
+
+        /// Stable identifier (tool bar item, accessibility ids).
+        var id: String {
+            switch self {
+            case .film: return "film"
+            case .print: return "print"
+            case .effect(let effect): return effect.rawValue
+            }
+        }
+
+        /// Unknown ids fall back to Film.
+        init(id: String) {
+            switch id {
+            case "film": self = .film
+            case "print": self = .print
+            default: self = FilmLook.Effect(rawValue: id).map(Tool.effect) ?? .film
+            }
+        }
     }
 
     enum Outcome: Equatable {

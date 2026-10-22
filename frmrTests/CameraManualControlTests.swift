@@ -27,6 +27,11 @@ struct PhotoModeLaunchTests {
         #expect(!Constants.Camera.launchModeFollowsStoredCaptureMode)
     }
 
+    @Test func adjustedFlagsAreFalseOnAutoAndZeroEV() throws {
+        let camera = CameraViewModel(defaults: try makeScratchDefaults())
+        #expect(!camera.isWhiteBalanceAdjusted && !camera.isExposureAdjusted)
+    }
+
     @Test func theSwitchIsPhotoAndFilmStripOnly() {
         #expect(CameraViewModel.Mode.allCases == [.photo, .photobooth])
         #expect(CameraViewModel.Mode.allCases.map(\.label) == ["Photo", "Film strip"])
@@ -58,6 +63,7 @@ struct PhotoModeLaunchTests {
 
         camera.setExposureBias(0.4)
         #expect(camera.exposureBias == CameraViewModel.snappedExposureBias(0.4))
+        #expect(camera.isWhiteBalanceAdjusted && camera.isExposureAdjusted)
 
         camera.togglePanel(.whiteBalance)
         camera.togglePanel(.exposure)
