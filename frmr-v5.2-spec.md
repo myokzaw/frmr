@@ -90,5 +90,5 @@ See `research/v5.2-ui-makeover.md` §7. The order:
 |---|---|
 | v5.1 pushed; worktrees cleaned | ✅ `26d8e66` |
 | M0 design tokens + M4 44pt floor (agent T, Sonnet, solo) | In progress |
-| Parallel round: A (camera/editor/prompt/strip + Exposure tool UI), B (Library/viewers/Settings/TipKit), backend (stockPreviews, chromePlacement, Library accessors, haptics, swatches, edit-after-shot setting, **FilmLook.exposure + pipeline**) | Queued after M0 |
+| Parallel round, **2 agents (user, 2026-10-22: fewer merge conflicts)**:<br>• **Frontend on Opus 5.5** (user's choice): all screens. That is A's scope (camera, editor + Exposure tool, prompt, strip) plus B's (Library/Roll, viewers, Settings, TipKit).<br>• **Backend on Sonnet:** `FilmLook.exposure` + pipeline, stockPreviews, chromePlacement, Library accessors, haptics, swatches, edit-after-shot setting.<br>Both work in the main folder on `v5.2-makeover` with disjoint files (views/components/UI constants vs models/view models/pipeline/non-UI constants), so no worktrees. | Queued after M0 |
 | QA accessibility pass | Queued |
