@@ -1,7 +1,7 @@
 # frmr — v5.2 UI makeover (draft)
 
 **Date:** 2026-10-21
-**Status:** Decisions in progress. Build after v5.1 is merged and verified.
+**Status:** In progress (2026-10-22) on branch `v5.2-makeover` (from `v5-photo-camera` @ `26d8e66`, v5.1 pushed). Questions v5.2-5…10 use the proposed defaults (the user said go without answering them; they can be changed later).
 **Source:** `research/v5.2-ui-makeover.md` (iOS design engineer, Opus) contains the full audit, competitive research with sources, design system, per-screen proposals, signature moments and roadmap.
 **Agent rule:** build agents run on Sonnet.
 
@@ -56,3 +56,12 @@ See `research/v5.2-ui-makeover.md` §7. The order:
   - large Dynamic Type sizes haven't been checked;
   - a dark-mode screenshot pass across all screens is still to do;
   - UI shards are balanced by test count, not time (`testStripScreenCyclesEveryStock` takes about 195 s).
+
+## Implementation status — v5.2
+
+| Step | Status |
+|---|---|
+| v5.1 pushed; worktrees cleaned | ✅ `26d8e66` |
+| M0 design tokens + M4 44pt floor (agent T, Sonnet, solo) | In progress |
+| Parallel round: A (camera/editor/prompt/strip), B (Library/viewers/Settings/TipKit), backend (stockPreviews, chromePlacement, Library accessors, haptics, swatches, edit-after-shot setting) | Queued after M0 |
+| QA accessibility pass | Queued |
