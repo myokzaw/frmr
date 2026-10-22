@@ -1,50 +1,44 @@
 import XCTest
 
-// v4 F7 (BUG-V4-3; v5 F5: effect sliders), Part 2 F8/F12: opens the strip screen through the
-// photobooth gallery picker, checks the As shot default and the two
-// backgrounds, and cycles every stock choice, checking which controls show.
+// v4 F7 (BUG-V4-3), Part 2 F8/F12, v5.1 F9/F10: the Film strip camera layer
+// (Pick from Roll, slots, Generate) and the strip screen with its glass
+// sheet (tool icon bar, chips, scrubber). One test opens the strip screen
+// through the photobooth gallery picker, checks the As shot default and the
+// two papers, and cycles every stock choice, checking which tools show; the
+// other fills the slots from a seeded Roll. Settings' strip defaults are
+// covered by the Settings UI tests.
 //
-// SETUP (once per simulator, before running): the photo library needs at
-// least four photos. From the project root:
+// SETUP (once per simulator, before running): the gallery test needs at
+// least four photos in the photo library. From the project root:
 //   xcrun simctl addmedia <udid> qa/fixtures/strip-fixture-*.png
-// Optional: TEST_RUNNER_SHOTS_DIR=<abs dir> on the xcodebuild command line
-// also writes a strip-screen screenshot there (the XCTAttachment is always kept).
+// (scripts/test.sh ui does this for its shard simulators). Every launch
+// passes `-UITestFast` (animations off). Optional: TEST_RUNNER_SHOTS_DIR=<abs
+// dir> also writes screenshots there (SHOTS_SUFFIX=dark renders dark).
 final class StripScreenUITests: XCTestCase {
     private let timeout: TimeInterval = 10
 
-    // Labels mirror StripCustomization.label(forStockChoice:): As shot,
-    // then the seven stocks
-    private let asShot = "As shot"
-    private let stocks = ["Off", "Daylight 200", "Portrait 400", "Cine 500T", "Slide 100", "Mono 400", "Mono 3200"]
+    // Chip identifiers: As shot, then the seven stocks (StripCustomization raw values)
+    private let asShot = "asShot"
+    private let stocks = ["none", "daylight200", "portrait400", "cine500T", "slide100", "mono400", "mono3200"]
     private var stockChoices: [String] { [asShot] + stocks }
-    private let stocksWithoutPrint: Set<String> = ["Off", "Slide 100"]
-    private let monoStocks: Set<String> = ["Mono 400", "Mono 3200"]
+    private let stocksWithoutPrint: Set<String> = ["none", "slide100"]
+    private let monoStocks: Set<String> = ["mono400", "mono3200"]
+    private let effectIDs = ["halation", "haze", "lightLeak", "grain", "vignette"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
-        // Settings and the strip screen rotate; a simulator left in landscape
-        // pushes lazy List rows off screen, where they don't exist to query
+        // The strip screen rotates; a simulator left in landscape pushes
+        // content off screen, where it doesn't exist to query
         XCUIDevice.shared.orientation = .portrait
     }
 
     @MainActor
     func testStripScreenCyclesEveryStock() throws {
-        let app = XCUIApplication()
-        // Camera and photo-library permission prompts are springboard alerts
-        addUIInterruptionMonitor(withDescription: "System alerts") { alert in
-            for label in ["Allow Full Access", "Allow", "OK", "Continue"] where alert.buttons[label].exists {
-                alert.buttons[label].tap()
-                return true
-            }
-            return false
-        }
-        app.launch()
-        dismissInAppOverlays(app)
+        let app = launch()
 
-        let filmStripMode = app.buttons["Film strip"]
-        XCTAssertTrue(filmStripMode.waitForExistence(timeout: timeout), "Film strip mode toggle missing")
+        let filmStripMode = app.buttons["camera.mode.filmstrip"]
+        XCTAssertTrue(filmStripMode.waitForExistence(timeout: timeout), "Film strip mode switch missing")
         filmStripMode.tap()
-        dismissInAppOverlays(app)
 
         app.buttons["Choose photos from library"].tap()
         try pickFourPhotos(app)
@@ -52,17 +46,17 @@ final class StripScreenUITests: XCTestCase {
         let generate = app.buttons["Generate strip"]
         XCTAssertTrue(generate.waitForExistence(timeout: timeout))
         XCTAssertTrue(waitUntilEnabled(generate), "Generate stayed disabled; were 4 photos picked?")
+        XCTAssertGreaterThan(generate.frame.midX, 0)
+        XCTAssertLessThan(generate.frame.midX, app.buttons["camera.shutter"].frame.midX, "Generate sits beside the shutter")
+        saveScreenshot(named: "camera-filmstrip-4of4")
         generate.tap()
 
-        let stockPicker = app.buttons["strip.filmStock"]
-        XCTAssertTrue(stockPicker.waitForExistence(timeout: timeout), "Strip screen did not open")
-        XCTAssertTrue(app.buttons["Save"].waitForExistence(timeout: timeout))
+        XCTAssertTrue(app.buttons["strip.tool.film"].waitForExistence(timeout: timeout), "Strip screen did not open")
+        XCTAssertTrue(app.buttons["strip.save"].waitForExistence(timeout: timeout))
+        XCTAssertTrue(app.buttons["strip.archive"].exists && app.buttons["strip.share"].exists, "Archive and Share are icons beside Save")
 
-        // F12: a new strip starts As shot
-        XCTAssertTrue(shows(asShot, picker: stockPicker), "Default stock should be As shot, got \(stockPicker.label) / \(String(describing: stockPicker.value))")
-        assertControls(for: asShot, app: app)
-
-        // F8: exactly two swatches, white selected by default
+        // F8: Paper is the first tool: exactly two swatches, white selected
+        XCTAssertTrue(app.buttons["strip.tool.paper"].isSelected, "The sheet opens on Paper")
         let white = app.buttons["strip.background.white"]
         let black = app.buttons["strip.background.black"]
         XCTAssertTrue(white.exists && black.exists, "White and Black swatches expected")
@@ -75,34 +69,43 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertTrue(white.isSelected, "White swatch should select")
         saveScreenshot(named: "strip-screen-asShot-white")
 
-        // The menu offers As shot plus the seven stocks. Scroll the card up
-        // first: opened at the bottom edge, the eight-row menu clips its
-        // last row.
-        app.swipeUp()
-        stockPicker.tap()
-        saveScreenshot(named: "strip-screen-stock-menu")
+        // F12: a new strip starts As shot; the Film tool offers As shot + 7 stocks
+        app.buttons["strip.tool.film"].tap()
         for choice in stockChoices {
-            XCTAssertTrue(app.buttons[choice].firstMatch.waitForExistence(timeout: timeout), "Menu item \(choice) missing")
+            XCTAssertTrue(app.buttons["strip.stock.\(choice)"].waitForExistence(timeout: timeout), "Stock chip \(choice) missing")
         }
-        app.buttons[asShot].firstMatch.tap()
+        XCTAssertTrue(app.buttons["strip.stock.\(asShot)"].isSelected, "Default stock should be As shot")
+        assertTools(for: asShot, app: app)
+        saveScreenshot(named: "strip-screen-film-asShot")
 
         for choice in stocks + [asShot] {
-            select(choice, in: stockPicker, app: app)
-            assertControls(for: choice, app: app)
+            select(choice, app: app)
+            assertTools(for: choice, app: app)
         }
 
-        select("Cine 500T", in: stockPicker, app: app)
-        saveScreenshot(named: "strip-screen-cine500T")
-        select("Mono 400", in: stockPicker, app: app)
-        app.swipeUp()
-        saveScreenshot(named: "strip-screen-mono400-controls")
+        select("cine500T", app: app)
+        saveScreenshot(named: "strip-screen-film-cine500T")
+        app.buttons["strip.tool.print"].tap()
+        XCTAssertGreaterThan(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'strip.print.'")).count, 0, "Print chips expected for Cine 500T")
+        saveScreenshot(named: "strip-screen-print")
+        app.buttons["strip.tool.grain"].tap()
+        let scrubber = app.descendants(matching: .any)["strip.scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: timeout))
+        XCTAssertEqual(scrubber.value as? String, "100%")
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "150%" }, "Grain scrubber should reach 150%")
+        saveScreenshot(named: "strip-screen-grain-150")
+        app.buttons["strip.tool.film"].tap()
+        select("mono400", app: app)
+        saveScreenshot(named: "strip-screen-film-mono400")
 
         // v4 F15: archive a black-paper strip and check the Library and the
         // detail viewer show it at its own (taller, 4:5-frame) aspect.
         // Adds one strip to the simulator's library.
-        select(asShot, in: stockPicker, app: app)
+        select(asShot, app: app)
+        app.buttons["strip.tool.paper"].tap()
         black.tap()
-        app.buttons["Archive"].tap()
+        app.buttons["strip.archive"].tap()
         XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: timeout), "Archive should close the strip screen")
         app.tabBars.buttons["Library"].tap()
         app.buttons["Strips"].tap()
@@ -113,61 +116,80 @@ final class StripScreenUITests: XCTestCase {
         saveScreenshot(named: "strip-detail-booth")
     }
 
-    // OBS-V4-4: Settings → Strip defaults follows the strip screen's rules
-    // (effects hidden for Off, B&W on and locked for mono stocks). F12: As
-    // shot has no print row, keeps effects and leaves B&W unlocked. F8: the
-    // Background picker offers White and Black only.
-    // TEST_RUNNER_SHOTS_SUFFIX=light|dark names the saved screenshots.
+    // v5.1 F9: Pick from Roll fills the slots (no photo library needed), the
+    // count follows, Generate appears with the first slot, and Close clears
     @MainActor
-    func testSettingsStripDefaultsMirrorStripRules() throws {
-        let app = XCUIApplication()
-        app.launch()
-        dismissInAppOverlays(app)
-        app.tabBars.buttons["Settings"].tap()
-        let stockPicker = app.buttons["settings.filmStock"]
-        XCTAssertTrue(stockPicker.waitForExistence(timeout: timeout))
+    func testPickFromRollFillsSlotsThenGenerate() throws {
+        let app = launch(arguments: ["-UITestSeedRoll"])
+        let strip = app.buttons["camera.mode.filmstrip"]
+        XCTAssertTrue(strip.waitForExistence(timeout: timeout))
+        strip.tap()
+        let count = app.staticTexts["strip.count"]
+        XCTAssertTrue(count.waitForExistence(timeout: timeout))
+        XCTAssertEqual(count.label, "Captured 0 of 4")
 
-        let background = app.buttons["settings.background"]
-        XCTAssertTrue(background.waitForExistence(timeout: timeout), "Background picker missing")
-        background.tap()
-        XCTAssertTrue(app.buttons["White"].firstMatch.waitForExistence(timeout: timeout), "White missing")
-        XCTAssertTrue(app.buttons["Black"].firstMatch.exists, "Black missing")
-        XCTAssertFalse(app.buttons["Cream"].exists, "Cream should be gone (v4 F8)")
-        app.buttons["White"].firstMatch.tap()
-        // The effect sliders and B&W sit below the fold; List rows only exist on screen
-        app.swipeUp()
+        app.buttons["strip.pickRoll"].tap()
+        let cells = app.buttons.matching(identifier: "strip.rollPicker.photo")
+        XCTAssertTrue(cells.firstMatch.waitForExistence(timeout: timeout), "The Roll picker shows no photos")
+        saveScreenshot(named: "camera-filmstrip-roll-picker", settle: 2)
+        cells.element(boundBy: 0).tap()
+        cells.element(boundBy: 1).tap()
+        app.buttons["strip.rollPicker.done"].tap()
+        XCTAssertTrue(waitForLabel(count, "Captured 2 of 4"), "Two picks fill two slots, got \(count.label)")
 
-        let suffix = ProcessInfo.processInfo.environment["SHOTS_SUFFIX"] ?? "light"
-        let cases = [("Off", "none"), ("Mono 400", "mono400"), ("Cine 500T", "cine500T"), (asShot, "asShot")]
-        for (stock, file) in cases {
-            select(stock, in: stockPicker, app: app)
-            XCTAssertTrue(shows(stock, picker: stockPicker), "\(stock): picker should show the choice")
-            let blackAndWhite = app.switches["settings.blackAndWhite"]
-            XCTAssertTrue(blackAndWhite.waitForExistence(timeout: timeout))
-            _ = app.sliders["settings.slider.halation"].waitForExistence(timeout: 1)
-            XCTAssertEqual(app.sliders["settings.slider.halation"].exists, stock != "Off", "\(stock): effects visibility")
-            XCTAssertEqual(blackAndWhite.isEnabled, !monoStocks.contains(stock), "\(stock): B&W lock")
-            if monoStocks.contains(stock) {
-                XCTAssertEqual(blackAndWhite.value as? String, "1", "\(stock): B&W should read on")
-            }
-            if stock == asShot {
-                XCTAssertFalse(app.buttons["Print"].exists, "As shot: no print row")
-            }
-            saveScreenshot(named: "settings-strip-defaults-\(file)-\(suffix)")
-        }
-        // The loop ends on As shot, the v4 F12 default, so the simulator's
-        // stored default is left at the new default
+        let generate = app.buttons["Generate strip"]
+        XCTAssertTrue(generate.waitForExistence(timeout: timeout), "Generate appears once a slot is filled")
+        XCTAssertTrue(app.buttons["strip.undo"].isEnabled)
+        saveScreenshot(named: "camera-filmstrip-2of4")
+        app.buttons["strip.undo"].tap()
+        XCTAssertTrue(waitForLabel(count, "Captured 1 of 4"), "Undo empties the last slot")
+        app.buttons["strip.pickRoll"].tap()
+        XCTAssertTrue(cells.firstMatch.waitForExistence(timeout: timeout))
+        cells.element(boundBy: 2).tap()
+        app.buttons["strip.rollPicker.done"].tap()
+        XCTAssertTrue(waitForLabel(count, "Captured 2 of 4"))
+
+        generate.tap()
+        XCTAssertTrue(app.buttons["strip.tool.film"].waitForExistence(timeout: timeout), "Strip screen did not open")
+        saveScreenshot(named: "strip-screen-paper", settle: 2)
+        app.buttons["strip.tool.halation"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["strip.scrubber"].waitForExistence(timeout: timeout))
+        saveScreenshot(named: "strip-screen-halation", settle: 2)
+        app.buttons["strip.tool.film"].tap()
+        saveScreenshot(named: "strip-screen-film", settle: 1)
+        app.buttons["strip.close"].tap()
+        XCTAssertTrue(waitForLabel(count, "Captured 0 of 4"), "Closing the strip clears the slots")
     }
 
     // MARK: Steps
+
+    @MainActor
+    private func launch(arguments: [String] = []) -> XCUIApplication {
+        let app = XCUIApplication()
+        let dark = ProcessInfo.processInfo.environment["SHOTS_SUFFIX"] == "dark"
+        app.launchArguments = ["-UITestFast"] + arguments + (dark ? ["-AppleInterfaceStyle", "Dark"] : [])
+        // Camera and photo-library permission prompts are springboard alerts
+        addUIInterruptionMonitor(withDescription: "System alerts") { alert in
+            for label in ["Allow Full Access", "Allow", "OK", "Continue"] where alert.buttons[label].exists {
+                alert.buttons[label].tap()
+                return true
+            }
+            return false
+        }
+        app.launch()
+        dismissInAppOverlays(app)
+        return app
+    }
 
     private func dismissInAppOverlays(_ app: XCUIApplication) {
         // Nudge the interruption monitor, then clear the simulator's
         // "no camera" alert and the first-run walkthrough
         app.tap()
-        for label in ["OK", "Skip"] {
-            let button = app.buttons[label]
-            if button.waitForExistence(timeout: 2) { button.tap() }
+        for _ in 0..<2 {
+            for label in ["OK", "Skip"] {
+                let button = app.buttons[label]
+                if button.waitForExistence(timeout: 3) { button.tap() }
+            }
         }
     }
 
@@ -191,41 +213,41 @@ final class StripScreenUITests: XCTestCase {
         done.tap()
     }
 
-    private func select(_ stock: String, in picker: XCUIElement, app: XCUIApplication) {
-        picker.tap()
-        let item = app.buttons[stock].firstMatch
-        XCTAssertTrue(item.waitForExistence(timeout: timeout), "Menu item \(stock) missing")
-        item.tap()
+    // Tapping a stock chip also brings it into view in the scrolling row
+    private func select(_ stock: String, app: XCUIApplication) {
+        let chip = app.buttons["strip.stock.\(stock)"]
+        XCTAssertTrue(chip.waitForExistence(timeout: timeout), "Stock chip \(stock) missing")
+        let row = app.scrollViews.containing(.button, identifier: "strip.stock.\(asShot)").firstMatch
+        // isHittable throws for an off-screen chip, so compare frames
+        for _ in 0..<stockChoices.count where chip.frame.maxX > app.frame.maxX { row.swipeLeft() }
+        for _ in 0..<stockChoices.count where chip.frame.minX < 0 { row.swipeRight() }
+        chip.tap()
+        XCTAssertTrue(waitUntilSelected(chip), "\(stock): chip did not select")
     }
 
-    // A menu Picker's button reports its value in the label or the value,
-    // depending on the context it sits in
-    private func shows(_ choice: String, picker: XCUIElement) -> Bool {
-        picker.label.contains(choice) || (picker.value as? String)?.contains(choice) == true
-    }
-
-    // As shot shows no print picker. Gallery picks take the camera's stock
+    // As shot shows no print tool. Gallery picks take the camera's stock
     // (default Off, OPEN v4-10/v4-12), so under As shot every frame is Off
-    // and effects are hidden too (F12: hidden only when every effective
-    // stock is Off).
-    private func assertControls(for stock: String, app: XCUIApplication) {
-        let print = app.buttons["strip.print"]
-        let halation = app.sliders["strip.slider.halation"]
+    // and the effect tools are hidden too (F12: hidden only when every
+    // effective stock is Off). B&W is locked on for mono stocks.
+    private func assertTools(for stock: String, app: XCUIApplication) {
+        XCTAssertTrue(app.buttons["strip.tool.bw"].waitForExistence(timeout: timeout), "\(stock): B&W tool missing")
+        let print = app.buttons["strip.tool.print"]
+        // Let the row settle before checking absence
+        _ = print.waitForNonExistence(timeout: stocksWithoutPrint.contains(stock) || stock == asShot ? 1 : 0.1)
+        let effectsExpected = stock != "none" && stock != asShot
+        XCTAssertEqual(print.exists, !stocksWithoutPrint.contains(stock) && stock != asShot, "\(stock): print tool visibility")
+        for effect in effectIDs {
+            XCTAssertEqual(app.buttons["strip.tool.\(effect)"].exists, effectsExpected, "\(stock): \(effect) tool visibility")
+        }
+        app.buttons["strip.tool.bw"].tap()
         let blackAndWhite = app.switches["strip.blackAndWhite"]
         XCTAssertTrue(blackAndWhite.waitForExistence(timeout: timeout), "\(stock): B&W toggle missing")
-        // Let the row fade settle before checking absence
-        _ = print.waitForNonExistence(timeout: 1)
-
-        let effectsExpected = stock != "Off" && stock != asShot
-        XCTAssertEqual(print.exists, !stocksWithoutPrint.contains(stock) && stock != asShot, "\(stock): print picker visibility")
-        XCTAssertEqual(halation.exists, effectsExpected, "\(stock): effects visibility")
-        if effectsExpected {
-            for effect in ["haze", "lightLeak", "grain", "vignette"] {
-                XCTAssertTrue(app.sliders["strip.slider.\(effect)"].exists, "\(stock): \(effect) slider missing")
-            }
-        }
         XCTAssertEqual(blackAndWhite.isEnabled, !monoStocks.contains(stock), "\(stock): B&W lock")
-        XCTAssertTrue(app.buttons["Save"].exists, "\(stock): Save missing")
+        if monoStocks.contains(stock) {
+            XCTAssertEqual(blackAndWhite.value as? String, "1", "\(stock): B&W should read on")
+        }
+        XCTAssertTrue(app.buttons["strip.save"].exists, "\(stock): Save missing")
+        app.buttons["strip.tool.film"].tap()
     }
 
     private func waitUntilEnabled(_ element: XCUIElement) -> Bool {
@@ -234,16 +256,36 @@ final class StripScreenUITests: XCTestCase {
         return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
     }
 
-    private func saveScreenshot(named name: String) {
+    private func waitUntilSelected(_ element: XCUIElement) -> Bool {
+        let predicate = NSPredicate(format: "isSelected == true")
+        return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
+    }
+
+    private func waitForLabel(_ element: XCUIElement, _ label: String) -> Bool {
+        let predicate = NSPredicate(format: "label == %@", label)
+        return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
+    }
+
+    private func waitForValue(_ element: XCUIElement, matching check: @escaping (String) -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let value = element.value as? String, check(value) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return false
+    }
+
+    private func saveScreenshot(named name: String, settle: UInt32 = 2) {
         // Give the re-render a moment so the strip reflects the stock
-        sleep(2)
+        sleep(settle)
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
         if let directory = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name).png")
+            let suffix = ProcessInfo.processInfo.environment["SHOTS_SUFFIX"].map { "-\($0)" } ?? ""
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name)\(suffix).png")
             try? screenshot.pngRepresentation.write(to: url)
         }
     }

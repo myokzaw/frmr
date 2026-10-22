@@ -11,17 +11,22 @@ struct ChoiceChip: View {
     let identifier: String
     let isSelected: Bool
     let selectedColor: Color
+    var selectedForeground: Color = .white
+    // Dark pages (the editor) use the defaults; the strip screen follows the
+    // light or dark theme
+    var idleForeground: Color = .white
+    var idleBackground: Color = .white.opacity(Constants.CameraUI.chipInactiveOpacity)
     let action: () -> Void
 
     private var background: Color {
-        isSelected ? selectedColor : .white.opacity(Constants.CameraUI.chipInactiveOpacity)
+        isSelected ? selectedColor : idleBackground
     }
 
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: Constants.ReviewUI.stockChipFontSize, weight: isSelected ? .semibold : .medium))
-                .foregroundStyle(.white)
+                .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                .foregroundStyle(isSelected ? selectedForeground : idleForeground)
                 .padding(.horizontal, Constants.ReviewUI.stockChipHorizontalPadding)
                 .frame(minHeight: Constants.ReviewUI.stockChipHeight)
                 .background(background, in: Capsule())
@@ -41,7 +46,7 @@ struct RenderingIndicator: View {
         ProgressView()
             .tint(.white)
             .padding(Constants.ReviewUI.savedVerticalPadding)
-            .background(.black.opacity(Constants.ReviewUI.overlayOpacity), in: Circle())
+            .frmrGlass(in: Circle())
             .opacity(isVisible ? 1 : 0)
             .animation(.easeInOut(duration: Constants.ReviewUI.feedbackAnimationDuration), value: isVisible)
             .accessibilityLabel("Rendering")
@@ -73,7 +78,7 @@ struct DownloadControl: View {
                 }
                 .foregroundStyle(.white)
                 .frame(width: Constants.ReviewUI.downloadButtonSize, height: Constants.ReviewUI.downloadButtonSize)
-                .background(.black.opacity(Constants.ReviewUI.overlayOpacity), in: Circle())
+                .frmrGlass(in: Circle())
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
@@ -97,7 +102,7 @@ private struct SavedBadge: View {
             .foregroundStyle(.white)
             .padding(.horizontal, Constants.ReviewUI.savedHorizontalPadding)
             .padding(.vertical, Constants.ReviewUI.savedVerticalPadding)
-            .background(.black.opacity(Constants.ReviewUI.overlayOpacity), in: Capsule())
+            .frmrGlassCapsule()
             .opacity(isVisible ? 1 : 0)
             .accessibilityHidden(!isVisible)
             .accessibilityIdentifier(identifier)

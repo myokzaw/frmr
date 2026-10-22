@@ -11,17 +11,14 @@ struct CameraChip<Glyph: View>: View {
     let action: () -> Void
     @ViewBuilder let glyph: () -> Glyph
 
-    private var background: Color {
-        isSelected ? .appTealDark : .white.opacity(Constants.CameraUI.chipInactiveOpacity)
-    }
-
     var body: some View {
         Button(action: action) {
             glyph()
-                .foregroundStyle(.white)
+                .foregroundStyle(isSelected ? Color.appBlack : .white)
                 .rotatingWithDevice()
                 .frame(width: Constants.CameraUI.chipDiameter, height: Constants.CameraUI.chipDiameter)
-                .background(background, in: Circle())
+                .background(isSelected ? Color.appAmber : .clear, in: Circle())
+                .frmrGlass(in: Circle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
