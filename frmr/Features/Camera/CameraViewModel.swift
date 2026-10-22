@@ -5,20 +5,25 @@ import UIKit
 
 @Observable
 final class CameraViewModel {
-    /// Declaration order is the mode switch's order (v5 F1): Photo first.
+    /// Declaration order is the mode switch's order: Photo, Film strip
+    /// (v5.1 F1: Diary is no longer a camera mode).
     enum Mode: CaseIterable {
         case photo
-        case diary
         case photobooth
 
         /// Accessibility labels; the switch itself is icon-only.
         var label: String {
             switch self {
             case .photo: return "Photo"
-            case .diary: return "Diary"
             case .photobooth: return "Film strip"
             }
         }
+
+        /// LEGACY(v5.1): lets the not-yet-updated CameraView compile its
+        /// `case .diary` branches (unreachable: it is not in `allCases`
+        /// and `selectDiaryMode()` selects Photo). Frontend deletes this
+        /// with those branches.
+        static let diary = Mode.photo
     }
 
     /// The app opens in Photo every launch (v5 F1, OPEN: v5-9). Diary and
@@ -141,31 +146,28 @@ final class CameraViewModel {
     // A zero-width range means the camera can't zoom (typical of the front lens)
     var isZoomEnabled: Bool { zoomRange.upperBound > zoomRange.lowerBound }
 
-    // Diary flow (v4 F10): a capture opens a review of the original photo,
-    // which OK hands on to the entry editor. The JPEG preview appears
-    // immediately; the processed RAW replaces it when ready. The review
-    // object lives until the entry is saved, skipped or retaken.
-    private(set) var review: DiaryReviewViewModel?
-    var isReviewPresented = false
+    // MARK: Continue to diary (v5.1 F4/F5)
+
+    /// What the prompt screen (`EntryEditorView`) needs after
+    /// "Continue to diary": the photo has already been saved to the Roll.
+    /// Cleared when the entry is saved, skipped or the flow is dropped.
+    private(set) var pendingDiary: PhotoEditViewModel.DiaryContinuation?
+    /// Drives the prompt screen's cover.
     var isEditorPresented = false
 
-    /// The original photo the entry will save (never film-processed).
-    var pendingDiaryImage: UIImage? { review?.photo }
-    /// The stock chosen on the review screen; what `saveEntry` must store.
-    var pendingDiaryStock: StripCustomization.FilmStock { review?.stock ?? .none }
-    /// When the pending photo was taken; `saveEntry(capturedAt:)` stores it
-    /// so the diary shows the grain the review showed (OBS-V4-7).
-    var pendingDiaryCaptureDate: Date? { review?.captureDate }
-    /// The whole look chosen on the review screen (v5 F5): what `saveEntry`
-    /// stores beside the stock so the entry shows what the review showed.
-    var pendingDiaryLook: FilmLook { review?.look ?? .original }
-    /// The pending photo in its chosen look, for the editor header.
-    var pendingDiaryDisplayImage: UIImage? { review?.renderedPhoto ?? review?.photo }
+    /// The original photo (what a legacy, unlinked entry would copy).
+    var pendingDiaryImage: UIImage? { pendingDiary?.photo }
+    var pendingDiaryStock: StripCustomization.FilmStock { pendingDiary?.look.stock ?? .none }
+    var pendingDiaryCaptureDate: Date? { pendingDiary?.capturedAt }
+    var pendingDiaryLook: FilmLook { pendingDiary?.look ?? .original }
+    /// The Roll photo the entry links to (v5.1-3); pass to `saveEntry(rollPhotoID:)`.
+    var pendingDiaryRollPhotoID: UUID? { pendingDiary?.rollPhotoID }
+    /// The photo in its edited look, for the prompt screen's header.
+    var pendingDiaryDisplayImage: UIImage? { pendingDiary?.displayImage ?? pendingDiary?.photo }
 
     var session: AVCaptureSession { captureSession.session }
 
     var isPhotoMode: Bool { mode == .photo }
-    var isDiaryMode: Bool { mode == .diary }
     var isPhotoboothMode: Bool { mode == .photobooth }
     var isShutterDisabled: Bool { isCapturing || isPermissionDenied }
     // Lens chips only make sense on a multi-lens back camera
@@ -173,7 +175,8 @@ final class CameraViewModel {
     var isFlipCameraVisible: Bool { hasFrontCamera && !isPermissionDenied }
 
     func selectPhotoMode() { mode = .photo }
-    func selectDiaryMode() { mode = .diary }
+    /// LEGACY(v5.1): kept so CameraView compiles; selects Photo. Frontend deletes it.
+    func selectDiaryMode() { mode = .photo }
     func selectPhotoboothMode() { mode = .photobooth }
 
     func flipCamera() {
@@ -499,62 +502,10 @@ final class CameraViewModel {
         expanded ? WBMode.allCases : [selected]
     }
 
+    /// LEGACY(v5.1): the diary camera mode is gone; CameraView's unreachable
+    /// `.diary` branch still calls this. Frontend deletes it with that branch.
     func captureForDiary() async {
-        let stock = filmStock
-        let captureDate = Date.now
-        guard let photo = await capturePhoto() else { return }
-        guard let preview = UIImage(data: photo.jpegData) else {
-            errorState?.raise(.captureFailed(reason: "The photo data couldn't be read."))
-            return
-        }
-        let development: Task<UIImage, Never>? = photo.rawData == nil ? nil : Task { [weak self] in
-            guard let self else { return preview }
-            return await self.processRAWIfPresent(photo, fallback: preview)
-        }
-        beginReview(preview: preview, stock: stock, captureDate: captureDate, development: development)
-    }
-
-    /// Opens the review for a fresh capture (the seam captureForDiary and
-    /// tests share). Until the review screen exists the flow goes straight
-    /// to the editor with the camera's stock (Constants.Diary.presentsReviewStep).
-    func beginReview(
-        preview: UIImage,
-        stock: StripCustomization.FilmStock,
-        captureDate: Date = .now,
-        development: Task<UIImage, Never>? = nil,
-        savePhotoData: (@Sendable (Data) async throws -> Void)? = nil
-    ) {
-        review?.discard()
-        let review = savePhotoData.map {
-            DiaryReviewViewModel(
-                preview: preview, stock: stock, captureDate: captureDate,
-                development: development, savePhotoData: $0
-            )
-        } ?? DiaryReviewViewModel(preview: preview, stock: stock, captureDate: captureDate, development: development)
-        review.errorState = errorState
-        self.review = review
-        if Constants.Diary.presentsReviewStep {
-            isReviewPresented = true
-        } else {
-            isEditorPresented = true
-        }
-    }
-
-    /// OK on the review screen: the chosen stock travels with the pending
-    /// photo to the editor (`pendingDiaryStock`).
-    func confirmReview() {
-        guard review != nil else { return }
-        isReviewPresented = false
-        isEditorPresented = true
-    }
-
-    /// Retake on the review screen: the capture is dropped and the camera
-    /// is back. A photo already downloaded stays in the camera roll.
-    func retake() {
-        review?.discard()
-        review = nil
-        isReviewPresented = false
-        isEditorPresented = false
+        await captureForPhoto()
     }
 
     // MARK: Photo mode (v5 F4)
@@ -602,7 +553,7 @@ final class CameraViewModel {
             )
         } ?? PhotoEditViewModel(preview: preview, stock: stock, captureDate: captureDate, development: development)
         edit.errorState = errorState
-        edit.onFinish = { [weak self] _ in self?.endPhotoEdit() }
+        edit.onFinish = { [weak self] outcome in self?.photoEditFinished(outcome, edit: edit) }
         photoEdit = edit
         if Constants.PhotoEdit.presentsEditStep {
             isPhotoEditPresented = true
@@ -614,6 +565,45 @@ final class CameraViewModel {
     func endPhotoEdit() {
         photoEdit = nil
         isPhotoEditPresented = false
+    }
+
+    private func photoEditFinished(_ outcome: PhotoEditViewModel.Outcome, edit: PhotoEditViewModel) {
+        if outcome == .continuedToDiary, let continuation = edit.diaryContinuation {
+            pendingDiary = continuation
+            endPhotoEdit()
+            isEditorPresented = true
+        } else {
+            endPhotoEdit()
+        }
+    }
+
+    /// The prompt screen ended (entry saved or skipped) or was dropped:
+    /// back to the camera. The Roll photo stays.
+    func endDiaryPrompt() {
+        pendingDiary = nil
+        isEditorPresented = false
+    }
+
+    // MARK: Legacy review shims (v5.1 F6)
+
+    // LEGACY(v5.1): the old diary review screen is unreachable. These keep
+    // CameraView / DiaryReviewView (frontend-owned, deleted in the
+    // frontend round) compiling; nothing sets them.
+    private(set) var review: DiaryReviewViewModel?
+    var isReviewPresented = false
+    func confirmReview() {}
+    func retake() { endDiaryPrompt() }
+    func beginReview(
+        preview: UIImage,
+        stock: StripCustomization.FilmStock,
+        captureDate: Date = .now,
+        development: Task<UIImage, Never>? = nil,
+        savePhotoData: (@Sendable (Data) async throws -> Void)? = nil
+    ) {
+        beginPhotoEdit(
+            preview: preview, stock: stock, captureDate: captureDate,
+            development: development, savePhotoData: savePhotoData
+        )
     }
 
     /// The developed shot plus the stock chosen when the shutter fired
@@ -628,9 +618,9 @@ final class CameraViewModel {
         return PhotoboothShot(image: await processRAWIfPresent(photo, fallback: preview), filmStock: stock)
     }
 
-    // The editor's save, skip and retake all end the pending capture
+    // The prompt screen's save and skip end the pending diary step
     func discardPendingDiaryImage() {
-        retake()
+        endDiaryPrompt()
     }
 
     private func capturePhoto() async -> CapturedPhoto? {

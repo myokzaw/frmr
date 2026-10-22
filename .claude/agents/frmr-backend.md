@@ -56,11 +56,17 @@ Any change to a stored model needs a migration note. `StripCustomization` legacy
 
 ## Verification
 
-- Build: `xcodebuild -project frmr.xcodeproj -scheme frmr -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' -derivedDataPath build/backend build`
-- Test: same command with `test -only-testing:frmrTests`.
 - Treat any compiler warning as a failure.
 - The simulator has no camera, orientation sensor or haptics. Say so for anything that depends on them.
 
 ## Report format
 
 Same as frontend, plus test names added and their pass/fail: DONE / DOING / BLOCKED / NEXT, files changed, contract requests answered (with exact signatures), tests added, unverified-on-device list.
+
+## Running builds and tests (all roles)
+
+Use `scripts/test.sh` with role `backend`; never call `xcodebuild` by hand (`docs/testing.md` §0):
+- While iterating: `scripts/test.sh suite backend <ThemedSuite>...` (add `--no-build` for re-runs).
+- Before handing back: `scripts/test.sh fast backend`.
+- Your simulator is `frmr-backend`; your DerivedData is `build/backend`. Don't use another role's simulator.
+- Any Swift warning fails the run.

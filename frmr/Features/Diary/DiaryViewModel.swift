@@ -45,33 +45,52 @@ final class DiaryViewModel {
         return index
     }
 
-    // Returns true when the entry was persisted and the editor can close.
-    // `image` is the original development; `filmStock` is stored beside it
-    // and applied only on display (v4 F11, non-destructive). The default
-    // keeps callers that predate the review step compiling until the
-    // frontend passes the reviewed stock.
+    /// Returns true when the entry was persisted and the editor can close.
+    ///
+    /// With `rollPhotoID` (v5.1 F4/F5) the entry LINKS to that Roll photo:
+    /// no image is copied, and `image`/`filmStock`/`look`/`capturedAt` are
+    /// ignored — the Roll photo's file, look and capture date are used.
+    /// Without it (entries from before v5.1) `image` is the original
+    /// development, copied to the diary's own file; `filmStock`/`look` are
+    /// stored beside it and applied only on display (v4 F11, non-destructive).
     func saveEntry(
         image: UIImage?,
         filmStock: StripCustomization.FilmStock = .none,
         look: FilmLook? = nil,
         capturedAt: Date? = nil,
+        rollPhotoID: UUID? = nil,
         includeText: Bool,
         context: ModelContext
     ) -> Bool {
-        guard let image else {
-            errorState?.raise(.persistenceFailed(reason: "There's no photo to save."))
-            return false
-        }
         do {
-            let photoPath = try savePhotoFile(image)
-            let entry = DiaryEntry(
-                photoPath: photoPath,
-                prompt: prompt,
-                response: includeText ? responseText : "",
-                filmStock: filmStock,
-                capturedAt: capturedAt,
-                look: look
-            )
+            let entry: DiaryEntry
+            if let rollPhotoID {
+                guard let photo = try RollViewModel.photo(withID: rollPhotoID, context: context) else {
+                    errorState?.raise(.persistenceFailed(reason: "The photo for this entry is no longer in the Roll."))
+                    return false
+                }
+                entry = DiaryEntry(
+                    photoPath: photo.photoPath,
+                    prompt: prompt,
+                    response: includeText ? responseText : "",
+                    capturedAt: photo.capturedAt,
+                    look: photo.look,
+                    rollPhotoID: photo.id
+                )
+            } else {
+                guard let image else {
+                    errorState?.raise(.persistenceFailed(reason: "There's no photo to save."))
+                    return false
+                }
+                entry = DiaryEntry(
+                    photoPath: try savePhotoFile(image),
+                    prompt: prompt,
+                    response: includeText ? responseText : "",
+                    filmStock: filmStock,
+                    capturedAt: capturedAt,
+                    look: look
+                )
+            }
             context.insert(entry)
             try context.save()
             return true

@@ -29,6 +29,19 @@ final class PhotoEditViewModel: Identifiable {
         case discarded
         case retaken
         case deleted
+        /// Saved to the Roll, and the diary prompt comes next (v5.1 F4).
+        case continuedToDiary
+    }
+
+    /// What the diary prompt screen needs once the photo is in the Roll.
+    struct DiaryContinuation {
+        let rollPhotoID: UUID
+        let capturedAt: Date
+        /// The developed original (never film-processed).
+        let photo: UIImage
+        let look: FilmLook
+        /// `photo` through `look` at the editor's display size, if rendered.
+        let displayImage: UIImage?
     }
 
     let id = UUID()
@@ -62,6 +75,8 @@ final class PhotoEditViewModel: Identifiable {
     private(set) var didSaveDownload = false
     private(set) var isSavingToRoll = false
     private(set) var outcome: Outcome?
+    /// Set when `continueToDiary` succeeded; the camera presents the prompt from it.
+    private(set) var diaryContinuation: DiaryContinuation?
 
     let stockChoices = StripCustomization.FilmStock.allCases
     let effectChoices = FilmLook.Effect.allCases
@@ -311,6 +326,37 @@ final class PhotoEditViewModel: Identifiable {
         return true
     }
 
+    /// Continue to diary is offered only right after a capture (v5.1-2).
+    var canContinueToDiary: Bool { rollPhoto == nil && outcome == nil && !isSavingToRoll }
+
+    /// Saves to the Roll exactly like Save to roll, then exposes
+    /// `diaryContinuation` and finishes with `.continuedToDiary`. Returns
+    /// false (and changes nothing) in re-edit or on failure.
+    @discardableResult
+    func continueToDiary(context: ModelContext) async -> Bool {
+        guard canContinueToDiary else { return false }
+        isSavingToRoll = true
+        defer { isSavingToRoll = false }
+
+        let developed = await developedPhoto()
+        let saved: RollPhoto
+        do {
+            saved = try RollViewModel.insert(original: developed, look: look, capturedAt: captureDate, context: context)
+        } catch let error as AppError {
+            errorState?.raise(error)
+            return false
+        } catch {
+            errorState?.raise(.persistenceFailed(reason: error.localizedDescription))
+            return false
+        }
+        diaryContinuation = DiaryContinuation(
+            rollPhotoID: saved.id, capturedAt: captureDate, photo: developed,
+            look: look, displayImage: renderedPhoto
+        )
+        finish(.continuedToDiary)
+        return true
+    }
+
     /// Discard: a fresh capture is dropped; a re-edit leaves the Roll
     /// photo exactly as it was.
     func discard() {
@@ -322,13 +368,18 @@ final class PhotoEditViewModel: Identifiable {
         finish(.retaken)
     }
 
+    /// For the delete confirmation: entries linked to the photo being re-edited.
+    func linkedEntryCount(in context: ModelContext) -> Int {
+        rollPhoto.map { RollViewModel.linkedEntryCount(for: $0, in: context) } ?? 0
+    }
+
     /// Delete (re-edit only; the view confirms first): removes the photo's
     /// file and record. Returns true and finishes on success.
     @discardableResult
-    func deleteFromRoll(context: ModelContext) -> Bool {
+    func deleteFromRoll(entries: RollViewModel.RollDeletion = .keepEntry, context: ModelContext) -> Bool {
         guard let rollPhoto, outcome == nil else { return false }
         do {
-            try RollViewModel.delete(rollPhoto, context: context)
+            try RollViewModel.delete(rollPhoto, entries: entries, context: context)
         } catch let error as AppError {
             errorState?.raise(error)
             return false

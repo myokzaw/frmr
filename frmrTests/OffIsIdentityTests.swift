@@ -78,7 +78,7 @@ struct StockOffIdentityTests {
     /// own, wider matrix (StripLookDeterminismRegressionTests.offFastPathReturnsTheOriginal:
     /// orientations × effects × prints).
     enum Surface: CaseIterable, CustomTestStringConvertible {
-        case fullLook, filmLookCache, diaryReview, photoEdit
+        case fullLook, filmLookCache, photoEdit
 
         var testDescription: String { String(describing: self) }
     }
@@ -95,13 +95,6 @@ struct StockOffIdentityTests {
             let photo = solidImage(.gray)
             let shown = FilmLookCache().image(id: UUID(), stock: .none, seed: 0, pixelSize: CGSize(width: 8, height: 8)) { photo }
             #expect(shown === photo)
-
-        case .diaryReview:
-            let preview = solidImage(.gray)
-            let review = DiaryReviewViewModel(preview: preview, stock: .none)
-            #expect(review.renderedPhoto === preview)
-            #expect(!review.isRendering)
-            #expect(review.stockChoices == StripCustomization.FilmStock.allCases)
 
         case .photoEdit:
             let preview = solidImage(.gray, size: CGSize(width: 96, height: 72))

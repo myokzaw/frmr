@@ -2,3 +2,4 @@
 - [v4 film pipeline](project_v4_film_pipeline.md) — slot-first strip look, film cube/cache, stock migration, curve-fit limits, timing test
 - [v4 Part 2 film at capture](project_v4_part2_film_at_capture.md) — F8 plain strip, F11 per-photo stock, F12 As shot = nil filmStock, QA shim
 - [v5 step 1 engine](project_v5_step1_engine.md) — FilmLook/strengths, Roll, PhotoEditViewModel, WB/EV API, shared scheduler, QA facade
+- [v5.1 backend](project_v5_1_backend.md) — Continue to diary, linked entries (photoPath/look mirrored), RollDeletion, legacy shims for CameraView

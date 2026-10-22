@@ -13,7 +13,7 @@ struct PhotoModeLaunchTests {
     @Test func theAppLaunchesInPhotoMode() throws {
         let camera = CameraViewModel(defaults: try makeScratchDefaults())
         #expect(camera.mode == .photo && camera.isPhotoMode)
-        #expect(!camera.isDiaryMode && !camera.isPhotoboothMode)
+        #expect(!camera.isPhotoboothMode)
         #expect(CameraViewModel.launchMode == .photo)
     }
 
@@ -27,23 +27,42 @@ struct PhotoModeLaunchTests {
         #expect(!Constants.Camera.launchModeFollowsStoredCaptureMode)
     }
 
-    @Test func theSwitchOrderIsPhotoDiaryFilmStrip() {
-        #expect(CameraViewModel.Mode.allCases == [.photo, .diary, .photobooth])
-        #expect(CameraViewModel.Mode.allCases.map(\.label) == ["Photo", "Diary", "Film strip"])
+    @Test func theSwitchIsPhotoAndFilmStripOnly() {
+        #expect(CameraViewModel.Mode.allCases == [.photo, .photobooth])
+        #expect(CameraViewModel.Mode.allCases.map(\.label) == ["Photo", "Film strip"])
     }
 
-    @Test func diaryAndFilmStripAreSelectableForTheSessionOnly() throws {
+    @Test func filmStripIsSelectableForTheSessionOnly() throws {
         let defaults = try makeScratchDefaults()
         let camera = CameraViewModel(defaults: defaults)
-        camera.selectDiaryMode()
-        #expect(camera.isDiaryMode && !camera.isPhotoMode)
         camera.selectPhotoboothMode()
-        #expect(camera.isPhotoboothMode)
+        #expect(camera.isPhotoboothMode && !camera.isPhotoMode)
         camera.selectPhotoMode()
         #expect(camera.isPhotoMode)
 
-        camera.selectDiaryMode()
+        camera.selectPhotoboothMode()
         #expect(CameraViewModel(defaults: defaults).mode == .photo, "the choice is not remembered")
+    }
+
+    // v5.1 F9: the dial, white balance, exposure and the one-open-panel rule
+    // are camera state, not Photo-mode state: Film strip uses them as is.
+    @Test func dialWhiteBalanceExposureAndPanelsWorkTheSameInFilmStripMode() throws {
+        let camera = CameraViewModel(defaults: try makeScratchDefaults())
+        camera.selectPhotoboothMode()
+
+        camera.selectFilmStock(.portrait400)
+        #expect(camera.filmStock == .portrait400 && camera.showsFilmPreview)
+
+        camera.setWhiteBalance(kelvin: 4200, tint: 10)
+        #expect(camera.whiteBalanceKelvin == 4200 && camera.whiteBalanceTint == 10 && camera.isWhiteBalanceCustom)
+
+        camera.setExposureBias(0.4)
+        #expect(camera.exposureBias == CameraViewModel.snappedExposureBias(0.4))
+
+        camera.togglePanel(.whiteBalance)
+        camera.togglePanel(.exposure)
+        #expect(camera.openPanel == .exposure, "one panel open at a time")
+        #expect(camera.mode == .photobooth, "none of it changed the mode")
     }
 }
 

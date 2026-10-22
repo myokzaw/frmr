@@ -509,12 +509,12 @@ struct DownloadRegressionTests {
             return developed
         }
         let saved = Saved()
-        let review = DiaryReviewViewModel(
+        let review = PhotoEditViewModel(
             preview: P2Fixture.tagged(preview, .right), stock: .portrait400, captureDate: P2Fixture.date,
             development: development, savePhotoData: { saved.append($0) }
         )
 
-        await review.downloadReview()
+        await review.download()
 
         #expect(saved.all.count == 1)
         #expect(review.didSaveDownload)

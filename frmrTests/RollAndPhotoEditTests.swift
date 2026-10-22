@@ -593,13 +593,188 @@ struct CameraPhotoEditPresentationTests {
         #expect(first.outcome == .discarded)
         #expect(camera.photoEdit === second)
     }
+}
 
-    @Test func theReviewCarriesTheWholeLookToTheEditor() throws {
+// MARK: - v5.1: Continue to diary, linked entries, delete with entry
+
+private func entries(_ context: ModelContext) throws -> [DiaryEntry] {
+    try context.fetch(FetchDescriptor<DiaryEntry>())
+}
+
+private func fileExists(atRelative path: String) -> Bool {
+    FileManager.default.fileExists(atPath: FileManager.documentsURL(forRelativePath: path).path())
+}
+
+@MainActor
+struct ContinueToDiaryTests {
+
+    @Test func savesToTheRollThenHandsThePromptWhatItNeeds() async throws {
+        let context = try makeContext()
         let camera = CameraViewModel(defaults: try makeScratchDefaults())
-        camera.beginReview(preview: photo(), stock: .portrait400)
-        let review = try #require(camera.review)
-        review.setStrength(0.6, for: .vignette)
-        #expect(camera.pendingDiaryLook.strengths.vignette == 0.6)
-        #expect(camera.pendingDiaryStock == .portrait400)
+        let edit = camera.beginPhotoEdit(preview: photo(0.4), stock: .portrait400, captureDate: Date(timeIntervalSince1970: 7_000))
+        #expect(edit.canContinueToDiary)
+
+        #expect(await edit.continueToDiary(context: context))
+        let rows = try context.fetch(FetchDescriptor<RollPhoto>())
+        defer { removeFiles(rows) }
+        let row = try #require(rows.first)
+        #expect(rows.count == 1 && edit.outcome == .continuedToDiary)
+
+        #expect(camera.photoEdit == nil && !camera.isPhotoEditPresented)
+        #expect(camera.isEditorPresented)
+        #expect(camera.pendingDiaryRollPhotoID == row.id)
+        #expect(camera.pendingDiaryLook == row.look && camera.pendingDiaryStock == .portrait400)
+        #expect(camera.pendingDiaryCaptureDate == row.capturedAt)
+        #expect(camera.pendingDiaryDisplayImage != nil)
+
+        camera.endDiaryPrompt()
+        #expect(!camera.isEditorPresented && camera.pendingDiary == nil)
+    }
+
+    @Test func isNotAvailableInReEditOrAfterTheSessionEnded() async throws {
+        let context = try makeContext()
+        let row = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        defer { removeFiles([row]) }
+        let reEdit = try #require(PhotoEditViewModel(editing: row))
+        #expect(!reEdit.canContinueToDiary)
+        #expect(await !reEdit.continueToDiary(context: context))
+        #expect(reEdit.outcome == nil && reEdit.diaryContinuation == nil)
+
+        let fresh = PhotoEditViewModel(preview: photo(), stock: .none)
+        fresh.discard()
+        #expect(!fresh.canContinueToDiary)
+        #expect(try context.fetch(FetchDescriptor<RollPhoto>()).count == 1)
+    }
+
+    @Test func aLinkedEntryCopiesNoImageAndFollowsTheRollPhotosLook() async throws {
+        let context = try makeContext()
+        let edit = PhotoEditViewModel(preview: photo(0.4), stock: .daylight200)
+        #expect(await edit.continueToDiary(context: context))
+        let row = try #require(try context.fetch(FetchDescriptor<RollPhoto>()).first)
+        defer { removeFiles([row]) }
+
+        let diary = DiaryViewModel()
+        diary.prepareNewEntry()
+        #expect(diary.saveEntry(image: nil, rollPhotoID: row.id, includeText: false, context: context))
+        let entry = try #require(try entries(context).first)
+        #expect(entry.rollPhotoID == row.id && entry.isLinkedToRoll)
+        #expect(entry.photoPath == row.photoPath, "no second copy of the image")
+        #expect(entry.look == row.look && entry.response.isEmpty)
+        #expect(RollViewModel.hasDiaryEntry(row, in: context))
+
+        var edited = row.look
+        edited.strengths.vignette = 0.3
+        try RollViewModel.update(row, look: edited, context: context)
+        #expect(entry.look == edited, "re-editing the photo updates the entry")
+    }
+
+    @Test func entriesWithoutALinkKeepTheirOwnFileAndLook() throws {
+        let context = try makeContext()
+        let diary = DiaryViewModel()
+        diary.prepareNewEntry()
+        var look = FilmLook.stockDefaults(for: .slide100)
+        look.strengths.grain = 0.2
+        #expect(diary.saveEntry(image: photo(), look: look, includeText: true, context: context))
+        let entry = try #require(try entries(context).first)
+        defer { try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath)) }
+        #expect(entry.rollPhotoID == nil && entry.look == look && entry.photoPath.hasPrefix("Photos/"))
+
+        let row = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        defer { removeFiles([row]) }
+        var other = row.look
+        other.strengths.vignette = 0.9
+        try RollViewModel.update(row, look: other, context: context)
+        #expect(entry.look == look, "an old entry is not touched by Roll edits")
+    }
+
+    @Test func badgeLookupMarksOnlyPhotosWithAnEntry() async throws {
+        let context = try makeContext()
+        let linked = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        let plain = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        defer { removeFiles([linked, plain]) }
+        let diary = DiaryViewModel()
+        diary.prepareNewEntry()
+        #expect(diary.saveEntry(image: nil, rollPhotoID: linked.id, includeText: false, context: context))
+
+        #expect(RollViewModel.photoIDsWithDiaryEntry(in: context) == [linked.id])
+        #expect(RollViewModel.linkedPhotoIDs(in: try entries(context)) == [linked.id])
+        #expect(RollViewModel.hasDiaryEntry(linked, in: context) && !RollViewModel.hasDiaryEntry(plain, in: context))
+        #expect(RollViewModel.linkedEntryCount(for: linked, in: context) == 1)
+        #expect(RollViewModel.linkedEntryCount(in: context) == 1)
+    }
+}
+
+@MainActor
+struct RollDeleteWithEntryTests {
+
+    private func linkedPair(_ context: ModelContext) throws -> (RollPhoto, DiaryEntry) {
+        var look = FilmLook.stockDefaults(for: .portrait400)
+        look.strengths.vignette = 0.4
+        let row = try RollViewModel.insert(original: photo(0.3), look: look, capturedAt: Date(timeIntervalSince1970: 9_000), context: context)
+        let diary = DiaryViewModel()
+        diary.prepareNewEntry()
+        _ = diary.saveEntry(image: nil, rollPhotoID: row.id, includeText: true, context: context)
+        return (row, try #require(try entries(context).first))
+    }
+
+    @Test func deleteBothRemovesTheEntryAndThePhoto() throws {
+        let context = try makeContext()
+        let (row, _) = try linkedPair(context)
+        let path = row.photoPath
+        try RollViewModel.delete(row, entries: .deleteBoth, context: context)
+        #expect(try entries(context).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<RollPhoto>()).isEmpty)
+        #expect(!fileExists(atRelative: path))
+    }
+
+    @Test func keepEntryGivesItAnOwnCopyWithTheLookSnapshotted() throws {
+        let context = try makeContext()
+        let (row, entry) = try linkedPair(context)
+        let look = row.look
+        let rollPath = row.photoPath
+        try RollViewModel.delete(row, entries: .keepEntry, context: context)
+        defer { try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath)) }
+
+        #expect(entry.rollPhotoID == nil && !entry.isLinkedToRoll)
+        #expect(entry.photoPath != rollPath && entry.photoPath.hasPrefix("Photos/"))
+        #expect(fileExists(atRelative: entry.photoPath) && !fileExists(atRelative: rollPath))
+        #expect(entry.look == look && entry.lookSeedDate == row.capturedAt)
+        #expect(DiaryViewModel.loadPhoto(for: entry) != nil)
+        #expect(try context.fetch(FetchDescriptor<RollPhoto>()).isEmpty)
+    }
+
+    @Test func aPhotoWithoutAnEntryJustDeletes() throws {
+        let context = try makeContext()
+        let row = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        #expect(RollViewModel.linkedEntryCount(for: row, in: context) == 0)
+        try RollViewModel.delete(row, context: context)
+        #expect(!fileExists(row))
+        #expect(try context.fetch(FetchDescriptor<RollPhoto>()).isEmpty)
+    }
+
+    @Test(arguments: [RollViewModel.RollDeletion.keepEntry, .deleteBoth])
+    func clearRollFollowsTheChoiceAndDefaultsToKeeping(choice: RollViewModel.RollDeletion) throws {
+        let context = try makeContext()
+        let (row, entry) = try linkedPair(context)
+        let plain = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        defer { try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath)) }
+        #expect(RollViewModel.linkedEntryCount(in: context) == 1)
+
+        try RollViewModel.clearRoll(entries: choice, context: context)
+        #expect(try context.fetch(FetchDescriptor<RollPhoto>()).isEmpty)
+        #expect(!fileExists(row) && !fileExists(plain))
+        if choice == .keepEntry {
+            #expect(try entries(context).count == 1 && entry.rollPhotoID == nil && fileExists(atRelative: entry.photoPath))
+        } else {
+            #expect(try entries(context).isEmpty)
+        }
+    }
+
+    @Test func clearRollKeepsEntriesByDefault() throws {
+        let context = try makeContext()
+        let (_, entry) = try linkedPair(context)
+        defer { try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath)) }
+        try RollViewModel.clearRoll(context: context)
+        #expect(try entries(context).count == 1 && fileExists(atRelative: entry.photoPath))
     }
 }

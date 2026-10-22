@@ -110,10 +110,15 @@ final class RollViewModel {
         return photo
     }
 
-    /// Re-edit save: replaces the look, never the original.
+    /// Re-edit save: replaces the look, never the original. Diary entries
+    /// linked to the photo follow (v5.1-3 live link): their mirrored look is
+    /// updated in the same save.
     static func update(_ photo: RollPhoto, look: FilmLook, context: ModelContext, now: Date = .now) throws {
         photo.look = look
         photo.editedAt = now
+        for entry in try linkedEntries(for: photo, context: context) {
+            entry.look = look
+        }
         do {
             try context.save()
         } catch {
@@ -121,30 +126,137 @@ final class RollViewModel {
         }
     }
 
-    /// Deletes the record and its file.
-    static func delete(_ photo: RollPhoto, context: ModelContext) throws {
-        let path = photo.photoPath
-        context.delete(photo)
+    // MARK: Diary links (v5.1 F7, v5.1-7)
+
+    /// What to do with diary entries linked to a Roll photo being deleted.
+    enum RollDeletion: Equatable {
+        /// Remove the entries and the photo.
+        case deleteBoth
+        /// Give each entry its own copy of the photo (current look
+        /// snapshotted into the entry), then delete the Roll photo.
+        case keepEntry
+    }
+
+    static func photo(withID id: UUID, context: ModelContext) throws -> RollPhoto? {
+        var descriptor = FetchDescriptor<RollPhoto>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
         do {
-            try context.save()
+            return try context.fetch(descriptor).first
         } catch {
             throw AppError.persistenceFailed(reason: error.localizedDescription)
+        }
+    }
+
+    /// The entries that link to `photo`.
+    static func linkedEntries(for photo: RollPhoto, context: ModelContext) throws -> [DiaryEntry] {
+        let id: UUID? = photo.id
+        do {
+            return try context.fetch(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID == id }))
+        } catch {
+            throw AppError.persistenceFailed(reason: error.localizedDescription)
+        }
+    }
+
+    /// For the delete prompt: how many entries a delete would touch.
+    static func linkedEntryCount(for photo: RollPhoto, in context: ModelContext) -> Int {
+        let id: UUID? = photo.id
+        return (try? context.fetchCount(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID == id }))) ?? 0
+    }
+
+    /// For the Clear roll prompt: entries linked to any Roll photo.
+    static func linkedEntryCount(in context: ModelContext) -> Int {
+        (try? context.fetchCount(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID != nil }))) ?? 0
+    }
+
+    /// The badge lookup (v5.1-6), one fetch for the whole grid: ids of
+    /// every Roll photo that has at least one entry.
+    static func photoIDsWithDiaryEntry(in context: ModelContext) -> Set<UUID> {
+        let entries = (try? context.fetch(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID != nil }))) ?? []
+        return linkedPhotoIDs(in: entries)
+    }
+
+    /// The same set from entries a view already has (`@Query`), no fetch.
+    static func linkedPhotoIDs(in entries: [DiaryEntry]) -> Set<UUID> {
+        Set(entries.compactMap(\.rollPhotoID))
+    }
+
+    static func hasDiaryEntry(_ photo: RollPhoto, in context: ModelContext) -> Bool {
+        linkedEntryCount(for: photo, in: context) > 0
+    }
+
+    /// Deletes the record and its file. Linked diary entries are handled
+    /// per `entries` (default `.keepEntry`: an entry is never lost silently).
+    static func delete(_ photo: RollPhoto, entries: RollDeletion = .keepEntry, context: ModelContext) throws {
+        let path = photo.photoPath
+        var copies: [String] = []
+        do {
+            try applyDeletion(entries, to: photo, context: context, copies: &copies)
+            context.delete(photo)
+            try context.save()
+        } catch {
+            for copy in copies { removeFile(at: copy) }
+            context.rollback()
+            throw (error as? AppError) ?? AppError.persistenceFailed(reason: error.localizedDescription)
         }
         removeFile(at: path)
     }
 
-    /// "Clear roll" (OPEN: v5-7): every Roll photo and its file. Diary
-    /// entries and strips are untouched, as is their cache.
-    static func clearRoll(context: ModelContext) throws {
+    /// "Clear roll" (OPEN: v5-7): every Roll photo and its file. Strips are
+    /// untouched. Linked diary entries follow `entries` — default
+    /// `.keepEntry` (OPEN: v5.1-12): each keeps its own copy of the photo.
+    static func clearRoll(entries: RollDeletion = .keepEntry, context: ModelContext) throws {
         let photos = try context.fetch(FetchDescriptor<RollPhoto>())
         let paths = photos.map(\.photoPath)
-        for photo in photos { context.delete(photo) }
+        var copies: [String] = []
         do {
+            for photo in photos {
+                try applyDeletion(entries, to: photo, context: context, copies: &copies)
+                context.delete(photo)
+            }
             try context.save()
+        } catch {
+            for copy in copies { removeFile(at: copy) }
+            context.rollback()
+            throw (error as? AppError) ?? AppError.persistenceFailed(reason: error.localizedDescription)
+        }
+        for path in paths { removeFile(at: path) }
+    }
+
+    private static func applyDeletion(
+        _ choice: RollDeletion, to photo: RollPhoto, context: ModelContext, copies: inout [String]
+    ) throws {
+        let linked = try linkedEntries(for: photo, context: context)
+        guard !linked.isEmpty else { return }
+        switch choice {
+        case .deleteBoth:
+            for entry in linked { context.delete(entry) }
+        case .keepEntry:
+            // One copy is enough for several entries of the same photo
+            let copyPath = try copyToDiaryStorage(photo)
+            copies.append(copyPath)
+            for entry in linked {
+                entry.photoPath = copyPath
+                entry.look = photo.look
+                entry.capturedAt = photo.capturedAt
+                entry.rollPhotoID = nil
+            }
+        }
+    }
+
+    /// Copies the Roll file into the diary's own storage; returns the
+    /// relative path. Throws `AppError`.
+    private static func copyToDiaryStorage(_ photo: RollPhoto) throws -> String {
+        do {
+            let directory = try FileManager.createPhotosDirectory()
+            let filename = UUID().uuidString + ".jpg"
+            try FileManager.default.copyItem(
+                at: FileManager.documentsURL(forRelativePath: photo.photoPath),
+                to: directory.appending(path: filename)
+            )
+            return "Photos/" + filename
         } catch {
             throw AppError.persistenceFailed(reason: error.localizedDescription)
         }
-        for path in paths { removeFile(at: path) }
     }
 
     /// A missing file is already the desired state; any other failure is

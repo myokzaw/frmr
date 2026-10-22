@@ -23,6 +23,16 @@ final class DiaryEntry {
     // migration; nil = the stock's defaults, which is exactly what every
     // pre-v5 entry was shown with. Only written when it differs from them.
     var lookData: Data?
+    // v5.1 F5: the Roll photo this entry is about. Optional, additive
+    // (lightweight migration: nil for every older entry, which keeps its own
+    // photoPath and look). While set, the entry is a live link (v5.1-3): it
+    // has no image copy of its own; `photoPath` mirrors the Roll photo's
+    // file and `lookData` mirrors its current look (RollViewModel keeps
+    // both in step on re-edit). Cleared when the entry is given its own
+    // copy (v5.1-7 "keep the entry").
+    var rollPhotoID: UUID?
+
+    var isLinkedToRoll: Bool { rollPhotoID != nil }
 
     init(
         id: UUID = UUID(),
@@ -32,8 +42,10 @@ final class DiaryEntry {
         response: String,
         filmStock: StripCustomization.FilmStock = .none,
         capturedAt: Date? = nil,
-        look: FilmLook? = nil
+        look: FilmLook? = nil,
+        rollPhotoID: UUID? = nil
     ) {
+        self.rollPhotoID = rollPhotoID
         self.id = id
         self.createdAt = createdAt
         self.photoPath = photoPath

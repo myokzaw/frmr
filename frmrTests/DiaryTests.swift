@@ -87,153 +87,15 @@ struct PerPhotoStockModelTests {
     }
 }
 
-// MARK: - v4 F10 / F13: diary review state
-
-/// Thread-safe record of what Download saved, standing in for the camera roll.
-private final class SavedPhotos: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stored: [Data] = []
-    var all: [Data] { lock.withLock { stored } }
-    func save(_ data: Data) { lock.withLock { stored.append(data) } }
-}
-
-@MainActor
-struct DiaryReviewStateTests {
-
-    private func pixelSize(of data: Data) -> CGSize? {
-        guard
-            let source = CGImageSourceCreateWithData(data as CFData, nil),
-            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-            let width = properties[kCGImagePropertyPixelWidth] as? Int,
-            let height = properties[kCGImagePropertyPixelHeight] as? Int
-        else { return nil }
-        return CGSize(width: width, height: height)
-    }
-
-    @Test func quickStockTapsRenderOnlyTheLast() async throws {
-        let review = DiaryReviewViewModel(preview: solidImage(.gray), stock: .none)
-        review.setDisplaySize(CGSize(width: 16, height: 16), scale: 2)
-        review.selectStock(.daylight200)
-        review.selectStock(.cine500T)
-        review.selectStock(.mono400)
-        #expect(review.isRendering)
-        #expect(review.isDownloadDisabled, "Download waits for the render")
-        await review.renderSettled()
-
-        #expect(review.stock == .mono400)
-        #expect(!review.isRendering)
-        let rendered = try #require(review.renderedPhoto.flatMap(PixelBuffer.init))
-        let centre = rendered.rgb(x: rendered.width / 2, y: rendered.height / 2)
-        #expect(abs(centre.r - centre.b) < 6, "the Mono 400 render won: \(centre)")
-        #expect(rendered.width == 32, "rendered at display size, not source size")
-    }
-
-    @Test func theDevelopedRAWReplacesThePreview() async {
-        let preview = solidImage(.gray)
-        let developed = solidImage(.white, size: CGSize(width: 96, height: 96))
-        let (stream, continuation) = AsyncStream.makeStream(of: UIImage.self)
-        let development = Task { for await image in stream { return image }; return preview }
-        let review = DiaryReviewViewModel(preview: preview, stock: .none, development: development)
-        #expect(review.photo === preview && review.isDevelopingPhoto)
-
-        continuation.yield(developed)
-        let final = await review.developedPhoto()
-        await Task.yield()
-        #expect(final === developed)
-        #expect(review.photo === developed)
-        #expect(!review.isDevelopingPhoto)
-        #expect(review.renderedPhoto === developed, "Off shows the new original")
-    }
-
-    @Test func downloadWaitsForTheRAWAndSavesFullResolution() async throws {
-        let preview = solidImage(.gray, size: CGSize(width: 32, height: 24))
-        let developed = solidImage(.gray, size: CGSize(width: 160, height: 120))
-        let (stream, continuation) = AsyncStream.makeStream(of: UIImage.self)
-        let development = Task { for await image in stream { return image }; return preview }
-        let saved = SavedPhotos()
-        let review = DiaryReviewViewModel(
-            preview: preview, stock: .portrait400, development: development, savePhotoData: { saved.save($0) }
-        )
-        review.setDisplaySize(CGSize(width: 10, height: 10), scale: 1)
-
-        let download = Task { await review.downloadReview() }
-        await Task.yield()
-        #expect(review.isSavingDownload)
-        continuation.yield(developed)
-        await download.value
-
-        #expect(saved.all.count == 1)
-        #expect(pixelSize(of: try #require(saved.all.first)) == CGSize(width: 160, height: 120),
-                "the developed RAW at full size, never the preview or the display render")
-        #expect(review.didSaveDownload)
-        #expect(!review.isSavingDownload)
-
-        // OPEN v4-15 default: a second tap saves a second photo
-        await review.downloadReview()
-        #expect(saved.all.count == 2)
-    }
-
-    @Test func aFailedSaveRaisesAnErrorAndShowsNoSavedState() async {
-        let errors = ErrorState()
-        let review = DiaryReviewViewModel(
-            preview: solidImage(.gray), stock: .none,
-            savePhotoData: { _ in throw AppError.photoLibraryPermissionDenied }
-        )
-        review.errorState = errors
-        await review.downloadReview()
-        #expect(!review.didSaveDownload)
-        if case .photoLibraryPermissionDenied = errors.current {} else {
-            Issue.record("expected the permission error, got \(String(describing: errors.current))")
-        }
-    }
-
-    @Test func okCarriesTheChosenStockToTheEditorAndRetakeDropsTheCapture() throws {
-        let defaults = try makeScratchDefaults()
-        let camera = CameraViewModel(defaults: defaults)
-        camera.selectFilmStock(.daylight200)
-
-        let preview = solidImage(.gray)
-        camera.beginReview(preview: preview, stock: camera.filmStock)
-        let review = try #require(camera.review)
-        #expect(review.stock == .daylight200, "the review starts from the camera's stock")
-        review.selectStock(.slide100)
-
-        camera.confirmReview()
-        #expect(camera.isEditorPresented && !camera.isReviewPresented)
-        #expect(camera.pendingDiaryStock == .slide100)
-        #expect(camera.pendingDiaryImage === preview, "the original is what gets saved")
-        #expect(camera.filmStock == .daylight200, "changing the review stock leaves the camera's alone")
-
-        camera.retake()
-        #expect(camera.review == nil && camera.pendingDiaryImage == nil)
-        #expect(!camera.isEditorPresented && !camera.isReviewPresented)
-        #expect(camera.pendingDiaryStock == .none)
-    }
-
-    @Test func savingAnEntryStoresTheReviewedStock() throws {
-        let container = try ModelContainer(
-            for: DiaryEntry.self, DailyStrip.self,
-            configurations: ModelConfiguration(isStoredInMemoryOnly: true)
-        )
-        let context = ModelContext(container)
-        let diary = DiaryViewModel()
-        diary.prepareNewEntry()
-        #expect(diary.saveEntry(image: solidImage(.gray), filmStock: .cine500T, includeText: false, context: context))
-        let entry = try #require(try context.fetch(FetchDescriptor<DiaryEntry>()).first)
-        #expect(entry.filmStock == .cine500T)
-        try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath))
-    }
-}
-
 // MARK: - OBS-V4-7: the diary shows the grain the review showed
 
 @MainActor
 struct EntryLookSeedTests {
 
-    @Test func anEntrySavedFromAReviewRendersTheReviewsGrain() async throws {
+    @Test func anEntrySavedFromAnEditRendersTheEditsGrain() async throws {
         let photo = solidImage(UIColor(white: 0.4, alpha: 1), size: CGSize(width: 120, height: 90))
         let captureDate = Date(timeIntervalSince1970: 1_790_000_123)
-        let review = DiaryReviewViewModel(preview: photo, stock: .mono3200, captureDate: captureDate)
+        let review = PhotoEditViewModel(preview: photo, stock: .mono3200, captureDate: captureDate)
         review.setDisplaySize(CGSize(width: 60, height: 45), scale: 1)
         await review.renderSettled()
         let reviewed = try #require(review.renderedPhoto.flatMap(PixelBuffer.init))
@@ -246,7 +108,7 @@ struct EntryLookSeedTests {
         let diary = DiaryViewModel()
         diary.prepareNewEntry()
         #expect(diary.saveEntry(
-            image: photo, filmStock: review.stock, capturedAt: review.captureDate, includeText: false, context: context
+            image: photo, filmStock: review.look.stock, capturedAt: review.captureDate, includeText: false, context: context
         ))
         let entry = try #require(try context.fetch(FetchDescriptor<DiaryEntry>()).first)
         defer { try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath)) }
@@ -258,7 +120,7 @@ struct EntryLookSeedTests {
             seed: StripGenerator.photoLookSeed(for: entry.lookSeedDate),
             pixelSize: CGSize(width: 60, height: 45)
         ) { photo }
-        #expect(try #require(shown.flatMap(PixelBuffer.init)) == reviewed, "same grain as the review")
+        #expect(try #require(shown.flatMap(PixelBuffer.init)) == reviewed, "same grain as the editor")
     }
 
     @Test func entriesFromBeforeTheCaptureDateFallBackToCreatedAt() {

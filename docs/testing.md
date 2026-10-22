@@ -102,6 +102,41 @@ The full mapping from every §8 invariant to its guarding tests, including the i
 
 ---
 
+## 0. Workflow for parallel agents (read first)
+
+**Use `scripts/test.sh` for every run; don't call `xcodebuild` by hand.** Each role has its own simulator and its own DerivedData, so agents running at the same time never share a device or a build folder.
+
+| Role | Simulator | DerivedData |
+|---|---|---|
+| lead | `frmr-lead` | `build/lead` |
+| backend | `frmr-backend` | `build/backend` |
+| frontend | `frmr-frontend` | `build/frontend` |
+| qa | `frmr-qa` | `qa/DerivedData` |
+| restyle (second frontend agent) | `frmr-restyle` | `build/restyle` (its UI shards: `frmr-ui-4…6`) |
+| UI shards | `frmr-ui-1`, `frmr-ui-2`, `frmr-ui-3` | the caller's DerivedData |
+
+**Tiers.** Use the cheapest tier that proves the change:
+
+| Command | When | Typical time |
+|---|---|---|
+| `scripts/test.sh suite <role> <Suite>...` | While iterating: only the themed suites you touched (see §2) | build plus a few seconds |
+| `scripts/test.sh suite <role> --no-build <Suite>...` | Re-running after a test-only change, or reading a failure again | about 6 s |
+| `scripts/test.sh fast <role>` | Before handing back: every unit test except the slow matrix and timing suites | build plus about 20 s |
+| `scripts/test.sh unit <role>` | QA and lead at the end of a round: every unit test | build plus about 40 s |
+| `scripts/test.sh ui <role> [Class...]` | Frontend for its own UI classes; QA and lead for all. Sharded across 3 simulators, which seed the photo fixtures themselves | build plus about a third of the serial time |
+| `scripts/test.sh all <role>` | Lead's final check before a commit | unit + UI |
+
+**Why it's fast:**
+- `build-for-testing` runs once, then every run is `test-without-building`.
+- The slow suites (`StripLookRegressionTests`, `FilmAtCaptureRegressionTests`, `StripRenderTimingTests`) are skipped in `fast`.
+- UI classes are spread across three simulators that run at the same time. Xcode's own parallel testing stays off (`-parallel-testing-enabled NO`), because cloning simulators fails on this machine; the shards replace it.
+
+**The script fails on:** a build error, any failing test, or any Swift warning. Logs go to `build/test-logs/`.
+
+**Creating the simulators** (once per machine): `xcrun simctl create frmr-backend "iPhone 17 Pro" com.apple.CoreSimulator.SimRuntime.iOS-26-4`, and the same for the other names in the table.
+
+**Parallel rounds:** when backend and frontend work at the same time, the lead may give each agent its own git worktree. They then can't see each other's half-finished edits, and the lead merges them. Ownership rules still apply, so the merges stay conflict-free.
+
 ## 4. How to run
 
 Run serially. Parallel simulator clones fail on this machine. Give each run its own derived-data folder (`qa/DerivedData`) so it does not collide with an implementer's build.

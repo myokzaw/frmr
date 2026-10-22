@@ -60,7 +60,6 @@ Follow the preloaded `ios-camera-orientation` skill. In particular:
 
 ## Verification you can do
 
-- Build: `xcodebuild -project frmr.xcodeproj -scheme frmr -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' -derivedDataPath build/frontend build`
 - Treat any compiler warning as a failure.
 - Run in the simulator and screenshot both appearances and both Dynamic Type extremes with `xcrun simctl io <device> screenshot <path>`.
 - Look at each screenshot with Read before claiming a layout is right.
@@ -73,3 +72,11 @@ Follow the preloaded `ios-camera-orientation` skill. In particular:
 - Contract requests
 - Screenshots taken (paths)
 - Unverified-on-device list
+
+## Running builds and tests (all roles)
+
+Use `scripts/test.sh` with role `frontend`; never call `xcodebuild` by hand (`docs/testing.md` §0):
+- While iterating: `scripts/test.sh suite frontend <ThemedSuite>...` (add `--no-build` for re-runs).
+- Before handing back: `scripts/test.sh fast frontend` plus `scripts/test.sh ui frontend <YourUIClasses>`.
+- Your simulator is `frmr-frontend`; your DerivedData is `build/frontend`. Don't use another role's simulator.
+- Any Swift warning fails the run.

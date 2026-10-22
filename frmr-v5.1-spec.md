@@ -1,7 +1,7 @@
 # frmr — v5.1 Feature Specification (brainstorm draft)
 
 **Date:** 2026-10-21
-**Status:** Requirements agreed; not started. Build after v5 is pushed.
+**Status:** In progress (2026-10-21). v5 is pushed (`1d4a1dd`). F8 open questions v5.1-9…11 use the proposed defaults (the user didn't answer them; they can be changed later).
 **Baseline:** v5 on `v5-photo-camera`: Photo mode is the launch screen, the editor appears after every shot, and the Roll exists.
 **Agent rule:** every sub-agent runs on **Sonnet**.
 
@@ -102,7 +102,66 @@ Camera (Photo) ──shutter──▶ Editor (Film / Print / Effects)
 |---|---|---|
 | v5.1-9 | Where the mode switch sits once only Photo / Strip remain | Small glass segmented control at the top left |
 | v5.1-10 | Scrubber haptics | A light tick every 10%, and a stronger one at 100% (the stock default) |
-| v5.1-11 | Apply the restyle to Library, Settings and the strip screen too | Light pass: same type scale and glass sheets; no layout changes |
+| v5.1-11 | Apply the restyle to Library, Settings and the strip screen too | **User decision (2026-10-21): yes, every screen gets the modern treatment** (see F9 and F10), not just a light pass |
+
+## F9 — Film strip camera matches the Photo camera (user, 2026-10-21)
+
+**Film strip mode uses the same camera UI as Photo mode.** It is the same screen with a strip-specific layer on top:
+- the same glass top bar: mode switch (Photo / Strip), white balance and exposure glass icons with their sheets;
+- the same slim stock dial (this overturns v5-2, which kept the old Film chip for Film strip);
+- the same shutter row, slim tab bar and rotation rules.
+
+**Strip-specific additions**, styled to match:
+- a compact row of four slot thumbnails (filled or empty) just above the dial, showing "n of 4";
+- gallery picker and undo as small glass icon buttons;
+- **Generate**: appears as the primary action once at least one slot is filled. It replaces the Roll thumbnail position, or sits beside the shutter (frontend proposes; lead and user review the screenshot).
+- **Pick from Roll** sits next to the gallery picker.
+
+Each strip shot keeps the stock chosen on the dial when it was taken. Unchanged: the strip screen flow after Generate, and "As shot" behaviour.
+
+## F10 — Modern UI on every screen (user, 2026-10-21)
+
+The F8 visual language applies everywhere:
+- glass sheets and backings (Liquid Glass on iOS 26, frosted blur on iOS 17–25);
+- quiet SF Pro type, with monospace only for codes and values;
+- no outlined capsules;
+- one amber accent;
+- generous spacing;
+- icon buttons with accessibility labels.
+
+| Screen | Modernisation |
+|---|---|
+| **Strip screen** | Strip preview as the hero on a quiet background. Controls (paper, stock, print, B&W, effects) move into a glass bottom sheet using the editor's icon toolbar and single scrubber pattern. Save, Share and Archive become icons, plus one primary action. |
+| **Prompt screen (EntryEditorView)** | The photo header in its look, full-bleed with rounded corners. Typewriter prompt; a clean writing card; character count as quiet metadata. Save entry is primary, Skip secondary. |
+| **Library** | Segmented Roll / Entries / Strips in glass. The Roll grid has tighter gutters, subtle rounded corners and the book badge (F7). The selection bar is a glass toolbar. Entries are a modern list with thumbnail and excerpt. Strip thumbnails are larger. Empty states use the new style. |
+| **Entry and strip detail viewers** | Full-bleed media, glass top bar with icon actions, metadata in a quiet footer. |
+| **Settings** | Inset grouped list with the new type scale and quieter section headers; sliders match the editor scrubber where it fits; destructive rows stay rust. |
+| **Walkthrough (coach marks)** | Glass bubbles and the new type; same steps. |
+| **Tab bar** | Slimmer and glass-backed (F8). |
+
+**Process:** the frontend produces before/after screenshots of every screen, in light and dark where relevant. The lead reviews them and sends a selection to the user before the round is accepted.
+
+## F11 — Faster parallel agent workflow (user, 2026-10-21)
+
+**Measured:**
+- The unit tests themselves run in about 37 s; most of each 3–5 min agent cycle was rebuilding, plus running the full suite every time.
+- The UI tests took about 465 s, serially on one simulator, because simulator cloning fails on this machine.
+- Agents shared one folder and two simulators, and all edited `Constants.swift`.
+
+**Done (lead, 2026-10-21):**
+- One simulator per role (`frmr-backend`, `frmr-frontend`, `frmr-qa`, `frmr-lead`) and three UI shard simulators (`frmr-ui-1…3`).
+- `scripts/test.sh`, with tiers `suite`, `fast`, `unit`, `ui` and `all`:
+  - one `build-for-testing`, then `test-without-building` (`--no-build` re-runs take about 6 s);
+  - `fast` skips the slow matrix and timing suites;
+  - `ui` shards XCTest classes across three simulators at once;
+  - any Swift warning fails the run.
+- `docs/testing.md` §0 documents the workflow, and the agent role files now point to the script.
+
+**Queued (after the current backend round, so as not to disturb it):**
+1. **Split `Constants.swift` into files per owner**: `Constants+Camera`, `+ImageProcessing`, `+Strip`, `+Diary` (backend) and `+CameraUI`, `+EditorUI`, … (frontend). Parallel agents then stop editing the same file.
+2. **Worktree isolation for parallel rounds**: backend and frontend each get their own git worktree (Agent `isolation: "worktree"`) and the lead merges them. Neither builds against the other's half-finished edits.
+3. **Faster UI tests**: a DEBUG launch argument that turns off animations (`UIView.setAnimationsEnabled(false)`) and shortens debounces during UI tests (frontend). Also reduce relaunches inside UI tests.
+4. **Run the backend and frontend v5.1 rounds in parallel** where their files don't overlap: for example, frontend F10 restyling of Library and Settings while backend finishes F4/F5.
 
 ## Migration
 
@@ -124,3 +183,12 @@ Camera (Photo) ──shutter──▶ Editor (Film / Print / Effects)
    - UI tests
 3. **QA (Sonnet):** regressions, and old entries still displaying.
 4. **Lead:** docs (README, CHANGELOG, project.md, CLAUDE.md, `docs/film-simulation.md` if touched, `docs/testing.md`), then commit and push to the v5 branch.
+
+## Implementation status — v5.1
+
+| Item | Status |
+|---|---|
+| v5 pushed | ✅ `v5-photo-camera` @ `1d4a1dd` |
+| Backend (Sonnet): F1, F4, F5, F7 model; Roll delete with entry; badge API; walkthrough copy | In progress |
+| Frontend (Sonnet): F2, F3, F6 deletions, F7 badge, F8 modern camera and editor, F9 Film strip camera = Photo camera, F10 modern UI everywhere | Queued after backend |
+| QA (Sonnet) | Queued |

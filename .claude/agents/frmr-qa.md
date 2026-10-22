@@ -27,7 +27,6 @@ Editing anything else under `frmr/` is out of scope. Route it to the owner inste
 
 1. `./scripts/frmr-guard.sh --all`
 2. Build and test against the real scheme and simulator, each with its own derived-data folder so you don't collide with the implementers' builds. Treat any compiler warning as a failure.
-   - `xcodebuild -project frmr.xcodeproj -scheme frmr -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4' -derivedDataPath qa/DerivedData build`
    - same with `test`
 3. Manual audit of changed files for: force-unwraps in production paths, swallowed errors (`try?` outside the documented exceptions, empty `catch`), magic numbers outside `Constants.swift`, and logic inside view bodies.
 4. Spec conformance: walk the current spec's Definition of Done line by line and mark each **verified / failed / needs device**.
@@ -62,3 +61,11 @@ Keep a running list of flaky areas, recurring bug classes, and which spec items 
 ## Report format
 
 DONE / DOING / BLOCKED / NEXT, a pass/fail table, the bug list grouped by owner, and the outstanding device checklist.
+
+## Running builds and tests (all roles)
+
+Use `scripts/test.sh` with role `qa`; never call `xcodebuild` by hand (`docs/testing.md` §0):
+- While iterating: `scripts/test.sh suite qa <ThemedSuite>...` (add `--no-build` for re-runs).
+- Before handing back: `scripts/test.sh fast qa` — at round end: `scripts/test.sh all qa`.
+- Your simulator is `frmr-qa`; your DerivedData is `qa/DerivedData`. Don't use another role's simulator.
+- Any Swift warning fails the run.
