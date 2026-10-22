@@ -25,6 +25,29 @@ final class LibraryViewModel {
     func selectEntriesTab() { tab = .entries }
     func selectStripsTab() { tab = .strips }
 
+    // MARK: Entry row text (v5.2 M6)
+
+    /// The line a diary row previews: what the user wrote, else the prompt
+    /// they answered; whitespace trimmed. Empty only when both are blank.
+    static func excerpt(for entry: DiaryEntry) -> String {
+        let response = entry.response.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !response.isEmpty { return response }
+        return entry.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// "Oct 22, 2026 at 3:41 PM · Daylight 200": when it was taken (the
+    /// shutter time, else when it was saved) and the stock it was shot on
+    /// ("Original" for stock Off).
+    static func metadataLine(for entry: DiaryEntry) -> String {
+        let date = (entry.capturedAt ?? entry.createdAt).formatted(date: .abbreviated, time: .shortened)
+        let stock = entry.filmStock
+        return date + " \u{00B7} " + (stock == .none ? "Original" : stock.label)
+    }
+
+    /// Instance forwarders so views holding the view model can call either way.
+    func excerpt(for entry: DiaryEntry) -> String { Self.excerpt(for: entry) }
+    func metadataLine(for entry: DiaryEntry) -> String { Self.metadataLine(for: entry) }
+
     // Builds the strip source for "compile today's entries" (oldest first, so
     // the strip reads top-to-bottom in the order the day happened)
     static func todaysItems(from entries: [DiaryEntry]) -> [StripItem] {

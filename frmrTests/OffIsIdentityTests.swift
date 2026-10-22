@@ -15,13 +15,14 @@ struct StrengthZeroIdentityTests {
 
     /// Every effect, applied at strength 0 (grain at intensity 0).
     enum Effect: CaseIterable, CustomTestStringConvertible {
-        case halation, haze, lightLeak, vignette, grain
+        case halation, haze, lightLeak, vignette, grain, exposure
 
         var testDescription: String { String(describing: self) }
 
         func applyingZeroStrength(to image: CIImage) -> CIImage {
             switch self {
             case .halation: ImageProcessor.applyHalation(to: image, strength: 0, outputWidth: 400)
+            case .exposure: ImageProcessor.applyLinearGain(to: image, gain: 1)
             case .haze: ImageProcessor.applyBloom(to: image, outputWidth: 400, strength: 0)
             case .lightLeak: ImageProcessor.applyLightLeak(to: image, seed: 5, strength: 0)
             case .vignette: ImageProcessor.applyVignette(to: image, strength: 0)
@@ -56,6 +57,18 @@ struct StrengthZeroIdentityTests {
         #expect(Raster(effect.applyingZeroStrength(to: image)) == before)
     }
 
+    /// Exposure 0 EV on every stock is the unexposed look: same pixels as a
+    /// look made without the field (v5.2 F-EXP).
+    @Test(arguments: StripCustomization.FilmStock.allCases.filter { $0 != .none })
+    func exposureZeroLeavesTheStockLookUnchanged(stock: StripCustomization.FilmStock) throws {
+        let source = flatImage(0.5)
+        let plain = try #require(Raster(try ImageProcessor.renderFullLook(of: source, stock: stock, seed: 6)))
+        var look = FilmLook.stockDefaults(for: stock)
+        look.exposure = 0
+        let explicit = try #require(Raster(try ImageProcessor.renderFullLook(of: source, look: look, seed: 6)))
+        #expect(plain == explicit, "\(stock.label)")
+    }
+
     /// The vignette defaults to 0, so a stock's full look is the same with
     /// the vignette explicitly zero (every stock, grain and leak seeded alike).
     @Test(arguments: StripCustomization.FilmStock.allCases.filter { $0 != .none })
@@ -78,7 +91,7 @@ struct StockOffIdentityTests {
     /// own, wider matrix (StripLookDeterminismRegressionTests.offFastPathReturnsTheOriginal:
     /// orientations × effects × prints).
     enum Surface: CaseIterable, CustomTestStringConvertible {
-        case fullLook, filmLookCache, photoEdit
+        case fullLook, filmLookCache, photoEdit, exposureZero
 
         var testDescription: String { String(describing: self) }
     }
@@ -95,6 +108,14 @@ struct StockOffIdentityTests {
             let photo = solidImage(.gray)
             let shown = FilmLookCache().image(id: UUID(), stock: .none, seed: 0, pixelSize: CGSize(width: 8, height: 8)) { photo }
             #expect(shown === photo)
+
+        case .exposureZero:
+            // v5.2: 0 EV is no exposure change at all, with and without B&W off
+            let photo = solidImage(.gray)
+            let look = FilmLook(stock: .none, exposure: 0)
+            #expect(!look.altersPhoto)
+            #expect(try ImageProcessor.renderFullLook(of: photo, look: look, seed: 1) === photo)
+            #expect(FilmLook(stock: .none, exposure: FilmLook.snappedExposure(0.1)).exposure == 0)
 
         case .photoEdit:
             let preview = solidImage(.gray, size: CGSize(width: 96, height: 72))

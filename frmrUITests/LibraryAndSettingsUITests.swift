@@ -51,7 +51,7 @@ final class LibraryAndSettingsUITests: XCTestCase {
 
         XCTAssertTrue(waitForRollCount(app, equals: before - 1), "Deleting removes the photo")
         // Keep entries: the entry survives with its own copy of the photo
-        app.buttons["library.tab.entries"].tap()
+        app.segmentedControls.buttons["Entries"].tap()
         XCTAssertTrue(app.buttons["library.entry"].firstMatch.waitForExistence(timeout: timeout), "The entry was kept")
     }
 
@@ -78,9 +78,8 @@ final class LibraryAndSettingsUITests: XCTestCase {
         let app = launchSeeded()
         app.tabBars.buttons["Settings"].tap()
         XCTAssertTrue(app.buttons["settings.filmStock"].waitForExistence(timeout: timeout))
-        app.swipeUp()
-        app.swipeUp()
         let clearRoll = app.buttons["settings.clearRoll"]
+        for _ in 0..<5 where !clearRoll.isHittableNow { app.swipeUp() }
         XCTAssertTrue(clearRoll.waitForExistence(timeout: timeout))
         clearRoll.tap()
         XCTAssertTrue(app.buttons["settings.clearRoll.confirm"].waitForExistence(timeout: timeout), "Keep entries (the default) missing")
@@ -89,7 +88,7 @@ final class LibraryAndSettingsUITests: XCTestCase {
         app.buttons["settings.clearRoll.confirm"].firstMatch.tap()
         openRoll(app)
         XCTAssertTrue(app.buttons["roll.takePhoto"].waitForExistence(timeout: timeout), "The Roll is empty")
-        app.buttons["library.tab.entries"].tap()
+        app.segmentedControls.buttons["Entries"].tap()
         XCTAssertTrue(app.buttons["library.entry"].firstMatch.waitForExistence(timeout: timeout), "Keep entries leaves the diary")
     }
 
@@ -101,6 +100,7 @@ final class LibraryAndSettingsUITests: XCTestCase {
     @MainActor
     func testSettingsStripDefaultsMirrorStripRules() throws {
         let app = XCUIApplication()
+        app.launchArguments = ["-UITestFast"]
         app.launch()
         dismissInAppOverlays(app)
         app.tabBars.buttons["Settings"].tap()
@@ -114,21 +114,19 @@ final class LibraryAndSettingsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Black"].firstMatch.exists, "Black missing")
         XCTAssertFalse(app.buttons["Cream"].exists, "Cream should be gone (v4 F8)")
         app.buttons["White"].firstMatch.tap()
-        // The effect sliders and B&W sit below the fold; List rows only exist on screen
-        app.swipeUp()
 
         let suffix = ProcessInfo.processInfo.environment["SHOTS_SUFFIX"] ?? "light"
         let cases = [("Off", "none"), ("Mono 400", "mono400"), ("Cine 500T", "cine500T"), (asShot, "asShot")]
         for (stock, file) in cases {
-            // The picker row scrolls off with the taller slider rows; bring it back
-            app.swipeDown()
             select(stock, in: stockPicker, app: app)
             XCTAssertTrue(shows(stock, picker: stockPicker), "\(stock): picker should show the choice")
-            app.swipeUp()
             let blackAndWhite = app.switches["settings.blackAndWhite"]
+            for _ in 0..<3 where !blackAndWhite.isHittableNow { app.swipeUp() }
             XCTAssertTrue(blackAndWhite.waitForExistence(timeout: timeout))
-            _ = app.sliders["settings.slider.halation"].waitForExistence(timeout: 1)
-            XCTAssertEqual(app.sliders["settings.slider.halation"].exists, stock != "Off", "\(stock): effects visibility")
+            // v5.2 S6: the effect defaults moved to the Default look page
+            let defaultLook = app.buttons["settings.defaultLook"]
+            _ = defaultLook.waitForExistence(timeout: 1)
+            XCTAssertEqual(defaultLook.exists, stock != "Off", "\(stock): effects visibility")
             XCTAssertEqual(blackAndWhite.isEnabled, !monoStocks.contains(stock), "\(stock): B&W lock")
             if monoStocks.contains(stock) {
                 XCTAssertEqual(blackAndWhite.value as? String, "1", "\(stock): B&W should read on")
@@ -137,9 +135,52 @@ final class LibraryAndSettingsUITests: XCTestCase {
                 XCTAssertFalse(app.buttons["Print"].exists, "As shot: no print row")
             }
             saveScreenshot(named: "settings-strip-defaults-\(file)-\(suffix)")
+            for _ in 0..<3 where !stockPicker.isHittableNow { app.swipeDown() }
         }
         // The loop ends on As shot, the v4 F12 default, so the simulator's
         // stored default is left at the new default
+    }
+
+    // v5.2 S6: the camera toggles default on and persist; Default look is
+    // its own page with the editor's tool bar and scrubber
+    @MainActor
+    func testSettingsCameraTogglesAndDefaultLookPage() throws {
+        let app = launchSeeded()
+        app.tabBars.buttons["Settings"].tap()
+        let edit = app.switches["settings.editAfterEachShot"]
+        let haptics = app.switches["settings.filmAdvanceHaptics"]
+        XCTAssertTrue(edit.waitForExistence(timeout: timeout), "Edit after each shot missing")
+        XCTAssertTrue(haptics.exists, "Film-advance haptics missing")
+        XCTAssertEqual(edit.value as? String, "1", "Edit after each shot defaults on")
+        XCTAssertEqual(haptics.value as? String, "1", "Film-advance haptics defaults on")
+        XCTAssertGreaterThanOrEqual(edit.frame.height, 44)
+        saveScreenshot(named: "settings-camera-toggles")
+
+        // Off survives a relaunch; the test leaves it on again
+        edit.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(edit, "0"), "Edit after each shot should turn off")
+        app.terminate()
+        let relaunched = launchSeeded()
+        relaunched.tabBars.buttons["Settings"].tap()
+        let editAgain = relaunched.switches["settings.editAfterEachShot"]
+        XCTAssertTrue(editAgain.waitForExistence(timeout: timeout))
+        XCTAssertEqual(editAgain.value as? String, "0", "The setting persists")
+        editAgain.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(editAgain, "1"))
+
+        let defaultLook = relaunched.buttons["settings.defaultLook"]
+        for _ in 0..<3 where !defaultLook.isHittableNow { relaunched.swipeUp() }
+        guard defaultLook.exists else { return }  // stock default is Off: no effects page
+        defaultLook.tap()
+        let scrubber = relaunched.descendants(matching: .any)["settings.scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: timeout), "Default look scrubber missing")
+        for effect in ["halation", "haze", "lightLeak", "grain", "vignette"] {
+            XCTAssertTrue(relaunched.buttons["settings.tool.\(effect)"].exists, "\(effect) tool missing")
+        }
+        relaunched.buttons["settings.tool.grain"].tap()
+        XCTAssertTrue(relaunched.buttons["settings.tool.grain"].isSelected)
+        XCTAssertTrue((scrubber.value as? String)?.hasSuffix("%") == true)
+        saveScreenshot(named: "settings-default-look")
     }
 
     // MARK: Viewers
@@ -148,7 +189,7 @@ final class LibraryAndSettingsUITests: XCTestCase {
     func testEntryAndStripViewersOpenAndClose() throws {
         let app = launchSeeded()
         app.tabBars.buttons["Library"].tap()
-        let entries = app.buttons["library.tab.entries"]
+        let entries = app.segmentedControls.buttons["Entries"]
         XCTAssertTrue(entries.waitForExistence(timeout: timeout))
         entries.tap()
         let entry = app.buttons["library.entry"].firstMatch
@@ -159,7 +200,7 @@ final class LibraryAndSettingsUITests: XCTestCase {
         app.buttons["detail.close"].tap()
         XCTAssertTrue(app.buttons["library.entry"].firstMatch.waitForExistence(timeout: timeout), "Close returns to the list")
 
-        app.buttons["library.tab.strips"].tap()
+        app.segmentedControls.buttons["Strips"].tap()
         let strip = app.buttons["library.strip"].firstMatch
         XCTAssertTrue(strip.waitForExistence(timeout: timeout), "Seeded strip missing")
         strip.tap()
@@ -174,7 +215,7 @@ final class LibraryAndSettingsUITests: XCTestCase {
     @MainActor
     private func launchSeeded() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-UITestSeedRoll", "-UITestSeedLibrary"]
+        app.launchArguments = ["-UITestFast", "-UITestSeedRoll", "-UITestSeedLibrary"]
         app.launch()
         dismissInAppOverlays(app)
         return app
@@ -190,23 +231,28 @@ final class LibraryAndSettingsUITests: XCTestCase {
 
     private func openRoll(_ app: XCUIApplication) {
         app.tabBars.buttons["Library"].tap()
-        let roll = app.buttons["library.tab.roll"]
+        let roll = app.segmentedControls.buttons["Roll"]
         XCTAssertTrue(roll.waitForExistence(timeout: timeout))
         roll.tap()
     }
 
     private func rollCount(in app: XCUIApplication) -> Int {
         _ = app.buttons["roll.photo"].firstMatch.waitForExistence(timeout: timeout)
-        return app.buttons.matching(identifier: "roll.photo").count
+        return frameCount(in: app)
     }
 
     private func waitForRollCount(_ app: XCUIApplication, equals expected: Int) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if app.buttons.matching(identifier: "roll.photo").count == expected { return true }
+            if frameCount(in: app) == expected { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
         return false
+    }
+
+    private func waitForValue(_ element: XCUIElement, _ value: String) -> Bool {
+        let predicate = NSPredicate(format: "value == %@", value)
+        return XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: predicate, object: element)], timeout: timeout) == .completed
     }
 
     private func select(_ stock: String, in picker: XCUIElement, app: XCUIApplication) {
@@ -234,4 +280,20 @@ final class LibraryAndSettingsUITests: XCTestCase {
             try? screenshot.pngRepresentation.write(to: url)
         }
     }
+}
+
+/// The Roll's photo count from its day headers ("Today, 12 frames"); the
+/// lazy contact sheet only builds the cells on screen, so counting cells
+/// undercounts a long Roll. Seeded photos are all from today.
+func frameCount(in app: XCUIApplication) -> Int {
+    let headers = app.descendants(matching: .any).matching(identifier: "roll.dayHeader")
+    return headers.allElementsBoundByIndex.reduce(0) { total, header in
+        let digits = header.label.components(separatedBy: CharacterSet.decimalDigits.inverted).filter { !$0.isEmpty }
+        return total + (digits.last.flatMap(Int.init) ?? 0)
+    }
+}
+
+extension XCUIElement {
+    /// On screen and tappable now; false (never throws) when it isn't there.
+    var isHittableNow: Bool { exists && isHittable }
 }

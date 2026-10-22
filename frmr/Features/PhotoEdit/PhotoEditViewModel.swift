@@ -18,15 +18,23 @@ import UIKit
 /// Download writes a photo to the camera roll and creates no Roll record.
 @Observable
 final class PhotoEditViewModel: Identifiable {
-    /// The editor's tools, in tool-bar order: Film, Print, then one per effect.
+    /// The editor's tools, in tool-bar order: Exposure (v5.2), Film, Print,
+    /// then one per effect (`allTools`).
     enum Tool: Hashable {
+        case exposure
         case film
         case print
         case effect(FilmLook.Effect)
 
+        /// Every tool in tool-bar order.
+        static var allTools: [Tool] {
+            [.exposure, .film, .print] + FilmLook.Effect.allCases.map(Tool.effect)
+        }
+
         /// Stable identifier (tool bar item, accessibility ids).
         var id: String {
             switch self {
+            case .exposure: return "exposure"
             case .film: return "film"
             case .print: return "print"
             case .effect(let effect): return effect.rawValue
@@ -36,6 +44,7 @@ final class PhotoEditViewModel: Identifiable {
         /// Unknown ids fall back to Film.
         init(id: String) {
             switch id {
+            case "exposure": self = .exposure
             case "film": self = .film
             case "print": self = .print
             default: self = FilmLook.Effect(rawValue: id).map(Tool.effect) ?? .film
@@ -100,6 +109,31 @@ final class PhotoEditViewModel: Identifiable {
     let stockChoices = StripCustomization.FilmStock.allCases
     let effectChoices = FilmLook.Effect.allCases
 
+    // MARK: Previews (v5.2 M5)
+
+    /// THIS photo in each stock (the current look otherwise); filled by
+    /// `requestPreviews`. Empty until the first request lands.
+    private(set) var stockPreviews: [StripCustomization.FilmStock: UIImage] = [:]
+    /// THIS photo on each print the current stock offers.
+    private(set) var printPreviews: [StripCustomization.PrintStock: UIImage] = [:]
+    /// How many preview batches have been rendered (cache misses); for tests.
+    @ObservationIgnored private(set) var previewRenderCount = 0
+    /// Bumps when the developed RAW replaces the JPEG, so previews of the
+    /// preview are never served for the real photo.
+    @ObservationIgnored private var photoGeneration = 0
+    @ObservationIgnored private var stockCache: [PreviewKey: [StripCustomization.FilmStock: UIImage]] = [:]
+    @ObservationIgnored private var printCache: [PreviewKey: [StripCustomization.PrintStock: UIImage]] = [:]
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
+
+    /// What a preview set depends on: the photo (by generation), the look
+    /// with the dimension being previewed factored out, and the size.
+    private struct PreviewKey: Hashable {
+        let generation: Int
+        let look: FilmLook
+        let width: Int
+        let height: Int
+    }
+
     @ObservationIgnored private let scheduler = FilmLookRenderScheduler()
     @ObservationIgnored private var displayPixelSize: CGSize?
     @ObservationIgnored private var savedResetTask: Task<Void, Never>?
@@ -152,6 +186,7 @@ final class PhotoEditViewModel: Identifiable {
         scheduler.watch(development: development) { [weak self] developed in
             guard let self else { return }
             self.photo = developed
+            self.photoGeneration += 1
             self.isDevelopingPhoto = false
             // The swap is not a user edit: no debounce
             self.scheduleRender(debounced: false)
@@ -197,6 +232,27 @@ final class PhotoEditViewModel: Identifiable {
     var isModified: Bool { look != initialLook }
 
     func strength(of effect: FilmLook.Effect) -> Double { look.strengths[effect] }
+
+    // MARK: Exposure (v5.2 F-EXP)
+
+    var exposure: Double { look.exposure }
+
+    /// "+0.3 EV", "0 EV", "−1.0 EV" (a true minus sign).
+    var exposureReadout: String { Self.exposureReadout(for: look.exposure) }
+
+    static func exposureReadout(for exposure: Double) -> String {
+        let value = FilmLook.snappedExposure(exposure)
+        guard value != 0 else { return "0 EV" }
+        let magnitude = String(format: "%.1f", abs(value))
+        return (value > 0 ? "+" : "\u{2212}") + magnitude + " EV"
+    }
+
+    /// Sets the exposure, snapped to ⅓ stop and clamped to ±2 EV.
+    func setExposure(_ value: Double) {
+        var next = look
+        next.exposure = FilmLook.snappedExposure(value)
+        apply(next)
+    }
 
     // MARK: Look edits (each is debounced: a burst renders once, last wins)
 
@@ -270,6 +326,65 @@ final class PhotoEditViewModel: Identifiable {
     }
 
     private var seed: UInt64 { StripGenerator.photoLookSeed(for: captureDate) }
+
+    // MARK: Previews (v5.2 M5)
+
+    /// Renders small thumbnails of this photo in every stock and on every
+    /// available print, at `size` points × `scale`. Off the main actor,
+    /// last request wins, cached per (photo, look without the previewed
+    /// stock/print, size) and deterministic (the capture's seed). Results
+    /// land in `stockPreviews` and `printPreviews`; a cache hit lands
+    /// immediately, and picking a stock re-renders only the prints.
+    func requestPreviews(size: CGSize, scale: CGFloat) {
+        let pixels = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        guard pixels.width >= 1, pixels.height >= 1 else { return }
+        previewTask?.cancel()
+        previewTask = nil
+
+        // Stock previews replace the stock: key on the look without it
+        var stockBase = look
+        stockBase.stock = .none
+        let stockKey = PreviewKey(generation: photoGeneration, look: stockBase, width: Int(pixels.width), height: Int(pixels.height))
+        // Print previews replace the print: key on the look without it
+        var printBase = look
+        printBase.printStock = nil
+        let printKey = PreviewKey(generation: photoGeneration, look: printBase, width: Int(pixels.width), height: Int(pixels.height))
+
+        let cachedStocks = stockCache[stockKey]
+        let cachedPrints = printCache[printKey]
+        if let cachedStocks { stockPreviews = cachedStocks }
+        if let cachedPrints { printPreviews = cachedPrints }
+        guard cachedStocks == nil || cachedPrints == nil else { return }
+
+        let photo = photo
+        let look = look
+        let seed = seed
+        previewTask = Task { [weak self] in
+            let rendered = await Task.detached(priority: .utility) { () -> (stocks: [StripCustomization.FilmStock: UIImage]?, prints: [StripCustomization.PrintStock: UIImage]?)? in
+                let source = FilmPreviewThumbnails.source(from: photo, coveringPixelSize: pixels)
+                if Task.isCancelled { return nil }
+                let stocks = cachedStocks == nil ? FilmPreviewThumbnails.stockPreviews(of: source, look: look, seed: seed) : nil
+                if Task.isCancelled { return nil }
+                let prints = cachedPrints == nil ? FilmPreviewThumbnails.printPreviews(of: source, look: look, seed: seed) : nil
+                return (stocks, prints)
+            }.value
+            guard let self, !Task.isCancelled, let rendered else { return }
+            self.previewRenderCount += 1
+            if let stocks = rendered.stocks {
+                self.stockCache[stockKey] = stocks
+                self.stockPreviews = stocks
+            }
+            if let prints = rendered.prints {
+                self.printCache[printKey] = prints
+                self.printPreviews = prints
+            }
+        }
+    }
+
+    /// Waits for the newest `requestPreviews` render, for tests.
+    func previewsSettled() async {
+        await previewTask?.value
+    }
 
     /// The final original: the developed RAW once it is ready.
     func developedPhoto() async -> UIImage {
@@ -390,6 +505,13 @@ final class PhotoEditViewModel: Identifiable {
     /// For the delete confirmation: entries linked to the photo being re-edited.
     func linkedEntryCount(in context: ModelContext) -> Int {
         rollPhoto.map { RollViewModel.linkedEntryCount(for: $0, in: context) } ?? 0
+    }
+
+    /// Like `linkedEntryCount(in:)` but nil when the count can't be read
+    /// (the caller then asks conservatively). 0 for a fresh capture.
+    func linkedEntryCountIfKnown(in context: ModelContext) -> Int? {
+        guard let rollPhoto else { return 0 }
+        return RollViewModel.linkedEntryCountIfKnown(for: rollPhoto, in: context)
     }
 
     /// Delete (re-edit only; the view confirms first): removes the photo's

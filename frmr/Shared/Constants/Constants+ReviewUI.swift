@@ -2,21 +2,13 @@ import Foundation
 import CoreGraphics
 
 nonisolated extension Constants {
-    // MARK: Diary review screen (v4 F10/F13)
+    // MARK: Shared photo action controls (choice chips, Download, Saved)
     enum ReviewUI {
-        static let stockChipHeight: CGFloat = 44
+        static let stockChipHeight: CGFloat = Constants.DesignUI.targetMin
         static let stockChipHorizontalPadding: CGFloat = 14
-        static let stockChipFontSize: CGFloat = 13
-        static let stockChipSpacing: CGFloat = 8
-        static let downloadButtonSize: CGFloat = 44
-        static let downloadIconSize: CGFloat = 17
-        static let savedFontSize: CGFloat = 13
-        static let savedHorizontalPadding: CGFloat = 12
+        static let stockChipSpacing: CGFloat = Constants.DesignUI.Space.s
+        static let downloadButtonSize: CGFloat = Constants.DesignUI.buttonGlass
+        static let savedHorizontalPadding: CGFloat = Constants.DesignUI.Space.m
         static let savedVerticalPadding: CGFloat = 6
-        static let overlayOpacity: CGFloat = 0.45
-        static let actionButtonHeight: CGFloat = 50
-        static let sectionSpacing: CGFloat = 16
-        static let effectsMaxHeight: CGFloat = 230
-        static let feedbackAnimationDuration: TimeInterval = 0.2
     }
 }

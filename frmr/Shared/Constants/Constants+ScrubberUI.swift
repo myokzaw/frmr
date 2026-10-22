@@ -23,15 +23,21 @@ nonisolated extension Constants {
         static let activeTickOpacity: CGFloat = 0.85
         static let headerSpacing: CGFloat = 6
         static let resetButtonSize: CGFloat = Constants.DesignUI.targetMin
+        static let resetIconSize: CGFloat = 16
+        // Exposure ruler: taller ticks at whole stops
+        static let exposureMajorStep: Double = 1
         static let disabledOpacity: CGFloat = 0.4
 
-        // Tool icon bar
-        static let toolItemWidth: CGFloat = 52
-        static let toolItemHeight: CGFloat = 52
-        static let toolIconSize: CGFloat = 20
-        static let toolTitleMinScale: CGFloat = 0.7
-        static let toolDotSize: CGFloat = 5
-        static let toolIdleOpacity: CGFloat = 0.6
+        // Tool icon bar; each glyph sits in its value ring (v5.2 M5)
+        static let toolItemWidth: CGFloat = 56
+        static let toolItemHeight: CGFloat = Constants.DesignUI.targetMin + Constants.DesignUI.Space.l
+        static let toolIconSize: CGFloat = 17
+        static let toolIdleOpacity: CGFloat = 0.65
+        static let toolRingDiameter: CGFloat = 32
+        static let toolRingWidth: CGFloat = 2
+        static let toolRingTrackOpacity: CGFloat = 0.2
+        // The ring starts at 12 o'clock
+        static let toolRingStartDegrees: Double = -90
 
         // Round glass icon buttons
         static let glassButtonSize: CGFloat = Constants.DesignUI.buttonGlass

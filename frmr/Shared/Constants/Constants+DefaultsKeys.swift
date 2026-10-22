@@ -27,5 +27,11 @@ nonisolated extension Constants {
         static let stripVignette = "stripDefaultVignette"
         // v4 F9: the camera's film stock (raw FilmStock value; missing = Off)
         static let cameraFilmStock = "cameraFilmStock"
+        // v5.2: after a Photo-mode shot, open the editor (true, default) or
+        // save straight to the Roll with the camera's stock defaults
+        static let editAfterEachShot = "editAfterEachShot"
+        // v5.2 S7: the Core Haptics film-advance pattern on the shutter
+        // (true, default); off = a single heavy impact
+        static let filmAdvanceHaptics = "filmAdvanceHaptics"
     }
 }

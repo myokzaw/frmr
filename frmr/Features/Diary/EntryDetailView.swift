@@ -1,98 +1,86 @@
 import SwiftData
 import SwiftUI
 
-// Full-screen view of a single diary entry (v5.1 F10): the photo full-bleed
-// in its look, a glass top bar with a close icon, and the prompt, response
-// and date in a quiet glass footer. Presented from the diary list.
+// Full-screen view of a single diary entry (v5.1 F10, v5.2 §5.7): the photo
+// in its look at the top of a darkroom page, Close on glass over it, then
+// the prompt as a muted serif italic line, the response in reading serif,
+// and a footer with when and on what film. Presented from the Entries tab.
 struct EntryDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorSchemeContrast) private var contrast
 
     // v4 F11: the photo is shown through the entry's own stock
     let entry: DiaryEntry
     let prompt: String
     let response: String
-    let dateText: String
+    let metadata: String
+
+    private var theme: ThemePalette { ThemePalette.resolve(for: .dark, surface: .darkroom, contrast: contrast) }
 
     var body: some View {
-        ZStack {
-            Color.appBlack
-                .ignoresSafeArea()
-
-            DetailPhoto(entry: entry)
-                .padding(.horizontal, Constants.DetailUI.photoInset)
-                .ignoresSafeArea(edges: .bottom)
-
-            VStack(spacing: 0) {
-                DetailTopBar(title: dateText, onClose: { dismiss() }) { EmptyView() }
-                Spacer(minLength: 0)
-                DetailFooter(prompt: prompt, response: response)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Constants.DetailUI.textSpacing) {
+                DetailPhoto(entry: entry, mutedColor: theme.textMuted)
+                Text(prompt)
+                    .font(.frmrPrompt)
+                    .foregroundStyle(theme.textMuted)
+                    .accessibilityIdentifier("detail.prompt")
+                if !response.isEmpty {
+                    Text(response)
+                        .font(.frmrReading)
+                        .foregroundStyle(theme.text)
+                        .accessibilityIdentifier("detail.response")
+                }
+                Text(metadata)
+                    .font(.frmrMeta)
+                    .foregroundStyle(theme.textMuted)
+                    .accessibilityIdentifier("detail.footer")
             }
+            .padding(.horizontal, Constants.DesignUI.gutter)
+            .padding(.bottom, Constants.DesignUI.Space.xxl)
+            .textSelection(.enabled)
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            DetailTopBar(onClose: { dismiss() }) { EmptyView() }
+        }
+        .background(theme.bg.ignoresSafeArea())
         .preferredColorScheme(.dark)
     }
 }
 
-// The shared glass top bar of the full-screen viewers: close on the leading
-// side, the title in the middle, optional trailing actions
+// The shared top bar of the full-screen viewers: Close on glass on the
+// leading side, optional trailing actions in their own glass group
 struct DetailTopBar<Trailing: View>: View {
-    let title: String
     let onClose: () -> Void
     @ViewBuilder let trailing: () -> Trailing
 
     var body: some View {
         HStack {
-            GlassIconButton(systemImage: "xmark", label: "Close", identifier: "detail.close", action: onClose)
+            GlassIconButton(systemImage: "xmark", label: "Close", identifier: "detail.close", rotates: false, action: onClose)
             Spacer()
-            Text(title)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.white.opacity(Constants.DetailUI.promptOpacity))
-                .accessibilityIdentifier("detail.title")
-            Spacer()
-            trailing()
-                .frame(minWidth: Constants.DetailUI.topBarButtonSize, alignment: .trailing)
-        }
-        .padding(.horizontal, Constants.DetailUI.topBarPadding)
-        .padding(.top, Constants.DetailUI.topBarPadding / 2)
-    }
-}
-
-private struct DetailFooter: View {
-    let prompt: String
-    let response: String
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: Constants.DetailUI.footerSpacing) {
-                Text(prompt)
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(Constants.DetailUI.promptOpacity))
-                if !response.isEmpty {
-                    Text(response)
-                        .font(.body)
-                        .foregroundStyle(.white)
-                }
+            FrmrGlassContainer(spacing: Constants.DesignUI.Space.s) {
+                HStack(spacing: Constants.DesignUI.Space.s) { trailing() }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(Constants.DetailUI.footerPadding)
         }
-        .frame(maxHeight: Constants.DetailUI.textPanelMaxHeight)
-        .fixedSize(horizontal: false, vertical: true)
-        .frmrAdaptiveGlass(in: RoundedRectangle(cornerRadius: Constants.DetailUI.footerCornerRadius))
-        .padding(Constants.DetailUI.footerOuterPadding)
-        .accessibilityIdentifier("detail.footer")
+        .padding(.horizontal, Constants.DesignUI.gutter)
+        .padding(.vertical, Constants.DesignUI.Space.s)
     }
 }
 
 private struct DetailPhoto: View {
     let entry: DiaryEntry
+    let mutedColor: Color
 
     var body: some View {
         EntryLookImage(entry: entry, contentMode: .fit) {
             Text("This photo file is missing.")
-                .font(.callout)
-                .foregroundStyle(.white.opacity(Constants.DetailUI.promptOpacity))
+                .font(.frmrMeta)
+                .foregroundStyle(mutedColor)
         }
-        .clipShape(RoundedRectangle(cornerRadius: Constants.DetailUI.photoCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.media))
+        // The look renders asynchronously: hold the photo's space meanwhile
+        .containerRelativeFrame(.vertical) { height, _ in height * Constants.DetailUI.photoHeightFraction }
+        .frame(maxWidth: .infinity)
         .accessibilityLabel("Photo")
     }
 }
@@ -103,7 +91,7 @@ private struct DetailPhoto: View {
         entry: DiaryEntry(photoPath: "Photos/preview-missing.jpg", prompt: "", response: ""),
         prompt: "What made you take this picture?",
         response: "The light was doing something I'd never seen before.",
-        dateText: "Jul 31, 2026"
+        metadata: "Jul 31, 2026 at 3:41 PM · Daylight 200"
     )
     .modelContainer(for: DiaryEntry.self, inMemory: true)
 }

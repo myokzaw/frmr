@@ -4,6 +4,16 @@ import Photos
 import SwiftData
 import UIKit
 
+/// One day of the Roll (v5.2 M6): a "contact sheet".
+struct RollDaySection: Identifiable {
+    /// Start of the day.
+    let id: Date
+    /// "Today", "Yesterday", then the date.
+    let title: String
+    /// Newest first.
+    let photos: [RollPhoto]
+}
+
 /// The Roll (v5 F6): newest-first listing, saving, re-editing, deleting,
 /// exporting to Photos and selecting photos for a strip.
 ///
@@ -65,6 +75,15 @@ final class RollViewModel {
             if lhs.capturedAt != rhs.capturedAt { return lhs.capturedAt > rhs.capturedAt }
             if lhs.editedAt != rhs.editedAt { return lhs.editedAt > rhs.editedAt }
             return lhs.id.uuidString < rhs.id.uuidString
+        }
+    }
+
+    /// The photos grouped by the day they were taken, newest day first and
+    /// newest photo first within it (v5.2 M6).
+    static func daySections(_ photos: [RollPhoto]) -> [RollDaySection] {
+        let grouped = Dictionary(grouping: sorted(photos)) { $0.capturedAt.startOfDay }
+        return grouped.keys.sorted(by: >).map { day in
+            RollDaySection(id: day, title: day.librarySectionTitle, photos: grouped[day] ?? [])
         }
     }
 
@@ -157,15 +176,43 @@ final class RollViewModel {
         }
     }
 
-    /// For the delete prompt: how many entries a delete would touch.
+    /// For the delete prompt: how many entries a delete would touch. A failed
+    /// fetch reads as 0 (and is logged); prompts that must not under-warn use
+    /// `linkedEntryCountIfKnown(for:in:)`.
     static func linkedEntryCount(for photo: RollPhoto, in context: ModelContext) -> Int {
-        let id: UUID? = photo.id
-        return (try? context.fetchCount(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID == id }))) ?? 0
+        linkedEntryCountIfKnown(for: photo, in: context) ?? 0
     }
 
-    /// For the Clear roll prompt: entries linked to any Roll photo.
+    /// For the Clear roll prompt: entries linked to any Roll photo. Same
+    /// failure behaviour as above (`linkedEntryCountIfKnown(in:)`).
     static func linkedEntryCount(in context: ModelContext) -> Int {
-        (try? context.fetchCount(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID != nil }))) ?? 0
+        linkedEntryCountIfKnown(in: context) ?? 0
+    }
+
+    /// Like `linkedEntryCount(for:in:)` but nil when the fetch fails, so the
+    /// caller can ask conservatively instead of reading failure as "none".
+    static func linkedEntryCountIfKnown(for photo: RollPhoto, in context: ModelContext) -> Int? {
+        let id: UUID? = photo.id
+        return knownCount(describing: "photo \(photo.id)") {
+            try context.fetchCount(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID == id }))
+        }
+    }
+
+    /// Like `linkedEntryCount(in:)` but nil when the fetch fails.
+    static func linkedEntryCountIfKnown(in context: ModelContext) -> Int? {
+        knownCount(describing: "the Roll") {
+            try context.fetchCount(FetchDescriptor<DiaryEntry>(predicate: #Predicate { $0.rollPhotoID != nil }))
+        }
+    }
+
+    /// Runs a count fetch: the number, or nil with the failure logged.
+    static func knownCount(describing subject: String, _ fetch: () throws -> Int) -> Int? {
+        do {
+            return try fetch()
+        } catch {
+            print("[RollViewModel] Linked-entry count failed for \(subject): \(error)")
+            return nil
+        }
     }
 
     /// The badge lookup (v5.1-6), one fetch for the whole grid: ids of

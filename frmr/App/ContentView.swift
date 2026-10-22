@@ -15,7 +15,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
-    @State private var onboarding = OnboardingViewModel()
+    // The app opens on the camera (v5 F1)
+    @State private var selectedTab: AppTab = .camera
 
     init() {
         Self.configureTabBarAppearance()
@@ -28,7 +29,7 @@ struct ContentView: View {
         let appearance = UITabBarAppearance()
         appearance.configureWithTransparentBackground()
         appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-        let title: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: Constants.TabBarUI.titleFontSize, weight: .medium)]
+        let title: [NSAttributedString.Key: Any] = [.font: UIFont.preferredFont(forTextStyle: .caption2)]
         for item in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance, appearance.compactInlineLayoutAppearance] {
             item.normal.titleTextAttributes = title
             item.selected.titleTextAttributes = title
@@ -42,16 +43,15 @@ struct ContentView: View {
     }
 
     // The camera tab is the darkroom whatever the system scheme; the other
-    // tabs follow it (v5.2 §4.4).
+    // tabs follow it (v5.2 §4.4)
     private var tabTint: Color {
-        let surface: FrmrSurface = onboarding.selectedTab == .camera ? .darkroom : .paper
-        return ThemePalette.resolve(for: colorScheme, surface: surface, contrast: contrast).tint
+        ThemePalette.resolve(for: colorScheme, surface: AppTab.surface(for: selectedTab), contrast: contrast).tint
     }
 
     var body: some View {
-        TabView(selection: Bindable(onboarding).selectedTab.projectedValue) {
+        TabView(selection: $selectedTab) {
             LibraryView()
-                .tabItem { Label("Library", systemImage: "square.grid.2x2") }
+                .tabItem { Label("Library", systemImage: "photo.stack") }
                 .tag(AppTab.library)
             CameraView()
                 .toolbarColorScheme(.dark, for: .tabBar)
@@ -63,35 +63,16 @@ struct ContentView: View {
         }
         .tint(tabTint)
         .preferredColorScheme(preferredScheme)
-        .overlay(alignment: .bottom) { tabItemAnchorProxies }
-        .overlayPreferenceValue(TabItemAnchorKey.self) { anchors in
-            CoachMarkOverlay(
-                step: onboarding.visibleStep,
-                anchors: anchors,
-                onAdvance: onboarding.advance,
-                onSkip: onboarding.skip
-            )
-        }
+        .environment(\.selectAppTab, AppTabSelection { selectedTab = $0 })
         .appErrorAlert(errorState)
-        .environment(onboarding)
         // The lock follows the selected tab, not CameraView's appear/disappear,
-        // whose ordering against a tab switch is not guaranteed.
-        // CONTRACT REQUEST candidate: pure static AppTab -> Mode mapping on
-        // OnboardingViewModel; for now the single comparison lives in applyOrientationLock.
+        // whose ordering against a tab switch is not guaranteed
         .onAppear { applyOrientationLock() }
-        .onChange(of: onboarding.selectedTab) { applyOrientationLock() }
-        // The bubbles point at the tab bar over the camera. The bar isn't covered
-        // by the overlay, so a tap on it mid-walkthrough would leave a bubble
-        // over the wrong screen: hold the camera until the walkthrough ends.
-        .onChange(of: onboarding.selectedTab) {
-            if onboarding.visibleStep != nil && onboarding.selectedTab != .camera {
-                onboarding.selectedTab = .camera
-            }
-        }
+        .onChange(of: selectedTab) { applyOrientationLock() }
         .onChange(of: scenePhase) { if scenePhase == .active { applyOrientationLock() } }
         .task {
-            onboarding.errorState = errorState
-            onboarding.start(context: modelContext)
+            FrmrTips.configure()
+            FrmrTips.noteAppOpened()
             #if DEBUG
             // UI tests only: a Roll with photos in it, without a camera
             if RollSeedFixture.isRequested {
@@ -104,35 +85,20 @@ struct ContentView: View {
         }
     }
 
+    // CONTRACT: lockMode(for:) still lives on OnboardingViewModel (a pure
+    // static); it moves with the walkthrough's removal
     private func applyOrientationLock() {
-        switch OnboardingViewModel.lockMode(for: onboarding.selectedTab) {
+        switch OnboardingViewModel.lockMode(for: selectedTab) {
         case .portraitLocked: InterfaceOrientationLock.lockToPortrait()
         case .unlocked: InterfaceOrientationLock.unlock()
         }
     }
+}
 
-    // The tab bar is UIKit-managed, so anchor preferences on the .tabItem
-    // labels never reach SwiftUI; the coach-mark targets come from invisible
-    // proxies laid over the bar's icon band instead. The bar floats inset
-    // from the screen edges (iOS 26 style), so the proxies are inset by a
-    // width fraction rather than spanning edge to edge — proportional to live
-    // geometry, not fixed points, so it tracks device width.
-    // OPEN: tabBarEdgeFraction is fitted to the iPhone 17 Pro simulator;
-    // verify the arrows land on the icons across device widths and Dynamic
-    // Type, and re-fit or replace with real introspection if they drift.
-    private var tabItemAnchorProxies: some View {
-        GeometryReader { proxy in
-            HStack(spacing: 0) {
-                ForEach(CoachStep.allCases, id: \.self) { step in
-                    Color.clear
-                        .frame(height: Constants.Onboarding.tabBarBaseHeight)
-                        .anchorPreference(key: TabItemAnchorKey.self, value: .bounds) { [step: $0] }
-                }
-            }
-            .padding(.horizontal, proxy.size.width * Constants.Onboarding.tabBarEdgeFraction)
-            .frame(maxHeight: .infinity, alignment: .bottom)
-        }
-        .allowsHitTesting(false)
+extension AppTab {
+    /// The camera is the darkroom; Library and Settings are paper.
+    nonisolated static func surface(for tab: AppTab) -> FrmrSurface {
+        tab == .camera ? .darkroom : .paper
     }
 }
 

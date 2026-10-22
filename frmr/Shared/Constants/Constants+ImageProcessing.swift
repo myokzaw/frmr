@@ -27,6 +27,16 @@ nonisolated extension Constants {
         static let noiseLevel: Float = 0.02
         static let noiseSharpness: Float = 0.40
 
+        // v5.2 S8: the fixed reference patches (gamma-encoded sRGB) a stock's
+        // swatch colours are rendered from: skin, sky, foliage
+        enum Swatch {
+            static let patches: [(r: Double, g: Double, b: Double)] = [
+                (0.82, 0.62, 0.52),
+                (0.42, 0.62, 0.86),
+                (0.30, 0.52, 0.26),
+            ]
+        }
+
         // OPEN: tune these against real RAW captures before shipping (project.md §13 #5)
         static let unsharpRadius: Float = 0.8
         static let unsharpIntensity: Float = 0.3
@@ -78,7 +88,9 @@ nonisolated extension Constants {
             static let lutDimension = 64
             // 4 MB per cube at 64³; the spec's 48-entry worst case would be
             // ~190 MB, so the cache keeps the most recent few only
-            static let lutCacheLimit = 8
+            // v5.2: exposure bakes its gain into the cube, so one stock
+            // explored across the ⅓-stop steps needs a few cubes
+            static let lutCacheLimit = 16
             // OPEN: v4-8 — decision flag: the film chain is a baked colour
             // cube, not a Metal CIColorKernel (no -fcikernel build rules; the
             // tested Swift produces the pixels). Flip only if profiling demands.
@@ -233,6 +245,13 @@ nonisolated extension Constants {
             static let effectsAreToggles = false
             // Halation defaults on for every stock, at the stock's own strength
             static let halationOnByDefault = true
+
+            // MARK: Exposure (v5.2 F-EXP)
+            enum Exposure {
+                /// EV range of the editor's Exposure tool, in ⅓-stop steps
+                static let range: ClosedRange<Double> = -2...2
+                static let step: Double = 1.0 / 3.0
+            }
 
             // MARK: Effect strengths (v5 F5)
             // One scale for every effect: 1 is exactly the v4 strength, 0 is

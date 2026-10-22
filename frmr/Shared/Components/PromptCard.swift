@@ -10,8 +10,11 @@ struct PromptCard: View {
         // v2 F8b: the prompt types itself out, so it reads as something being
         // offered rather than a label that was already there.
         TypewriterText(prompt, foregroundStyle: textColor)
-            .font(.system(size: Constants.EditorUI.promptFontSize, weight: .medium, design: .serif))
-            .italic()
+            .font(.frmrPrompt)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(prompt)
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("entry.prompt")
     }
 }
 

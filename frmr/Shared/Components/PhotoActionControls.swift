@@ -25,7 +25,7 @@ struct ChoiceChip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                .font(.frmrLabel.weight(isSelected ? .semibold : .medium))
                 .foregroundStyle(isSelected ? selectedForeground : idleForeground)
                 .padding(.horizontal, Constants.ReviewUI.stockChipHorizontalPadding)
                 .frame(minHeight: Constants.ReviewUI.stockChipHeight)
@@ -43,14 +43,13 @@ struct RenderingIndicator: View {
     let isVisible: Bool
 
     var body: some View {
-        ProgressView()
-            .tint(.white)
-            .padding(Constants.ReviewUI.savedVerticalPadding)
-            .frmrGlass(in: Circle())
-            .opacity(isVisible ? 1 : 0)
-            .animation(.easeInOut(duration: Constants.ReviewUI.feedbackAnimationDuration), value: isVisible)
-            .accessibilityLabel("Rendering")
-            .accessibilityHidden(!isVisible)
+        if isVisible {
+            ProgressView()
+                .tint(.white)
+                .padding(Constants.ReviewUI.savedVerticalPadding)
+                .frmrGlass(in: Circle())
+                .accessibilityLabel("Rendering")
+        }
     }
 }
 
@@ -66,19 +65,25 @@ struct DownloadControl: View {
 
     var body: some View {
         HStack(spacing: Constants.ReviewUI.stockChipSpacing) {
-            SavedBadge(isVisible: didSave, identifier: savedIdentifier)
+            // Inserted, not faded: iOS 26 glass ignores opacity inside a container
+            if didSave {
+                SavedBadge(identifier: savedIdentifier)
+                    .transition(.opacity)
+            }
             Button(action: action) {
                 ZStack {
-                    Image(systemName: symbolName)
-                        .font(.system(size: Constants.ReviewUI.downloadIconSize, weight: .semibold))
-                        .opacity(isSaving ? 0 : 1)
-                    ProgressView()
-                        .tint(.white)
-                        .opacity(isSaving ? 1 : 0)
+                    if isSaving {
+                        ProgressView()
+                            .tint(.white)
+                    } else {
+                        Image(systemName: symbolName)
+                            .font(.system(size: Constants.ScrubberUI.glassButtonIconSize, weight: .medium))
+                    }
                 }
                 .foregroundStyle(.white)
                 .frame(width: Constants.ReviewUI.downloadButtonSize, height: Constants.ReviewUI.downloadButtonSize)
                 .frmrGlass(in: Circle())
+                .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .disabled(isDisabled)
@@ -88,23 +93,20 @@ struct DownloadControl: View {
             .accessibilityHint("Saves this photo with its film look to your photo library")
             .accessibilityIdentifier(identifier)
         }
-        .animation(.easeInOut(duration: Constants.ReviewUI.feedbackAnimationDuration), value: didSave)
+        .frmrAnimation(.snap, value: didSave)
     }
 }
 
 private struct SavedBadge: View {
-    let isVisible: Bool
     let identifier: String
 
     var body: some View {
         Text("Saved")
-            .font(.system(size: Constants.ReviewUI.savedFontSize, weight: .semibold))
+            .font(.frmrMeta.weight(.semibold))
             .foregroundStyle(.white)
             .padding(.horizontal, Constants.ReviewUI.savedHorizontalPadding)
             .padding(.vertical, Constants.ReviewUI.savedVerticalPadding)
             .frmrGlassCapsule()
-            .opacity(isVisible ? 1 : 0)
-            .accessibilityHidden(!isVisible)
             .accessibilityIdentifier(identifier)
     }
 }

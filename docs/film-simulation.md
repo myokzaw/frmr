@@ -1,6 +1,6 @@
 # How frmr's film simulation works
 
-A guide for agents and developers who need to understand, tune or extend the film look. It describes the code as of v5 (branch `v5-photo-camera`). If you change the pipeline, update this file in the same change.
+A guide for agents and developers who need to understand, tune or extend the film look. It describes the code as of v5.2 (branch `v5.2-makeover`; v5.2 added exposure, §3, §4.3). If you change the pipeline, update this file in the same change.
 
 **Who owns it:** the pipeline is **backend-owned** (see the ownership map in `CLAUDE.md`). Frontend only binds to `FilmLook` / `StripCustomization` values and never touches the maths.
 
@@ -23,7 +23,9 @@ The tone and colour part (steps 1 and 2) is pure maths in Swift. It is baked int
 |---|---|
 | `frmr/Features/Camera/FilmModel.swift` | **The film maths**, pure Swift with no Core Image: the colour model, film chain and cube types listed in §4, plus the grain and light-leak helpers (`SeededRandom`, `GrainProfile`, `FilmGrain`, `LightLeak`). |
 | `frmr/Features/Camera/ImageProcessor.swift` | **The Core Image pipeline.** `applyStripLook` (strip slots), `renderFullLook` (full-frame look for review, display and Download), the shared private `filmLook(...)` chain, and the effect stages (`applyHalation`, `applyFilmCube`, `applyVignette`, `applyBloom`, `applyLightLeak`, `addGrain`). Also RAW development (`process(rawData:)`) and HEIC encoding. |
-| `frmr/Models/FilmLook.swift` | **What the user chose:** stock, `printStock` (nil means the stock's default), `blackAndWhite`, and `Strengths` (halation, haze, lightLeak, grain, vignette; 0…1.5, where 1 equals the v4 strength). Codable, with migration from older shapes. |
+| `frmr/Models/FilmLook.swift` | **What the user chose:** stock, `printStock` (nil means the stock's default), `blackAndWhite`, `Strengths` (halation, haze, lightLeak, grain, vignette; 0…1.5, where 1 equals the v4 strength) and `exposure` (EV, −2…+2 in ⅓ stops, v5.2). Codable, with migration from older shapes (a look without `exposure` decodes as 0). |
+| `frmr/Features/Camera/FilmSwatch.swift` | v5.2: 2–3 representative colours per stock (fixed skin, sky and foliage patches through the stock's own `FilmChain`), cached. For the dial and editor chips. |
+| `frmr/Features/PhotoEdit/FilmPreviewThumbnails.swift` | v5.2: small renders of one photo in every stock / on every print (`PhotoEditViewModel.stockPreviews`, `printPreviews`). |
 | `frmr/Models/StripCustomization.swift` | `FilmStock` (the six stocks plus Off) and `PrintStock`, and each stock's links into Constants (`negative`, `defaultPrint`, `availablePrints`, `halationStrength`, `grainIntensity`, `grainSizePixels`, `grainProfile`). Also the strip-level customization: As shot or override, background, strengths. |
 | `frmr/Shared/Constants.swift` → `Constants.ImageProcessing.Film` | **Every number.** Curves per stock (`Negative`), prints (`Print`), tone targets, toe, grain, halation, bloom, leak, strengths, seeds and cube settings. Tuning happens here. |
 | `frmr/Features/Camera/FilmPreviewRenderer.swift` | **Live viewfinder:** applies only the cube, through the same `FilmLUT.cachedCube`, to camera frames on Metal. No grain or effects. |
@@ -48,9 +50,12 @@ Render time (strip slot, review, thumbnail, Download)
   1. uprightCIImage / sensor-space input   resolve or carry the orientation tag
   2. resize                                strip: aspect-fill + crop to the 4:5 slot (resizedToSlot)
                                            full look: shrink to cover the display size, or keep full res
-  3. B&W luminance (if mono)               negative.monoWeights (spectral sensitivity)
-  4. Halation      × strengths.halation    highlights → blur → red-orange tint → added in LINEAR light
-  5. Film cube                             colour matrix → negative curve → print curve
+  3. Exposure      × 2^EV  (v5.2)          stock Off: a plain linear gain here (and nothing else but B&W)
+                                           with a stock: the gain rides into steps 4 and 5 (below)
+  3b. B&W luminance (if mono)              negative.monoWeights (spectral sensitivity)
+  4. Halation      × strengths.halation    highlights (read AFTER the exposure gain) → blur → red-orange tint
+                                           → added in LINEAR light
+  5. Film cube     (gain baked in)         colour matrix → ×2^EV → negative curve → print curve
                                            → shadow toe + black/white normalisation  (FilmModel)
   6. Vignette      × strengths.vignette    on the printed picture
   7. Haze (bloom)  × strengths.haze        blurred copy, screen-blended
@@ -62,9 +67,16 @@ The order is part of the spec and is deliberate:
 - Halation goes **before** the cube, so the glow passes through the film's shoulder the way real light does.
 - Grain goes **last**, so it sits on top of the print.
 
+**Exposure (v5.2 F-EXP):** the gain is 2^EV on linear light, applied **ahead of the negative curve** so over-exposure rolls off through the film's shoulder and under-exposure lifts through the toe, like exposing film differently, not a brightness slider. Mechanically:
+- The gain lives **inside the cube** (`FilmChain.exposureGain`; the cube cache key includes it, so each ⅓-stop step has its own cached cube, `lutCacheLimit` 16). The cube is still indexed by the *unexposed* picture, so nothing clips at the lattice edge. The white and black points stay solved at 0 EV, as with a real print made for a normal exposure.
+- Halation reads the exposed light: its key uses `input × gain` and the glow is divided by the gain (the cube multiplies it back), so the glow is what it would be on exposed light.
+- Grain follows from the print density, as before.
+- With **stock Off** the gain is a plain linear gain (`applyLinearGain`) and hard-clips like any gain; B&W-only (`CIPhotoEffectMono`) follows it.
+- **0 EV changes nothing:** gain 1 skips the stage, uses the same cube key, and `FilmLook.altersPhoto` stays false for Off + 0 EV. `exposure` ≠ 0 makes a look "altered" even with stock Off.
+
 **Strength 0 skips the stage entirely**, which is why "0" is pixel-identical to "off". Tests enforce this.
 
-**Stock Off:** steps 3–9 are skipped. Off with B&W uses `CIPhotoEffectMono`, the original v1 look. `applyStripLook` and `renderFullLook` return the input image unchanged when the look alters nothing.
+**Stock Off:** steps 3b–9 are skipped (step 3, the plain exposure gain, still runs). Off with B&W uses `CIPhotoEffectMono`, the original v1 look. `applyStripLook` and `renderFullLook` return the input image unchanged when the look alters nothing.
 
 ---
 
@@ -206,6 +218,8 @@ Random elements (grain, light leak) use `SeededRandom` (SplitMix64). Swift's `Ha
 3. Run `FilmModelTests` and `FilmCalibrationTests`. These check warmth order, Portrait being softer than Daylight, Cine's teal shadows, Slide being the most saturated, and Portrait's skies not drifting purple.
 4. Regenerate the real-photo sheets (§10) and look at them.
 
+**Change the exposure range or step:** `Constants.ImageProcessing.Film.Exposure` (`range`, `step`). The editor, the snapping (`FilmLook.snappedExposure`) and the tests all read it. A new step size changes how many cubes one stock can need, so check `lutCacheLimit`.
+
 **Change how a print looks** (blacks, contrast): edit `Print.<print>` (`blackTarget`, curves). Offsets re-solve automatically. Run `inputBlackPrintsAtEachPrintsBlackTarget` and the neutral and monotonic tests.
 
 **Add a stock:**
@@ -238,7 +252,8 @@ Random elements (grain, light leak) use `SeededRandom` (SplitMix64). Swift's `Ha
 | `FilmCalibrationTests` | Per-stock character relationships (F14) |
 | `FilmEffectsTests` | Halation, grain, haze, light-leak behaviour, and seed determinism (parameterised) |
 | `OffIsIdentityTests` | Strength 0 / stock Off = pixel-identical, for every effect, stock and render surface (parameterised) |
-| `FilmLookTests` | `FilmLook` migration, strength 1 = v4, vignette |
+| `FilmLookTests` | `FilmLook` migration, strength 1 = v4, vignette; exposure (v5.2): snapping, Codable and old data, monotonic brightening, shoulder roll-off, plain gain for Off, halation reading exposed light, determinism |
+| `FilmCalibrationTests` (also) | Stock swatch colours (v5.2) |
 | `ImageProcessorTests` | Orientation mapping (8 cases), slot resize, HEIC tag |
 | `StripLookRegressionTests`, `FilmAtCaptureRegressionTests` (QA-owned) | Orientation across every stock × B&W × effect, and determinism |
 | `StripRenderTimingTests` | Render time |
@@ -272,5 +287,6 @@ The test writes one labelled contact sheet per photo, with all stocks side by si
 | v4 F14 | Colour matrices, grain profiles | Calibrated against real-film reference scans |
 | v4 | Grain scaled to the frame in `renderFullLook` | Download must match the review |
 | v5 F5 | `FilmLook` strengths, vignette, Haze = bloom | Sliders everywhere; 0 = off |
+| v5.2 F-EXP | `FilmLook.exposure`, gain baked into the cube, halation reads exposed light | Edit exposure after the shot, behaving like film (shoulder roll-off), not a brightness slider |
 
 Detailed decisions and open items are in `frmr-v4-spec.md` (Parts 1–2, open decisions v4-1…v4-16) and `frmr-v5-spec.md`.

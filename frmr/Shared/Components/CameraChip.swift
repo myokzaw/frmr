@@ -26,11 +26,10 @@ struct CameraChip<Glyph: View>: View {
     }
 }
 
-extension CameraChip where Glyph == Text {
+extension CameraChip where Glyph == ChipLabel {
     init(label: String, isSelected: Bool, action: @escaping () -> Void) {
         self.init(isSelected: isSelected, accessibilityLabel: label, action: action) {
-            Text(label)
-                .font(.system(size: Constants.CameraUI.chipFontSize, weight: isSelected ? .semibold : .medium))
+            ChipLabel(text: label)
         }
     }
 }
@@ -40,6 +39,18 @@ extension CameraChip where Glyph == ChipSymbol {
         self.init(isSelected: isSelected, accessibilityLabel: accessibilityLabel, action: action) {
             ChipSymbol(systemImage: systemImage)
         }
+    }
+}
+
+struct ChipLabel: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.frmrValue)
+            .lineLimit(1)
+            .minimumScaleFactor(Constants.CameraUI.valueButtonMinScale)
+            .frmrChromeTypeSize()
     }
 }
 

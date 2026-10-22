@@ -18,6 +18,11 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     /// which keep their own look (`effective(forFrameStock:look:)`).
     var strengths: FilmLook.Strengths = .stockDefaults
     var blackAndWhite: Bool = false
+    /// Exposure compensation in EV (v5.2 F-EXP). Per photo only: it comes
+    /// from a Roll photo's `FilmLook`, never from the strip-wide settings.
+    var exposure: Double = 0
+    /// The linear-light gain 2^EV.
+    var exposureGain: Double { exposure == 0 ? 1 : pow(2, exposure) }
 
     /// The v4 on/off view of the first three strengths, kept so code and
     /// tests written against the toggles still compile and mean the same

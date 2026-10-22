@@ -236,8 +236,14 @@ nonisolated struct FilmChain: Sendable {
     let offsets: PrintOffsets
     let normalisation: OutputNormalisation
     let toes: (r: ShadowToe, g: ShadowToe, b: ShadowToe)
+    /// Linear gain (2^EV, v5.2 F-EXP) on the scene light before the negative
+    /// curve, so over-exposure rolls off through the shoulder instead of
+    /// clipping. 1 changes nothing: the white and black points stay solved
+    /// at an exposure of 0.
+    let exposureGain: Double
 
-    init(negative: NegativeProfile, print: PrintProfile, monochrome: Bool) {
+    init(negative: NegativeProfile, print: PrintProfile, monochrome: Bool, exposureGain: Double = 1) {
+        self.exposureGain = exposureGain
         let isMono = monochrome || negative.isMonochrome
         let used = isMono
             ? NegativeProfile(r: negative.r, g: negative.r, b: negative.r, isMonochrome: true, monoWeights: negative.monoWeights, colour: .identity)
@@ -278,7 +284,9 @@ nonisolated struct FilmChain: Sendable {
     }
 
     /// Normalised linear output for one linear input per channel.
-    func render(r: Double, g: Double, b: Double) -> (r: Double, g: Double, b: Double) {
+    func render(r rIn: Double, g gIn: Double, b bIn: Double) -> (r: Double, g: Double, b: Double) {
+        // Rows of the colour matrix sum to 1, so the gain commutes with it
+        let r = rIn * exposureGain, g = gIn * exposureGain, b = bIn * exposureGain
         if monochrome {
             let luminance = negative.monoWeights.luminance(r: r, g: g, b: b)
             let value = channel(luminance, negative.r, print.r, offsets.r, toes.r)
@@ -438,10 +446,11 @@ nonisolated enum FilmLUT {
         negative: NegativeProfile,
         print: PrintProfile,
         monochrome: Bool,
+        exposureGain: Double = 1,
         dimension: Int = Constants.ImageProcessing.Film.lutDimension
     ) -> Data {
         guard dimension >= 2 else { return Data() }
-        let chain = FilmChain(negative: negative, print: print, monochrome: monochrome)
+        let chain = FilmChain(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain)
 
         let step = 1 / Double(dimension - 1)
         let linearAxis = (0..<dimension).map { FilmModel.linear(fromSRGB: Double($0) * step) }
@@ -488,6 +497,7 @@ nonisolated enum FilmLUT {
         let negative: NegativeProfile
         let print: PrintProfile
         let monochrome: Bool
+        let exposureGain: Double
         let dimension: Int
     }
 
@@ -498,15 +508,16 @@ nonisolated enum FilmLUT {
         negative: NegativeProfile,
         print: PrintProfile,
         monochrome: Bool,
+        exposureGain: Double = 1,
         dimension: Int = Constants.ImageProcessing.Film.lutDimension
     ) -> Data {
-        let key = Key(negative: negative, print: print, monochrome: monochrome, dimension: dimension)
+        let key = Key(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension)
         if let cached = cache.value(for: key) {
             return cached
         }
         // Built outside the lock: two threads racing on the same key both
         // build an identical cube, which is cheaper than serialising renders
-        let built = cube(negative: negative, print: print, monochrome: monochrome, dimension: dimension)
+        let built = cube(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension)
         cache.insert(built, for: key)
         return built
     }

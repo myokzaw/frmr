@@ -19,13 +19,18 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     var printStock: StripCustomization.PrintStock?
     var blackAndWhite: Bool
     var strengths: Strengths
+    /// Exposure compensation in EV (v5.2 F-EXP), applied to linear light
+    /// before halation and the film cube. 0 changes nothing.
+    var exposure: Double
 
     init(
         stock: StripCustomization.FilmStock,
         printStock: StripCustomization.PrintStock? = nil,
         blackAndWhite: Bool = false,
-        strengths: Strengths? = nil
+        strengths: Strengths? = nil,
+        exposure: Double = 0
     ) {
+        self.exposure = FilmLook.snappedExposure(exposure)
         self.stock = stock
         self.printStock = printStock
         self.blackAndWhite = blackAndWhite
@@ -47,7 +52,27 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
 
     /// Whether anything would change the photo: Off with no B&W is the
     /// untouched original.
-    var altersPhoto: Bool { stock != .none || blackAndWhite }
+    var altersPhoto: Bool { stock != .none || blackAndWhite || exposure != 0 }
+
+    // MARK: Exposure (v5.2 F-EXP)
+
+    /// The Exposure tool's range, in EV.
+    static let exposureRange: ClosedRange<Double> = Constants.ImageProcessing.Film.Exposure.range
+    /// One notch of the Exposure tool: a third of a stop.
+    static let exposureStep: Double = Constants.ImageProcessing.Film.Exposure.step
+
+    /// `value` clamped to `exposureRange` and rounded to the nearest
+    /// third of a stop; NaN reads as 0. Snapping is exact: the same step
+    /// always yields the same Double, so equal looks compare equal.
+    static func snappedExposure(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        let clamped = min(max(value, exposureRange.lowerBound), exposureRange.upperBound)
+        let steps = (clamped / exposureStep).rounded()
+        return steps == 0 ? 0 : steps / (1 / exposureStep).rounded()
+    }
+
+    /// The linear-light gain for `exposure` EV: 2^EV.
+    var exposureGain: Double { pow(2, exposure) }
 
     /// The slider range every strength is clamped to.
     static let strengthRange: ClosedRange<Double> = 0...Constants.ImageProcessing.Film.Strength.sliderMaximum
@@ -194,7 +219,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     // MARK: Stored form
 
     private enum CodingKeys: String, CodingKey {
-        case stock, printStock, blackAndWhite, strengths
+        case stock, printStock, blackAndWhite, strengths, exposure
         case effects  // the v4 FilmEffects key, read but never written
     }
 
@@ -208,6 +233,8 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         self.blackAndWhite = try container.decodeIfPresent(Bool.self, forKey: .blackAndWhite) ?? false
         let key: CodingKeys = container.contains(.strengths) ? .strengths : .effects
         self.strengths = try container.decodeIfPresent(Strengths.self, forKey: key) ?? .defaults(for: stock)
+        // Looks stored before v5.2 have no exposure: 0 EV
+        self.exposure = FilmLook.snappedExposure((try? container.decodeIfPresent(Double.self, forKey: .exposure)) ?? 0)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -216,6 +243,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         try container.encodeIfPresent(printStock, forKey: .printStock)
         try container.encode(blackAndWhite, forKey: .blackAndWhite)
         try container.encode(strengths, forKey: .strengths)
+        try container.encode(exposure, forKey: .exposure)
     }
 
     // MARK: Pipeline bridge
@@ -228,6 +256,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         customization.printStock = printStock
         customization.strengths = strengths.clamped
         customization.blackAndWhite = blackAndWhite
+        customization.exposure = exposure
         return customization
     }
 

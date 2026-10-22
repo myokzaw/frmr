@@ -14,7 +14,7 @@ struct GlassIconGlyph: View {
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: Constants.ScrubberUI.glassButtonIconSize, weight: .semibold))
+            .font(.system(size: Constants.ScrubberUI.glassButtonIconSize, weight: .medium))
             .foregroundStyle(foreground)
             .rotationEffect(rotates ? deviceRotation : .zero)
             .animation(reduceMotion ? nil : .easeInOut(duration: Constants.Camera.orientationRotationDuration), value: deviceRotation)

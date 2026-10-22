@@ -1,58 +1,61 @@
 import SwiftData
 import SwiftUI
+import TipKit
 
-// v5 F4 / v5.1 F2–F3, F8 editor, shown after every Photo-mode shot and when a
-// Roll photo is re-edited. The photo fills the screen; glass icon buttons
-// float over its top (Discard, Retake or Delete, Download). Under it sit the
-// selected tool's control (one scrubber, or chips for Film and Print), the
-// tool icon bar, and the bottom row (Continue to diary, Save to roll). Every
-// decision lives in PhotoEditViewModel; this view reports the size the photo
-// is drawn at and forwards taps. Always the dark palette: a darkroom around
-// the photo.
+// v5 F4 / v5.1 F2–F3, F8 / v5.2 M5 editor, shown after a Photo shot and
+// when a Roll photo is re-edited. The photo fills the screen; two glass
+// groups float over its top ([Discard, Retake or Delete] and [Compare,
+// Download], research §4.5). Under it sit the selected tool's control (the
+// Exposure or effect scrubber, or a row of this photo in each film or
+// print), the tool bar with value rings, and the bottom row (Continue to
+// diary, Save to roll). Every decision lives in PhotoEditViewModel; this
+// view reports sizes and forwards taps. Always the darkroom palette.
 struct PhotoEditView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
 
     @Bindable var edit: PhotoEditViewModel
     @State private var isDeleteConfirmationPresented = false
-    // Looked up when Delete is tapped, so the dialog can offer the entry choice
-    @State private var linkedEntryCount = 0
+    // Looked up when Delete is tapped; nil = couldn't be read, so ask both ways
+    @State private var linkedEntryCount: Int?
 
+    private let diaryTip = DiaryTip()
     private typealias UI = Constants.PhotoEditUI
+    private var theme: ThemePalette { ThemePalette.resolve(for: .dark, surface: .darkroom, contrast: contrast) }
 
     var body: some View {
         VStack(spacing: UI.sectionSpacing) {
             photoArea
             toolControl
                 .frame(minHeight: UI.toolPanelHeight, alignment: .top)
-                .padding(.horizontal, UI.horizontalPadding)
             ToolIconBar(
-                items: EditorTool.items,
+                items: Self.toolItems(look: edit.look, exposureReadout: edit.exposureReadout),
                 selectedID: edit.tool.id,
-                modifiedIDs: modifiedToolIDs,
                 identifierPrefix: "edit.tool",
-                selectedColor: .appAmber,
-                idleColor: .appCream,
-                onSelect: { edit.tool = EditorTool(id: $0) }
+                selectedColor: theme.accentFill,
+                idleColor: theme.text,
+                onSelect: { edit.tool = PhotoEditViewModel.Tool(id: $0) }
             )
             actionRow
         }
-        .padding(.bottom)
+        .padding(.bottom, Constants.DesignUI.Space.s)
         // Chrome text stops growing at the first accessibility size so the
         // photo and the bottom row always fit
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .background(Color.appBlack.ignoresSafeArea())
-        // Dark darkroom: toggles draw for a dark page
+        .frmrChromeTypeSize()
+        .background(theme.bg.ignoresSafeArea())
+        // Darkroom: toggles and sheets draw for a dark page
         .environment(\.colorScheme, .dark)
         .appErrorAlert(errorState)
         .task { edit.errorState = errorState }
+        .sensoryFeedback(.warning, trigger: isDeleteConfirmationPresented) { _, shown in shown }
         .confirmationDialog(
-            deleteTitle,
+            RollPromptText.deleteTitle(photoCount: 1, linkedEntries: linkedEntryCount),
             isPresented: $isDeleteConfirmationPresented,
             titleVisibility: .visible
         ) {
-            if linkedEntryCount > 0 {
+            if RollPromptText.asksAboutEntries(linkedEntryCount) {
                 Button("Delete photo and diary entry", role: .destructive) { deletePhoto(entries: .deleteBoth) }
                     .accessibilityIdentifier("edit.delete.confirmBoth")
                 Button("Keep the entry") { deletePhoto(entries: .keepEntry) }
@@ -64,21 +67,13 @@ struct PhotoEditView: View {
         }
     }
 
-    private var deleteTitle: String {
-        linkedEntryCount > 0
-            ? "This photo has a diary entry. Delete it too, or keep the entry with its own copy of the photo?"
-            : "Delete this photo from your roll? This can't be undone."
-    }
-
     // MARK: Photo and top bar
 
     // The renderer must know the drawn size before its first render. The top
     // bar floats over the photo area so the photo can use the whole height.
     private var photoArea: some View {
         GeometryReader { geometry in
-            Image(uiImage: edit.displayedPhoto)
-                .resizable()
-                .scaledToFit()
+            DevelopingPhoto(image: edit.displayedPhoto, isDeveloping: edit.isDevelopingPhoto)
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .overlay(alignment: .bottomLeading) {
                     RenderingIndicator(isVisible: edit.isRendering || edit.isDevelopingPhoto)
@@ -100,9 +95,7 @@ struct PhotoEditView: View {
                 .accessibilityLabel("Photo")
                 .accessibilityValue(edit.isComparing ? "Original" : "With film look")
                 .accessibilityHint("Press and hold to see the photo without its film look")
-                .accessibilityAction(named: "Compare with original") {
-                    edit.setComparing(!edit.isComparing)
-                }
+                .accessibilityAction(named: "Show original") { edit.setComparing(!edit.isComparing) }
                 .accessibilityIdentifier("edit.photo")
                 .onAppear { edit.setDisplaySize(geometry.size, scale: displayScale) }
                 .onChange(of: geometry.size) { _, size in
@@ -114,31 +107,42 @@ struct PhotoEditView: View {
 
     private var topBar: some View {
         HStack(spacing: UI.topBarSpacing) {
-            GlassIconButton(
-                systemImage: "xmark",
-                label: "Discard",
-                identifier: "edit.discard",
-                rotates: false,
-                action: edit.discard
-            )
-            .accessibilityHint(edit.isReEditing ? "Leaves this photo unchanged" : "Throws this photo away")
-            leadingButton
-            Text("Hold photo to compare")
-                .font(.footnote)
-                .foregroundStyle(Color.appCream.opacity(UI.hintOpacity))
-                .lineLimit(1)
-                .minimumScaleFactor(UI.hintMinScale)
-                .frame(maxWidth: .infinity)
-                .opacity(edit.didSaveDownload ? 0 : 1)
-                .accessibilityHidden(true)
-            DownloadControl(
-                isSaving: edit.isSavingDownload,
-                didSave: edit.didSaveDownload,
-                isDisabled: edit.isDownloadDisabled,
-                identifier: "edit.download",
-                savedIdentifier: "edit.saved",
-                action: download
-            )
+            FrmrGlassContainer(spacing: UI.topBarSpacing) {
+                HStack(spacing: UI.topBarSpacing) {
+                    GlassIconButton(
+                        systemImage: "xmark",
+                        label: "Discard",
+                        identifier: "edit.discard",
+                        rotates: false,
+                        action: edit.discard
+                    )
+                    .accessibilityHint(edit.isReEditing ? "Leaves this photo unchanged" : "Throws this photo away")
+                    leadingButton
+                }
+            }
+            Spacer(minLength: 0)
+            FrmrGlassContainer(spacing: UI.topBarSpacing) {
+                HStack(spacing: UI.topBarSpacing) {
+                    GlassIconButton(
+                        systemImage: "square.split.2x1",
+                        label: "Compare",
+                        identifier: "edit.compare",
+                        value: edit.isComparing ? "Showing original" : "Showing film look",
+                        foreground: edit.isComparing ? theme.accentFill : .white,
+                        rotates: false,
+                        action: { edit.setComparing(!edit.isComparing) }
+                    )
+                    .accessibilityHint("Switches between the photo with and without its film look. You can also hold the photo.")
+                    DownloadControl(
+                        isSaving: edit.isSavingDownload,
+                        didSave: edit.didSaveDownload,
+                        isDisabled: edit.isDownloadDisabled,
+                        identifier: "edit.download",
+                        savedIdentifier: "edit.saved",
+                        action: download
+                    )
+                }
+            }
         }
         .padding(.horizontal, UI.topBarPadding)
         .padding(.top, UI.topBarPadding)
@@ -171,112 +175,128 @@ struct PhotoEditView: View {
 
     @ViewBuilder private var toolControl: some View {
         switch edit.tool {
-        case .film: filmChips
+        case .exposure: exposureScrubber
+        case .film: filmPreviews
         case .print: printControls
         case .effect(let effect): effectScrubber(for: effect)
         }
     }
 
-    private var filmChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: UI.chipSpacing) {
-                ForEach(edit.stockChoices) { stock in
-                    ChoiceChip(
-                        label: stock.label,
-                        accessibilityLabel: "Film: \(stock.label)",
-                        identifier: "edit.stock.\(stock.rawValue)",
-                        isSelected: stock == edit.look.stock,
-                        selectedColor: .appAmber,
-                        selectedForeground: .appBlack,
-                        action: { edit.selectStock(stock) }
-                    )
-                }
-            }
-        }
+    // v5.2 F-EXP: −2…+2 EV in ⅓ stops, firm tick at 0
+    private var exposureScrubber: some View {
+        EffectScrubber(
+            title: "Exposure",
+            value: Binding(get: { edit.exposure }, set: edit.setExposure),
+            defaultValue: 0,
+            hint: "Over- or under-exposes the film, in thirds of a stop",
+            identifier: "edit.exposure",
+            textColor: theme.text,
+            tint: theme.accentFill,
+            scale: .exposure,
+            valueText: edit.exposureReadout,
+            resetHint: "Returns to 0 EV"
+        )
+        .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    // v5.2 M5: this photo in each stock, Photos-style
+    private var filmPreviews: some View {
+        PreviewRow(
+            choices: edit.stockChoices,
+            selected: edit.look.stock,
+            image: { edit.stockPreviews[$0] },
+            code: { $0.shortCode },
+            label: { "Film: \($0.label)" },
+            identifier: { "edit.stock.\($0.rawValue)" },
+            ringColor: theme.accentFill,
+            textColor: theme.text,
+            onSelect: edit.selectStock
+        )
+        .task(id: edit.look) { requestPreviews() }
     }
 
     private var printControls: some View {
-        VStack(alignment: .leading, spacing: UI.chipSpacing) {
+        VStack(alignment: .leading, spacing: Constants.DesignUI.Space.s) {
             if edit.isPrintPickerVisible {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: UI.chipSpacing) {
-                        ForEach(edit.availablePrints) { printStock in
-                            ChoiceChip(
-                                label: printStock.label,
-                                accessibilityLabel: "Print: \(printStock.label)",
-                                identifier: "edit.print.\(printStock.rawValue)",
-                                isSelected: printStock == edit.selectedPrint,
-                                selectedColor: .appAmber,
-                                selectedForeground: .appBlack,
-                                action: { edit.selectPrint(printStock) }
-                            )
-                        }
-                    }
-                }
+                PreviewRow(
+                    choices: edit.availablePrints,
+                    selected: edit.selectedPrint,
+                    image: { edit.printPreviews[$0] },
+                    code: { $0.label },
+                    label: { "Print: \($0.label)" },
+                    identifier: { "edit.print.\($0.rawValue)" },
+                    ringColor: theme.accentFill,
+                    textColor: theme.text,
+                    onSelect: { edit.selectPrint($0) }
+                )
+                .task(id: edit.look) { requestPreviews() }
             } else {
                 Text("This film has no print to choose.")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.appCream.opacity(UI.hintOpacity))
-                    .frame(minHeight: Constants.ReviewUI.stockChipHeight)
+                    .font(.frmrMeta)
+                    .foregroundStyle(theme.textMuted)
+                    .frame(minHeight: Constants.DesignUI.targetMin)
+                    .padding(.horizontal, UI.horizontalPadding)
             }
             Toggle("Black & white", isOn: Binding(get: { edit.isBlackAndWhiteOn }, set: edit.setBlackAndWhite))
                 .disabled(edit.isBlackAndWhiteLocked)
-                .font(.subheadline)
-                .foregroundStyle(Color.appCream)
-                .tint(.appAmber)
+                .font(.frmrLabel)
+                .foregroundStyle(theme.text)
+                .tint(theme.accentFill)
                 .accessibilityHint("Renders the photo in black and white. Mono films are always black and white.")
                 .accessibilityIdentifier("edit.blackAndWhite")
+                .padding(.horizontal, UI.horizontalPadding)
         }
     }
 
     // One scrubber for all five effects; with no film chosen there is
     // nothing to adjust
-    @ViewBuilder private func effectScrubber(for effect: FilmLook.Effect) -> some View {
-        if edit.areEffectsAvailable {
-            EffectScrubber(
-                title: effect.label,
-                value: Binding(
-                    get: { edit.strength(of: effect) },
-                    set: { edit.setStrength($0, for: effect) }
-                ),
-                defaultValue: effect.defaultStrength,
-                hint: effect.toolHint,
-                identifier: "edit.scrubber",
-                textColor: .appCream,
-                tint: .appAmber
-            )
-        } else {
-            Text("Pick a film to adjust its effects.")
-                .font(.subheadline)
-                .foregroundStyle(Color.appCream.opacity(UI.hintOpacity))
-                .frame(maxWidth: .infinity, minHeight: Constants.ReviewUI.stockChipHeight, alignment: .leading)
+    private func effectScrubber(for effect: FilmLook.Effect) -> some View {
+        Group {
+            if edit.areEffectsAvailable {
+                EffectScrubber(
+                    title: effect.label,
+                    value: Binding(
+                        get: { edit.strength(of: effect) },
+                        set: { edit.setStrength($0, for: effect) }
+                    ),
+                    defaultValue: effect.defaultStrength,
+                    hint: effect.toolHint,
+                    identifier: "edit.scrubber",
+                    textColor: theme.text,
+                    tint: theme.accentFill
+                )
+            } else {
+                Text("Pick a film to adjust its effects.")
+                    .font(.frmrMeta)
+                    .foregroundStyle(theme.textMuted)
+                    .frame(maxWidth: .infinity, minHeight: Constants.DesignUI.targetMin, alignment: .leading)
+            }
         }
+        .padding(.horizontal, UI.horizontalPadding)
     }
 
-    // A dot under each effect whose value is off the stock default
-    private var modifiedToolIDs: Set<String> {
-        Set(FilmLook.Effect.allCases
-            .filter { edit.strength(of: $0) != $0.defaultStrength }
-            .map(\.rawValue))
+    private func requestPreviews() {
+        edit.requestPreviews(size: CGSize(width: UI.previewWidth, height: UI.previewHeight), scale: displayScale)
     }
 
     // MARK: Actions
 
-    // Continue to diary (secondary, only right after a capture) and Save to
-    // roll (primary), side by side
+    // Continue to diary (secondary glass, only right after a capture) and
+    // Save to roll (the one amber primary), side by side
     private var actionRow: some View {
         HStack(spacing: UI.actionSpacing) {
             if edit.canContinueToDiary {
                 Button(action: continueToDiary) {
                     Text("Continue to diary")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Color.appCream)
+                        .font(.frmrLabel)
+                        .foregroundStyle(theme.text)
                         .lineLimit(1)
-                        .minimumScaleFactor(UI.hintMinScale)
-                        .frame(maxWidth: .infinity, minHeight: UI.actionButtonHeight)
-                        .frmrGlass(in: RoundedRectangle(cornerRadius: UI.actionButtonCornerRadius))
+                        .frame(maxWidth: .infinity, minHeight: Constants.DesignUI.buttonPrimaryHeight)
+                        .frmrGlassCapsule(interactive: true)
+                        .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
+                .popoverTip(diaryTip)
                 .accessibilityHint("Saves the photo to your roll, then lets you write about it")
                 .accessibilityIdentifier("edit.continueDiary")
             }
@@ -285,15 +305,14 @@ struct PhotoEditView: View {
                 ZStack {
                     Text(edit.isReEditing ? "Save" : "Save to roll")
                         .opacity(edit.isSavingToRoll ? 0 : 1)
-                    ProgressView().tint(.appBlack)
+                    ProgressView().tint(theme.onAccent)
                         .opacity(edit.isSavingToRoll ? 1 : 0)
                 }
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Color.appBlack)
-                .frame(maxWidth: .infinity, minHeight: UI.actionButtonHeight)
-                .background(Color.appAmber, in: RoundedRectangle(cornerRadius: UI.actionButtonCornerRadius))
+                .font(.frmrLabel)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
+            .frmrPrimaryButtonStyle()
             .disabled(edit.isSavingToRoll)
             .accessibilityLabel(edit.isReEditing ? "Save" : "Save to roll")
             .accessibilityHint("Keeps this photo and its film look in your roll")
@@ -303,11 +322,21 @@ struct PhotoEditView: View {
     }
 
     private func save() {
-        Task { await edit.saveToRoll(context: modelContext) }
+        Task {
+            if await edit.saveToRoll(context: modelContext) {
+                Haptics.play(.saved)
+                FrmrTips.notePhotoSaved()
+            }
+        }
     }
 
     private func continueToDiary() {
-        Task { await edit.continueToDiary(context: modelContext) }
+        diaryTip.invalidate(reason: .actionPerformed)
+        Task {
+            if await edit.continueToDiary(context: modelContext) {
+                FrmrTips.notePhotoSaved()
+            }
+        }
     }
 
     private func download() {
@@ -315,7 +344,7 @@ struct PhotoEditView: View {
     }
 
     private func askToDelete() {
-        linkedEntryCount = edit.linkedEntryCount(in: modelContext)
+        linkedEntryCount = edit.linkedEntryCountIfKnown(in: modelContext)
         isDeleteConfirmationPresented = true
     }
 
@@ -324,22 +353,40 @@ struct PhotoEditView: View {
     }
 }
 
-// What the tool icon bar offers, in order: Film, Print, then the five
-// effects. The selection lives in the view model (`PhotoEditViewModel.tool`).
-private typealias EditorTool = PhotoEditViewModel.Tool
+// MARK: Tool bar items
 
-private extension PhotoEditViewModel.Tool {
-    static let items: [ToolIconItem] = [
-        ToolIconItem(id: "film", title: "Film", systemImage: "film", hint: "Choose the film stock"),
-        ToolIconItem(id: "print", title: "Print", systemImage: "printer", hint: "Choose the print and black and white"),
-    ] + FilmLook.Effect.allCases.map {
-        ToolIconItem(id: $0.rawValue, title: $0.label, systemImage: $0.toolSymbolName, hint: $0.toolHint)
+extension PhotoEditView {
+    /// What the tool bar offers, in order (Exposure, Film, Print, then the
+    /// five effects), each with its VoiceOver value and value ring. Pure, so
+    /// the rings are unit-testable (replaces the v5.1 modified-tools set).
+    nonisolated static func toolItems(look: FilmLook, exposureReadout: String) -> [ToolIconItem] {
+        let effects = look.stock.hasEffects
+        let fixed = [
+            ToolIconItem(
+                id: "exposure", title: "Exposure", systemImage: "plus.forwardslash.minus",
+                hint: "Over- or under-expose the film", value: exposureReadout,
+                ring: ToolRing.fraction(exposure: look.exposure)
+            ),
+            ToolIconItem(id: "film", title: "Film", systemImage: "film", hint: "Choose the film stock", value: look.stock.label),
+            ToolIconItem(
+                id: "print", title: "Print", systemImage: "printer",
+                hint: "Choose the print and black and white", value: look.resolvedPrint?.label ?? ""
+            ),
+        ]
+        return fixed + FilmLook.Effect.allCases.map { effect in
+            let strength = look.strengths[effect]
+            return ToolIconItem(
+                id: effect.rawValue, title: effect.label, systemImage: effect.toolSymbolName, hint: effect.toolHint,
+                value: effects ? ScrubberMath.percentText(strength, scale: Constants.ScrubberUI.percentScale) : "Off",
+                ring: effects ? ToolRing.fraction(strength: strength) : nil
+            )
+        }
     }
 }
 
 extension FilmLook.Effect {
     /// What the effect does, for the tool bar's and scrubber's VoiceOver hint.
-    var toolHint: String {
+    nonisolated var toolHint: String {
         switch self {
         case .halation: return "Warm glow around bright highlights"
         case .haze: return "Softens and spreads bright areas"
@@ -350,7 +397,7 @@ extension FilmLook.Effect {
     }
 
     /// The tool bar's glyph for this effect.
-    var toolSymbolName: String {
+    nonisolated var toolSymbolName: String {
         switch self {
         case .halation: return "sun.max"
         case .haze: return "cloud.fog"
@@ -361,20 +408,136 @@ extension FilmLook.Effect {
     }
 }
 
-// Shown while the photo is held: the picture on screen is the original
+// MARK: Pieces
+
+// v5.2 C2: until the RAW develops, the JPEG preview reads "latent" (lower
+// saturation and contrast, softened) and resolves when it lands. It plays
+// only during the real wait; under Reduce Motion it just changes.
+private struct DevelopingPhoto: View {
+    let image: UIImage
+    let isDeveloping: Bool
+
+    private typealias UI = Constants.PhotoEditUI
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .saturation(isDeveloping ? UI.latentSaturation : 1)
+            .contrast(isDeveloping ? UI.latentContrast : 1)
+            .blur(radius: isDeveloping ? UI.latentBlur : 0)
+            .frmrAnimation(.develop, value: isDeveloping)
+    }
+}
+
+/// A horizontal row of this photo in each choice (stocks or prints). The
+/// selected one wears an amber ring; while a thumbnail renders a spinner
+/// stands in. Inset by content margins, so the first and last never clip.
+private struct PreviewRow<Choice: Hashable>: View {
+    let choices: [Choice]
+    let selected: Choice?
+    let image: (Choice) -> UIImage?
+    let code: (Choice) -> String
+    let label: (Choice) -> String
+    let identifier: (Choice) -> String
+    let ringColor: Color
+    let textColor: Color
+    let onSelect: (Choice) -> Void
+
+    private typealias UI = Constants.PhotoEditUI
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: UI.previewSpacing) {
+                    ForEach(choices, id: \.self) { choice in
+                        PreviewThumb(
+                            image: image(choice),
+                            code: code(choice),
+                            isSelected: choice == selected,
+                            ringColor: ringColor,
+                            textColor: textColor,
+                            action: { onSelect(choice) }
+                        )
+                        .id(choice)
+                        .accessibilityLabel(label(choice))
+                        .accessibilityIdentifier(identifier(choice))
+                    }
+                }
+            }
+            .contentMargins(.horizontal, UI.horizontalPadding, for: .scrollContent)
+            .onAppear {
+                if let selected { proxy.scrollTo(selected, anchor: .center) }
+            }
+        }
+    }
+}
+
+private struct PreviewThumb: View {
+    let image: UIImage?
+    let code: String
+    let isSelected: Bool
+    let ringColor: Color
+    let textColor: Color
+    let action: () -> Void
+
+    private typealias UI = Constants.PhotoEditUI
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb) }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: UI.previewLabelSpacing) {
+                Color.white.opacity(Constants.CameraUI.chipInactiveOpacity)
+                    .frame(width: UI.previewWidth, height: UI.previewHeight)
+                    .overlay { PreviewImage(image: image) }
+                    .clipShape(shape)
+                    .overlay {
+                        shape.strokeBorder(isSelected ? ringColor : .clear, lineWidth: UI.previewRingWidth)
+                    }
+                Text(code)
+                    .frmrCodeStyle()
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(isSelected ? ringColor : textColor)
+                    .frame(width: UI.previewWidth + UI.previewSpacing)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+private struct PreviewImage: View {
+    let image: UIImage?
+
+    var body: some View {
+        if let image {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ProgressView()
+                .tint(.white)
+        }
+    }
+}
+
+// Shown while comparing: the picture on screen is the original
 private struct CompareBadge: View {
     let isVisible: Bool
 
     var body: some View {
-        Text("Original")
-            .font(.system(size: Constants.ReviewUI.savedFontSize, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Constants.ReviewUI.savedHorizontalPadding)
-            .padding(.vertical, Constants.ReviewUI.savedVerticalPadding)
-            .frmrGlassCapsule()
-            .opacity(isVisible ? 1 : 0)
-            .animation(.easeInOut(duration: Constants.PhotoEditUI.animationDuration), value: isVisible)
-            .accessibilityHidden(true)
-            .accessibilityIdentifier("edit.compareBadge")
+        if isVisible {
+            Text("Original")
+                .font(.frmrMeta.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, Constants.DesignUI.Space.m)
+                .padding(.vertical, Constants.DesignUI.Space.xs)
+                .frmrGlassCapsule()
+                .accessibilityHidden(true)
+                .accessibilityIdentifier("edit.compareBadge")
+        }
     }
 }

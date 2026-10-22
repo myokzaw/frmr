@@ -347,3 +347,153 @@ struct StripRollLookTests {
         #expect(StripGenerator.Cell(image: nil, caption: "", look: look).filmStock == .mono3200)
     }
 }
+
+
+// MARK: - Exposure (v5.2 F-EXP)
+
+struct ExposureModelTests {
+
+    @Test func rangeStepAndSnappingAreThirdStops() {
+        #expect(FilmLook.exposureRange == -2...2)
+        #expect(FilmLook.snappedExposure(0.1) == 0)
+        #expect(FilmLook.snappedExposure(0.2) == 1.0 / 3.0)
+        #expect(FilmLook.snappedExposure(-0.5) == -2.0 / 3.0 || FilmLook.snappedExposure(-0.5) == -1.0 / 3.0)
+        #expect(FilmLook.snappedExposure(9) == 2 && FilmLook.snappedExposure(-9) == -2)
+        #expect(FilmLook.snappedExposure(.nan) == 0 && FilmLook.snappedExposure(.infinity) == 0)
+        // Every notch is reproducible: the same step always gives the same Double
+        for step in -6...6 {
+            let value = Double(step) / 3
+            #expect(FilmLook.snappedExposure(value) == value)
+            #expect(FilmLook.snappedExposure(value + 0.01) == value)
+        }
+    }
+
+    @Test func exposureAltersThePhotoEvenWithStockOff() {
+        #expect(!FilmLook(stock: .none, exposure: 0).altersPhoto)
+        #expect(FilmLook(stock: .none, exposure: 1.0 / 3.0).altersPhoto)
+        #expect(FilmLook(stock: .daylight200, exposure: -1).customization.exposure == -1)
+        #expect(FilmLook(stock: .none, exposure: 1).customization.exposureGain == 2)
+        // A look with exposure is no longer the stock's defaults
+        #expect(!FilmLook(stock: .cine500T, exposure: 1).isStockDefault)
+    }
+
+    @Test func exposureRoundTripsAndOldLooksDecodeAsZero() throws {
+        let look = FilmLook(stock: .portrait400, printStock: .matte, strengths: .init(grain: 0.5), exposure: -2.0 / 3.0)
+        let data = try #require(FilmLook.encoded(look))
+        #expect(FilmLook.decoded(from: data) == look)
+        #expect(FilmLook.decoded(from: data).exposure == -2.0 / 3.0)
+
+        // A v5.1 look has no exposure key
+        let old = try JSONDecoder().decode(
+            FilmLook.self, from: Data(#"{"stock":"cine500T","blackAndWhite":false,"strengths":{"halation":1}}"#.utf8)
+        )
+        #expect(old.exposure == 0 && old.stock == .cine500T)
+        // Out-of-range or damaged values are clamped, not rejected
+        let wild = try JSONDecoder().decode(FilmLook.self, from: Data(#"{"stock":"none","exposure":9}"#.utf8))
+        #expect(wild.exposure == 2)
+    }
+}
+
+struct ExposurePipelineTests {
+
+    private func meanLuma(_ look: FilmLook, grey: CGFloat = 0.5, seed: UInt64 = 3) throws -> Double {
+        let image = try ImageProcessor.renderFullLook(of: flatImage(grey), look: look, seed: seed)
+        return try #require(Raster(image)).mean
+    }
+
+    private func look(_ stock: StripCustomization.FilmStock, ev: Double) -> FilmLook {
+        var look = FilmLook(stock: stock, exposure: ev)
+        look.strengths.grain = 0
+        return look
+    }
+
+    /// +EV brightens mid grey, -EV darkens it, for Off and every stock.
+    @Test(arguments: StripCustomization.FilmStock.allCases)
+    func moreExposureBrightensMidGreyMonotonically(stock: StripCustomization.FilmStock) throws {
+        // Every third of a stop for Off and one negative; whole stops for all (each step builds a cube)
+        if stock == .none || stock == .portrait400 {
+            let steps = stride(from: -6, through: 6, by: 1).map { Double($0) / 3 }
+            let means = try steps.map { try meanLuma(look(stock, ev: $0)) }
+            for (a, b) in zip(means, means.dropFirst()) {
+                #expect(b >= a, "\(stock.label): \(means)")
+            }
+        }
+        let wholeStops = try [-2.0, -1, 0, 1, 2].map { try meanLuma(look(stock, ev: $0)) }
+        for (a, b) in zip(wholeStops, wholeStops.dropFirst()) {
+            #expect(b > a, "\(stock.label): \(wholeStops)")
+        }
+    }
+
+    @Test func stockOffIsAPlainLinearGain() throws {
+        // sRGB 0.5 is linear 0.214; one stop doubles linear light
+        func srgb(_ linear: Double) -> Double { FilmModel.sRGB(fromLinear: linear) * 255 }
+        let linear = FilmModel.linear(fromSRGB: 0.5)
+        #expect(abs(try meanLuma(look(.none, ev: 1)) - srgb(linear * 2)) < 2.5)
+        #expect(abs(try meanLuma(look(.none, ev: -1)) - srgb(linear / 2)) < 2.5)
+        // Plain gain hard-clips: a bright grey at +2 EV is pure white
+        #expect(try meanLuma(look(.none, ev: 2), grey: 0.9) >= 254)
+    }
+
+    @Test(arguments: StripCustomization.FilmStock.allCases.filter { $0 != .none })
+    func highlightsRollOffThroughTheShoulderInsteadOfClipping(stock: StripCustomization.FilmStock) throws {
+        let negative = try #require(stock.negative)
+        let print = try #require(stock.defaultPrint?.profile)
+        let chain = FilmChain(negative: negative, print: print, monochrome: stock.isMonochrome, exposureGain: 4)
+        let inputs = [0.25, 0.5, 0.75, 0.9, 1.0]
+        let outputs = inputs.map { chain.render(r: $0, g: $0, b: $0).g }
+        for (a, b) in zip(outputs, outputs.dropFirst()) {
+            #expect(b > a, "\(stock.label): never flat, so never a hard clip: \(outputs)")
+        }
+        // The top of the range gains less per input step than the middle
+        #expect(outputs[4] - outputs[3] < (outputs[2] - outputs[1]) / (0.25 / 0.1), "\(stock.label)")
+        // Under-exposure also keeps its order
+        let dark = FilmChain(negative: negative, print: print, monochrome: stock.isMonochrome, exposureGain: 0.25)
+        let darkOutputs = inputs.map { dark.render(r: $0, g: $0, b: $0).g }
+        #expect(zip(darkOutputs, darkOutputs.dropFirst()).allSatisfy { $1 > $0 })
+        // And exposure 1 leaves the chain as it was
+        let plain = FilmChain(negative: negative, print: print, monochrome: stock.isMonochrome)
+        #expect(plain.render(r: 0.4, g: 0.4, b: 0.4).g == FilmChain(negative: negative, print: print, monochrome: stock.isMonochrome, exposureGain: 1).render(r: 0.4, g: 0.4, b: 0.4).g)
+    }
+
+    @Test func theCubeBakesTheGainAndGainOneIsTheOriginalCube() {
+        typealias Film = Constants.ImageProcessing.Film
+        let n = 8
+        let plain = FilmLUT.cube(negative: Film.Negative.daylight200, print: Film.Print.lab, monochrome: false, dimension: n)
+        let one = FilmLUT.cube(negative: Film.Negative.daylight200, print: Film.Print.lab, monochrome: false, exposureGain: 1, dimension: n)
+        let brighter = FilmLUT.cube(negative: Film.Negative.daylight200, print: Film.Print.lab, monochrome: false, exposureGain: 2, dimension: n)
+        #expect(plain == one)
+        #expect(brighter != plain)
+        #expect(FilmLUT.cachedCube(negative: Film.Negative.daylight200, print: Film.Print.lab, monochrome: false, exposureGain: 2, dimension: n)
+                != FilmLUT.cachedCube(negative: Film.Negative.daylight200, print: Film.Print.lab, monochrome: false, dimension: n))
+    }
+
+    @Test func halationReadsTheExposedLight() throws {
+        // A mid-grey dot is below the halation threshold; two stops up it is over it
+        let extent = CGRect(x: 0, y: 0, width: 64, height: 64)
+        let dot = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5)).cropped(to: CGRect(x: 28, y: 28, width: 8, height: 8))
+            .composited(over: CIImage(color: .black).cropped(to: extent))
+        let before = try #require(Raster(dot))
+        let unexposed = try #require(Raster(ImageProcessor.applyHalation(to: dot, strength: 1, outputWidth: 64)))
+        let exposed = try #require(Raster(ImageProcessor.applyHalation(to: dot, strength: 1, outputWidth: 64, exposureGain: 4)))
+        #expect(abs(unexposed.mean - before.mean) < 0.5, "nothing over the threshold, nothing added")
+        #expect(exposed != unexposed && exposed.mean > unexposed.mean, "at +2 EV the dot glows")
+    }
+
+    @Test func exposureRendersAreDeterministicAndDifferFromZero() throws {
+        let l = FilmLook(stock: .portrait400, exposure: 1)
+        let a = try #require(Raster(try ImageProcessor.renderFullLook(of: flatImage(0.5), look: l, seed: 11)))
+        let b = try #require(Raster(try ImageProcessor.renderFullLook(of: flatImage(0.5), look: l, seed: 11)))
+        let zero = try #require(Raster(try ImageProcessor.renderFullLook(of: flatImage(0.5), look: FilmLook(stock: .portrait400), seed: 11)))
+        #expect(a == b)
+        #expect(a != zero)
+    }
+
+    @Test func exposureAppliesToTheStripLookToo() {
+        var customization = StripCustomization()
+        customization.exposure = 1
+        let source = flatImage(0.5)
+        let shifted = ImageProcessor.applyStripLook(to: source, customization: customization, outputWidth: 64, seed: 1)
+        #expect(shifted !== source, "exposure alone is enough to render")
+        #expect((Raster(shifted)?.mean ?? 0) > (Raster(source)?.mean ?? 255))
+    }
+}

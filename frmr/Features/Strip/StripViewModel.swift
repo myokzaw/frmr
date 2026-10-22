@@ -153,7 +153,7 @@ final class StripViewModel {
 
         if Self.shouldPlayCompletionHaptic(alreadyPlayed: hasPlayedCompletionHaptic, hasImages: !stripImages.isEmpty) {
             hasPlayedCompletionHaptic = true
-            Haptics.stripCompleted()
+            Haptics.play(.saved)
         }
     }
 

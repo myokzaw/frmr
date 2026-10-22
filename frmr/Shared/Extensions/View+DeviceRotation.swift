@@ -18,11 +18,13 @@ extension EnvironmentValues {
 
 private struct RotatingWithDevice: ViewModifier {
     @Environment(\.deviceRotation) private var angle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    // Reduce Motion: the glyph turns at once instead of swinging (v5.2 M7)
     func body(content: Content) -> some View {
         content
             .rotationEffect(angle)
-            .animation(.easeInOut(duration: Constants.Camera.orientationRotationDuration), value: angle)
+            .animation(reduceMotion ? nil : .easeInOut(duration: Constants.Camera.orientationRotationDuration), value: angle)
     }
 }
 

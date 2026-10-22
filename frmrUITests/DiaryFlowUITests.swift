@@ -29,7 +29,11 @@ final class DiaryFlowUITests: XCTestCase {
         XCTAssertTrue(saveEntry.waitForExistence(timeout: timeout), "Continue to diary should open the prompt screen")
         XCTAssertFalse(app.buttons["edit.save"].exists, "The editor is gone behind the prompt")
         XCTAssertTrue(app.buttons["entry.skip"].exists)
-        XCTAssertLessThan(saveEntry.frame.maxY, app.buttons["entry.skip"].frame.minY, "Save entry is primary, Skip below it")
+        // v5.2 S4: Skip is a quiet text button at the top; Save entry rides the bottom
+        XCTAssertLessThan(app.buttons["entry.skip"].frame.maxY, saveEntry.frame.minY, "Skip at the top, Save entry below")
+        XCTAssertGreaterThanOrEqual(saveEntry.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(app.buttons["entry.skip"].frame.height, 44)
+        XCTAssertTrue(app.descendants(matching: .any)["entry.prompt"].exists, "The prompt is one readable element")
         let text = "UITest reflection \(Int(Date().timeIntervalSince1970))"
         let editor = app.textViews["entry.text"]
         XCTAssertTrue(editor.waitForExistence(timeout: timeout))
@@ -43,7 +47,7 @@ final class DiaryFlowUITests: XCTestCase {
 
         // The entry is in Library → Entries
         app.tabBars.buttons["Library"].tap()
-        let entries = app.buttons["library.tab.entries"]
+        let entries = app.segmentedControls.buttons["Entries"]
         XCTAssertTrue(entries.waitForExistence(timeout: timeout))
         entries.tap()
         let entry = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch

@@ -6,10 +6,13 @@ import SwiftUI
 //
 // Luminosity blend mode is deliberate: grain perturbs brightness only. Any
 // other mode desaturates the preview.
+// Reduce Motion holds the grain still (v5.2 M7).
 struct GrainOverlayView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         if Constants.Camera.animatedGrainEnabled {
-            TimelineView(.animation(minimumInterval: Constants.Camera.grainRefreshInterval)) { timeline in
+            TimelineView(.animation(minimumInterval: Constants.Camera.grainRefreshInterval, paused: reduceMotion)) { timeline in
                 GrainTile(phase: Self.phase(for: timeline.date))
             }
             .blendMode(.luminosity)

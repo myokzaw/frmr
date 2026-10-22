@@ -129,6 +129,9 @@ extension View {
         if #available(iOS 26, *) {
             buttonStyle(.glassProminent)
                 .buttonBorderShape(.capsule)
+                // .large is the 50-pt capsule; the outer frame alone left
+                // the button's own hit area under 44 pt
+                .controlSize(.large)
                 .tint(.appAmber)
                 .foregroundStyle(Color.appBlack)
                 .frame(minHeight: Constants.DesignUI.buttonPrimaryHeight)

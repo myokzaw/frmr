@@ -11,11 +11,11 @@ private struct PanelHeader: View {
     var body: some View {
         HStack {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.frmrLabel)
                 .accessibilityAddTraits(.isHeader)
             Spacer()
             Text(valueText)
-                .font(.system(.subheadline, design: .monospaced).weight(.semibold))
+                .font(.frmrValue)
                 .foregroundStyle(Color.appAmber)
                 .accessibilityHidden(true)
         }
@@ -36,7 +36,7 @@ private struct PanelSliderRow: View {
         HStack(spacing: Constants.CameraUI.chipSpacing) {
             if showsTitle {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(.frmrMeta.weight(.semibold))
                     .frame(width: Constants.CameraUI.panelSliderLabelWidth, alignment: .leading)
                     .accessibilityHidden(true)
             }
@@ -47,7 +47,7 @@ private struct PanelSliderRow: View {
                 .accessibilityIdentifier(identifier)
             if showsTitle {
                 Text(valueText)
-                    .font(.system(.caption, design: .monospaced).weight(.semibold))
+                    .font(.frmrValue)
                     .frame(width: Constants.CameraUI.panelValueWidth, alignment: .trailing)
                     .accessibilityHidden(true)
             }

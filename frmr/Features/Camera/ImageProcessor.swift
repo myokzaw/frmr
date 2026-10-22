@@ -124,7 +124,7 @@ nonisolated enum ImageProcessor {
         // (`effective(forFrameStock:)`) before calling, so a nil here has no
         // frame stock to fall back on and renders as Off
         let stock = customization.filmStock ?? .none
-        guard customization.blackAndWhite || stock != .none else {
+        guard customization.blackAndWhite || stock != .none || customization.exposure != 0 else {
             return image
         }
         guard
@@ -274,6 +274,14 @@ nonisolated enum ImageProcessor {
         // is pixel-identical to the effect being off.
         let strengths = customization.strengths.clamped
         var output = input
+        // v5.2 F-EXP: exposure is linear light scaled by 2^EV ahead of
+        // everything else. With a stock the gain rides inside the cube (and
+        // halation reads the exposed light), so the film's shoulder rolls
+        // highlights off; with stock Off it is a plain linear gain.
+        let exposureGain = customization.exposureGain
+        if stock == .none, exposureGain != 1 {
+            output = applyLinearGain(to: output, gain: exposureGain)
+        }
         if let negative = stock.negative, let printProfile = customization.resolvedPrint?.profile {
             let monochrome = customization.rendersInBlackAndWhite
             if monochrome {
@@ -281,10 +289,13 @@ nonisolated enum ImageProcessor {
             }
             if strengths.halation > 0 {
                 output = applyHalation(
-                    to: output, strength: stock.halationStrength * strengths.halation, outputWidth: outputWidth
+                    to: output, strength: stock.halationStrength * strengths.halation, outputWidth: outputWidth,
+                    exposureGain: exposureGain
                 )
             }
-            output = applyFilmCube(negative: negative, print: printProfile, monochrome: monochrome, to: output)
+            output = applyFilmCube(
+                negative: negative, print: printProfile, monochrome: monochrome, exposureGain: exposureGain, to: output
+            )
         } else if customization.blackAndWhite {
             // No stock: the plain B&W look from v1, unchanged
             let mono = CIFilter.photoEffectMono()
@@ -424,17 +435,27 @@ nonisolated enum ImageProcessor {
     /// cube, so the glow goes through the film's shoulder like real light.
     /// A strength of 0, or an image with nothing above the threshold, adds
     /// exactly nothing.
-    static func applyHalation(to input: CIImage, strength: Double, outputWidth: CGFloat) -> CIImage {
+    ///
+    /// - Parameter exposureGain: the 2^EV exposure (v5.2) the cube will
+    ///   apply to this image. The key reads the exposed light (`input ×
+    ///   gain`) and the glow is divided by the gain, so after the cube's own
+    ///   gain it adds exactly what it would add to exposed light. 1 is the
+    ///   unexposed behaviour, bit for bit.
+    static func applyHalation(
+        to input: CIImage, strength strengthIn: Double, outputWidth: CGFloat, exposureGain: Double = 1
+    ) -> CIImage {
         typealias F = Constants.ImageProcessing.Film
-        guard strength > 0 else { return input }
+        guard strengthIn > 0 else { return input }
+        let strength = exposureGain == 1 ? strengthIn : strengthIn / exposureGain
         let extent = input.extent
         let t = F.halationThreshold
         let weights = F.Spectral.panchromatic
 
         // Highlight key: max(0, L − t) / (1 − t), as a grey image
         let gain = 1 / (1 - t)
+        let keyScale = gain * exposureGain
         let row = CIVector(
-            x: CGFloat(weights.r * gain), y: CGFloat(weights.g * gain), z: CGFloat(weights.b * gain), w: 0
+            x: CGFloat(weights.r * keyScale), y: CGFloat(weights.g * keyScale), z: CGFloat(weights.b * keyScale), w: 0
         )
         let keyMatrix = CIFilter.colorMatrix()
         keyMatrix.inputImage = input
@@ -471,6 +492,21 @@ nonisolated enum ImageProcessor {
         return add.outputImage?.cropped(to: extent) ?? skipping("Halation blend", input)
     }
 
+    // MARK: Exposure (v5.2 F-EXP)
+
+    /// A plain gain on linear light (stock Off). Alpha is untouched.
+    static func applyLinearGain(to input: CIImage, gain: Double) -> CIImage {
+        guard gain != 1 else { return input }
+        let g = CGFloat(gain)
+        let matrix = CIFilter.colorMatrix()
+        matrix.inputImage = input
+        matrix.rVector = CIVector(x: g, y: 0, z: 0, w: 0)
+        matrix.gVector = CIVector(x: 0, y: g, z: 0, w: 0)
+        matrix.bVector = CIVector(x: 0, y: 0, z: g, w: 0)
+        matrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
+        return matrix.outputImage ?? skipping("Exposure gain", input)
+    }
+
     // MARK: Film model (v4 F2/F3)
 
     // Linear-light luminance with the emulsion's own spectral weights. The
@@ -498,6 +534,7 @@ nonisolated enum ImageProcessor {
         negative: NegativeProfile,
         print printProfile: PrintProfile,
         monochrome: Bool,
+        exposureGain: Double = 1,
         to input: CIImage
     ) -> CIImage {
         let dimension = Constants.ImageProcessing.Film.lutDimension
@@ -505,7 +542,7 @@ nonisolated enum ImageProcessor {
         cube.inputImage = input
         cube.cubeDimension = Float(dimension)
         cube.cubeData = FilmLUT.cachedCube(
-            negative: negative, print: printProfile, monochrome: monochrome, dimension: dimension
+            negative: negative, print: printProfile, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension
         )
         cube.colorSpace = stripOutputColorSpace
         return cube.outputImage ?? skipping("Film cube", input)

@@ -40,20 +40,31 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertTrue(filmStripMode.waitForExistence(timeout: timeout), "Film strip mode switch missing")
         filmStripMode.tap()
 
-        app.buttons["Choose photos from library"].tap()
+        // v5.2 S2: the gallery lives in the mini-strip's sheet
+        app.buttons["strip.miniStrip"].tap()
+        let gallery = app.buttons["Choose photos from library"]
+        XCTAssertTrue(gallery.waitForExistence(timeout: timeout), "The strip sheet did not open")
+        gallery.tap()
         try pickFourPhotos(app)
 
         let generate = app.buttons["Generate strip"]
         XCTAssertTrue(generate.waitForExistence(timeout: timeout))
         XCTAssertTrue(waitUntilEnabled(generate), "Generate stayed disabled; were 4 photos picked?")
-        XCTAssertGreaterThan(generate.frame.midX, 0)
-        XCTAssertLessThan(generate.frame.midX, app.buttons["camera.shutter"].frame.midX, "Generate sits beside the shutter")
+        XCTAssertTrue(waitForLabel(app.staticTexts["strip.count"], "Captured 4 of 4"))
         saveScreenshot(named: "camera-filmstrip-4of4")
         generate.tap()
 
         XCTAssertTrue(app.buttons["strip.tool.film"].waitForExistence(timeout: timeout), "Strip screen did not open")
-        XCTAssertTrue(app.buttons["strip.save"].waitForExistence(timeout: timeout))
-        XCTAssertTrue(app.buttons["strip.archive"].exists && app.buttons["strip.share"].exists, "Archive and Share are icons beside Save")
+        // v5.2 S3 / v5.2-7: one primary, Keep strip; Share and Download are icons
+        let keep = app.buttons["strip.keep"]
+        XCTAssertTrue(keep.waitForExistence(timeout: timeout), "Keep strip missing")
+        XCTAssertTrue(app.buttons["strip.share"].exists && app.buttons["strip.download"].exists, "Share and Download are icons at the top")
+        XCTAssertFalse(app.buttons["strip.save"].exists || app.buttons["strip.archive"].exists, "Save and Archive merged into Keep strip")
+        XCTAssertLessThan(app.buttons["strip.close"].frame.maxY, app.images["strip.preview"].firstMatch.frame.minY + 1, "Close never covers the strip")
+        XCTAssertLessThanOrEqual(keep.frame.maxY, app.frame.maxY, "Keep strip is on screen")
+        for id in ["strip.close", "strip.share", "strip.download", "strip.keep"] {
+            XCTAssertGreaterThanOrEqual(app.buttons[id].frame.height, 44, "\(id) is below 44 pt")
+        }
 
         // F8: Paper is the first tool: exactly two swatches, white selected
         XCTAssertTrue(app.buttons["strip.tool.paper"].isSelected, "The sheet opens on Paper")
@@ -105,10 +116,10 @@ final class StripScreenUITests: XCTestCase {
         select(asShot, app: app)
         app.buttons["strip.tool.paper"].tap()
         black.tap()
-        app.buttons["strip.archive"].tap()
-        XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: timeout), "Archive should close the strip screen")
+        keep.tap()
+        XCTAssertTrue(app.tabBars.buttons["Library"].waitForExistence(timeout: timeout), "Keep strip should close the strip screen")
         app.tabBars.buttons["Library"].tap()
-        app.buttons["Strips"].tap()
+        app.segmentedControls.buttons["Strips"].tap()
         let archived = app.buttons.matching(identifier: "library.strip").firstMatch
         XCTAssertTrue(archived.waitForExistence(timeout: timeout), "Archived strip missing from Library")
         saveScreenshot(named: "library-strips-booth")
@@ -124,6 +135,10 @@ final class StripScreenUITests: XCTestCase {
         let strip = app.buttons["camera.mode.filmstrip"]
         XCTAssertTrue(strip.waitForExistence(timeout: timeout))
         strip.tap()
+        let miniStrip = app.buttons["strip.miniStrip"]
+        XCTAssertTrue(miniStrip.waitForExistence(timeout: timeout))
+        XCTAssertTrue(miniStrip.label.contains("0 of 4"), miniStrip.label)
+        miniStrip.tap()
         let count = app.staticTexts["strip.count"]
         XCTAssertTrue(count.waitForExistence(timeout: timeout))
         XCTAssertEqual(count.label, "Captured 0 of 4")
@@ -138,7 +153,8 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertTrue(waitForLabel(count, "Captured 2 of 4"), "Two picks fill two slots, got \(count.label)")
 
         let generate = app.buttons["Generate strip"]
-        XCTAssertTrue(generate.waitForExistence(timeout: timeout), "Generate appears once a slot is filled")
+        XCTAssertTrue(generate.waitForExistence(timeout: timeout))
+        XCTAssertTrue(waitUntilEnabled(generate), "Generate enables once a slot is filled")
         XCTAssertTrue(app.buttons["strip.undo"].isEnabled)
         saveScreenshot(named: "camera-filmstrip-2of4")
         app.buttons["strip.undo"].tap()
@@ -158,7 +174,8 @@ final class StripScreenUITests: XCTestCase {
         app.buttons["strip.tool.film"].tap()
         saveScreenshot(named: "strip-screen-film", settle: 1)
         app.buttons["strip.close"].tap()
-        XCTAssertTrue(waitForLabel(count, "Captured 0 of 4"), "Closing the strip clears the slots")
+        XCTAssertTrue(miniStrip.waitForExistence(timeout: timeout), "Close returns to the camera")
+        XCTAssertTrue(miniStrip.label.contains("0 of 4"), "Closing the strip clears the slots: \(miniStrip.label)")
     }
 
     // MARK: Steps
@@ -246,7 +263,7 @@ final class StripScreenUITests: XCTestCase {
         if monoStocks.contains(stock) {
             XCTAssertEqual(blackAndWhite.value as? String, "1", "\(stock): B&W should read on")
         }
-        XCTAssertTrue(app.buttons["strip.save"].exists, "\(stock): Save missing")
+        XCTAssertTrue(app.buttons["strip.keep"].exists, "\(stock): Keep strip missing")
         app.buttons["strip.tool.film"].tap()
     }
 

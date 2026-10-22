@@ -1,36 +1,54 @@
 import AVFoundation
 import SwiftData
 import SwiftUI
+import TipKit
 
+// The camera (v5 F1, v5.1 F8/F9, v5.2 S1/S2). Where there is room — a 3:4
+// viewfinder plus the dial and shutter fit under the safe area — the dial
+// and shutter sit on black BELOW the picture; on short phones they float
+// over its bottom on glass (`CameraViewModel.chromePlacement`). The mode
+// switch, WB and EV float over the picture's top either way. Photo and Film
+// strip share every piece: Film strip only swaps the last-photo thumbnail
+// for the mini-strip.
 struct CameraView: View {
     @Environment(ErrorState.self) private var errorState
-    @Environment(OnboardingViewModel.self) private var onboarding
+    @Environment(\.modelContext) private var modelContext
     @State private var viewModel = CameraViewModel()
     @State private var photobooth = PhotoboothViewModel()
+    @State private var hudFlash: CameraHUDFlash?
+    @State private var isSlotsSheetPresented = false
+    // Generate closes the slots sheet first; the strip opens once it is gone
+    @State private var generatesAfterSheet = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
+    private let dialTip = DialTip()
+    private let shutterTip = ShutterTip()
+    private let modeTip = ModeTip()
+
     var body: some View {
-        ZStack {
-            viewfinder
+        GeometryReader { proxy in
+            ZStack {
+                ThemePalette.letterbox.ignoresSafeArea()
 
-            // DELIBERATE TEMPORARY SAFETY NET: under the portrait lock this
-            // branch never runs. Remove it (and dockedChrome) once the lock is
-            // verified on a physical device.
-            // Compact height means the interface itself is landscape (only
-            // possible if the portrait lock did not hold, or is lifted by
-            // decision). The system has already turned the screen, so the
-            // counter-rotation is zeroed there or glyphs would turn twice.
-            if verticalSizeClass == .compact {
-                dockedChrome
-                    .environment(\.deviceRotation, .zero)
-            } else {
-                portraitChrome
+                // DELIBERATE TEMPORARY SAFETY NET: under the portrait lock this
+                // branch never runs. Remove it (and dockedChrome) once the lock is
+                // verified on a physical device.
+                // Compact height means the interface itself is landscape (only
+                // possible if the portrait lock did not hold, or is lifted by
+                // decision). The system has already turned the screen, so the
+                // counter-rotation is zeroed there or glyphs would turn twice.
+                if verticalSizeClass == .compact {
+                    viewfinder.ignoresSafeArea()
+                    dockedChrome
+                        .environment(\.deviceRotation, .zero)
+                } else {
+                    portraitLayout(placement: placement(for: proxy))
+                }
+
+                PermissionDeniedOverlay(isVisible: viewModel.isPermissionDenied)
+
+                chromeDebugOverlay
             }
-
-            PermissionDeniedOverlay(isVisible: viewModel.isPermissionDenied)
-                .rotatingWithDevice()
-
-            chromeDebugOverlay
         }
         .environment(\.deviceRotation, viewModel.uiRotationAngle)
         .task {
@@ -45,17 +63,30 @@ struct CameraView: View {
             }
             #endif
             await viewModel.startCamera()
-            // startCamera suspends on the system permission dialog, so by here
-            // it has been answered either way — the walkthrough may now run
-            // (v3 F5; it runs on denial too, Library/Settings still matter)
-            onboarding.notePermissionResolved()
         }
         .onDisappear {
             viewModel.stopCamera()
         }
+        // v5.2 S1: changed values flash in the viewfinder
+        .onChange(of: viewModel.filmStock) { _, stock in
+            dialTip.invalidate(reason: .actionPerformed)
+            flash(stock.label)
+        }
+        .onChange(of: viewModel.selectedLens) { _, lens in flash(lens.label) }
+        .onChange(of: viewModel.exposureBias) { _, _ in flash(viewModel.exposureReadout + " EV") }
+        .task {
+            // The shutter tip waits until the dial tip is done with
+            for await status in dialTip.statusUpdates {
+                if case .invalidated = status { ShutterTip.isDialTipDone = true }
+            }
+        }
         // v5.1 F8: white balance and exposure open as glass sheets
         .sheet(isPresented: controlSheetPresented) {
             CameraControlSheet(viewModel: viewModel)
+        }
+        // v5.2 S2: the mini-strip opens the strip's slots and actions
+        .sheet(isPresented: $isSlotsSheetPresented, onDismiss: openGeneratedStrip) {
+            StripSlotsSheet(viewModel: photobooth, onGenerate: generateStrip)
         }
         // v5 F4 / v5.1 F4: one cover for a shot's editor and, after
         // Continue to diary, the prompt screen (see EditorFlowView)
@@ -67,47 +98,83 @@ struct CameraView: View {
         }
     }
 
-    private var portraitChrome: some View {
-        // Portrait positions are the only positions. In landscape each
-        // control turns about its own centre (rotatingWithDevice) and
-        // nothing moves, stacks or reflows. Photo and Film strip share every
-        // piece; Film strip adds its slot layer above the dial.
-        VStack {
-            topBar
-                .padding(.horizontal, Constants.CameraUI.screenMargin)
-                .padding(.top, Constants.CameraUI.topBarTopPadding)
+    // The full screen including safe areas, and the insets (the bottom one
+    // includes the tab bar), as CameraViewModel.chromePlacement expects
+    private func placement(for proxy: GeometryProxy) -> ChromePlacement {
+        let insets = proxy.safeAreaInsets
+        let size = CGSize(
+            width: proxy.size.width + insets.leading + insets.trailing,
+            height: proxy.size.height + insets.top + insets.bottom
+        )
+        return CameraViewModel.chromePlacement(for: size, safeArea: insets)
+    }
 
-            Spacer()
-
+    // Portrait positions are the only positions. In landscape each control
+    // turns about its own centre (rotatingWithDevice) and nothing moves,
+    // stacks or reflows.
+    @ViewBuilder
+    private func portraitLayout(placement: ChromePlacement) -> some View {
+        switch placement {
+        case .below:
+            VStack(spacing: 0) {
+                viewfinder
+                    .aspectRatio(Constants.CameraUI.viewfinderAspect, contentMode: .fit)
+                    .overlay(alignment: .top) { topBar }
+                    .overlay(alignment: .bottom) {
+                        lensChips.padding(.bottom, Constants.DesignUI.Space.m)
+                    }
+                    .overlay(alignment: .top) { hud }
+                    .padding(.top, Constants.Camera.belowChromeTopMargin)
+                Spacer(minLength: 0)
+                bottomStack
+                Spacer(minLength: 0)
+            }
+        case .overlay:
+            viewfinder
+                .ignoresSafeArea()
+                .overlay(alignment: .top) { hud.padding(.top, Constants.CameraUI.hudOverlayTopPadding) }
             VStack(spacing: Constants.CameraUI.bottomStackSpacing) {
-                if viewModel.isLensSelectorVisible {
-                    LensChipRow(
-                        lenses: viewModel.availableLenses,
-                        selected: viewModel.selectedLens,
-                        onSelect: viewModel.selectLens
-                    )
-                }
+                topBar
+                Spacer()
+                lensChips
+                bottomStack
+            }
+        }
+    }
 
-                if viewModel.isPhotoboothMode {
-                    PhotoboothView(viewModel: photobooth)
-                }
+    private var hud: some View {
+        CameraHUD(flash: hudFlash)
+            .frame(maxWidth: .infinity)
+            .padding(.top, Constants.CameraUI.hudTopPadding)
+    }
 
-                StockDial(selected: viewModel.filmStock, onSelect: viewModel.selectFilmStock)
-                    .padding(.horizontal, Constants.CameraUI.screenMargin)
+    @ViewBuilder private var lensChips: some View {
+        if viewModel.isLensSelectorVisible {
+            LensChipRow(
+                lenses: viewModel.availableLenses,
+                selected: viewModel.selectedLens,
+                onSelect: viewModel.selectLens
+            )
+        }
+    }
 
-                // A circle looks identical at any angle, so the shutter
-                // itself never rotates.
-                ZStack {
-                    ShutterButton(isDisabled: viewModel.isShutterDisabled, action: shutterTapped)
-                }
+    // Dial, then the shutter row: last photo or mini-strip, shutter, flip.
+    // A circle looks identical at any angle, so the shutter never rotates.
+    private var bottomStack: some View {
+        VStack(spacing: Constants.CameraUI.bottomStackSpacing) {
+            StockDial(selected: viewModel.filmStock, onSelect: viewModel.selectFilmStock)
+                .popoverTip(dialTip, arrowEdge: .bottom)
+                .padding(.horizontal, Constants.CameraUI.screenMargin)
+
+            ShutterButton(isDisabled: viewModel.isShutterDisabled, action: shutterTapped)
+                .popoverTip(shutterTip, arrowEdge: .bottom)
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .leading) { leadingAccessory }
                 .overlay(alignment: .trailing) {
                     FlipCameraButton(isVisible: viewModel.isFlipCameraVisible, action: viewModel.flipCamera)
-                        .padding(.trailing, Constants.EditorUI.buttonPadding)
+                        .padding(.trailing, Constants.CameraUI.screenMargin)
                 }
                 .padding(.bottom, Constants.CameraUI.shutterBottomPadding)
-            }
         }
     }
 
@@ -115,9 +182,12 @@ struct CameraView: View {
     private var topBar: some View {
         HStack {
             ModeSwitch(selected: viewModel.mode, onSelect: selectMode)
+                .popoverTip(modeTip, arrowEdge: .top)
             Spacer()
             controlButtons
         }
+        .padding(.horizontal, Constants.CameraUI.screenMargin)
+        .padding(.top, Constants.CameraUI.topBarTopPadding)
     }
 
     private var controlButtons: some View {
@@ -131,16 +201,17 @@ struct CameraView: View {
         )
     }
 
-    // Photo: the newest Roll photo. Film strip: Generate, once a slot is
-    // filled, in the same place (v5.1 F9).
+    // Photo: the newest Roll photo. Film strip: the mini-strip in the same
+    // place (v5.2 S2), so the two modes' chrome is identical.
     @ViewBuilder private var leadingAccessory: some View {
-        if viewModel.isPhotoMode {
-            LastPhotoButton()
-                .padding(.leading, Constants.EditorUI.buttonPadding)
-        } else {
-            GenerateStripButton(isVisible: photobooth.canGenerate) { photobooth.isStripPresented = true }
-                .padding(.leading, Constants.EditorUI.buttonPadding)
+        Group {
+            if viewModel.isPhotoMode {
+                LastPhotoButton()
+            } else {
+                MiniStripButton(viewModel: photobooth) { isSlotsSheetPresented = true }
+            }
         }
+        .padding(.leading, Constants.CameraUI.screenMargin)
     }
 
     // The panel slot is shared, so leaving a mode closes whatever was open
@@ -148,8 +219,25 @@ struct CameraView: View {
         viewModel.closePanels()
         switch mode {
         case .photo: viewModel.selectPhotoMode()
-        case .photobooth: viewModel.selectPhotoboothMode()
+        case .photobooth:
+            modeTip.invalidate(reason: .actionPerformed)
+            viewModel.selectPhotoboothMode()
         }
+    }
+
+    private func flash(_ text: String) {
+        hudFlash = CameraHUDFlash(text: text)
+    }
+
+    private func generateStrip() {
+        generatesAfterSheet = true
+        isSlotsSheetPresented = false
+    }
+
+    private func openGeneratedStrip() {
+        guard generatesAfterSheet else { return }
+        generatesAfterSheet = false
+        photobooth.isStripPresented = true
     }
 
     // Far-right dock, like the system Camera in landscape. Anchored with an
@@ -159,23 +247,13 @@ struct CameraView: View {
             .overlay(alignment: .trailing) {
                 VStack(spacing: Constants.CameraUI.dockSpacing) {
                     ModeSwitch(selected: viewModel.mode, onSelect: selectMode)
-                    if viewModel.isLensSelectorVisible {
-                        LensChipRow(
-                            lenses: viewModel.availableLenses,
-                            selected: viewModel.selectedLens,
-                            onSelect: viewModel.selectLens
-                        )
-                    }
+                    lensChips
                     controlButtons
                     ShutterButton(isDisabled: viewModel.isShutterDisabled, action: shutterTapped)
+                    leadingAccessory
                     FlipCameraButton(isVisible: viewModel.isFlipCameraVisible, action: viewModel.flipCamera)
                 }
                 .padding(.trailing, Constants.CameraUI.dockTrailingPadding)
-            }
-            .overlay(alignment: .bottom) {
-                if viewModel.isPhotoboothMode {
-                    PhotoboothView(viewModel: photobooth)
-                }
             }
     }
 
@@ -211,10 +289,10 @@ struct CameraView: View {
         #if DEBUG
         if Constants.CameraUI.chromeDebugOverlayEnabled {
             Text("angle: \(Int(viewModel.uiRotationAngle.degrees))°")
-                .font(.system(size: Constants.CameraUI.captionFontSize, design: .monospaced))
+                .frmrCodeStyle()
                 .foregroundStyle(.yellow)
-                .padding(4)
-                .background(.black.opacity(0.6))
+                .padding(Constants.DesignUI.Space.xs)
+                .background(.black)
         }
         #endif
     }
@@ -253,13 +331,16 @@ struct CameraView: View {
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut, value: viewModel.isExposureIndicatorVisible)
+            .frmrAnimation(.panel, value: viewModel.isExposureIndicatorVisible)
             .contentShape(Rectangle())
             .gesture(exposureDrag)
             .gesture(pinchZoom)
             .onTapGesture(count: 2) { viewModel.resetZoom() }
             .onTapGesture { location in viewModel.userTapped(at: location) }
-            .ignoresSafeArea()
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Viewfinder")
+            .accessibilityHint("Tap to focus. Swipe up or down to change exposure.")
+            .accessibilityIdentifier("camera.viewfinder")
     }
 
     private var exposureDrag: some Gesture {
@@ -279,10 +360,11 @@ struct CameraView: View {
     }
 
     private func shutterTapped() {
+        shutterTip.invalidate(reason: .actionPerformed)
         Task {
             switch viewModel.mode {
             case .photo:
-                await viewModel.captureForPhoto()
+                await viewModel.captureForPhoto(context: modelContext)
             case .photobooth:
                 if let shot = await viewModel.captureForPhotobooth() {
                     photobooth.add(shot)

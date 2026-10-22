@@ -23,7 +23,7 @@ BANNED=(
 )
 
 # Apple SDK modules frmr may import. Anything else counts as third-party.
-APPLE_IMPORTS='^(Foundation|SwiftUI|SwiftData|Observation|UIKit|AVFoundation|CoreImage|CoreGraphics|CoreMedia|CoreVideo|CoreMotion|CoreHaptics|CoreText|CoreLocation|ImageIO|Photos|PhotosUI|QuartzCore|Accelerate|Vision|UniformTypeIdentifiers|OSLog|os|Metal|MetalKit|Darwin|Dispatch|Swift|Testing|XCTest)$'
+APPLE_IMPORTS='^(Foundation|SwiftUI|SwiftData|Observation|UIKit|AVFoundation|CoreImage|CoreGraphics|CoreMedia|CoreVideo|CoreMotion|CoreHaptics|CoreText|CoreLocation|ImageIO|Photos|PhotosUI|QuartzCore|Accelerate|Vision|UniformTypeIdentifiers|TipKit|OSLog|os|Metal|MetalKit|Darwin|Dispatch|Swift|Testing|XCTest)$'
 
 VIOLATIONS=()
 WARNINGS=()

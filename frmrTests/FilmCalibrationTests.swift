@@ -135,3 +135,30 @@ struct FilmCalibrationTests {
             < Constants.ImageProcessing.Film.Grain.standard.coarseWeight)
     }
 }
+
+
+// MARK: - Stock swatches (v5.2 S8)
+
+struct FilmSwatchTests {
+
+    @Test(arguments: StripCustomization.FilmStock.allCases)
+    func everyStockHasTwoOrThreeDeterministicColours(stock: StripCustomization.FilmStock) {
+        let first = FilmSwatch.rgbValues(for: stock)
+        #expect((2...3).contains(first.count))
+        #expect(FilmSwatch.colors(for: stock).count == first.count)
+        let second = FilmSwatch.rgbValues(for: stock)
+        #expect(zip(first, second).allSatisfy { $0.r == $1.r && $0.g == $1.g && $0.b == $1.b })
+        #expect(first.allSatisfy { (0...1).contains($0.r) && (0...1).contains($0.g) && (0...1).contains($0.b) })
+    }
+
+    @Test func monochromeStocksAreGreyAndColourStocksDifferFromEachOtherAndFromOff() {
+        for stock in [StripCustomization.FilmStock.mono400, .mono3200] {
+            #expect(FilmSwatch.rgbValues(for: stock).allSatisfy { abs($0.r - $0.g) < 0.02 && abs($0.g - $0.b) < 0.02 }, "\(stock.label)")
+        }
+        let off = FilmSwatch.rgbValues(for: .none)
+        let cine = FilmSwatch.rgbValues(for: .cine500T)
+        let daylight = FilmSwatch.rgbValues(for: .daylight200)
+        #expect(zip(off, cine).contains { abs($0.r - $1.r) > 0.01 || abs($0.b - $1.b) > 0.01 })
+        #expect(zip(cine, daylight).contains { abs($0.r - $1.r) > 0.01 || abs($0.b - $1.b) > 0.01 })
+    }
+}

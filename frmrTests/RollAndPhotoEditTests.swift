@@ -362,9 +362,56 @@ struct PhotoEditStateTests {
         #expect(edit.tool == .film)
         edit.tool = .effect(.grain)
         #expect(edit.tool.id == "grain")
-        let ids = ["film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
+        let ids = ["exposure", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
+        #expect(PhotoEditViewModel.Tool.allTools.map(\.id) == ids, "Exposure comes first")
         #expect(ids.map { PhotoEditViewModel.Tool(id: $0).id } == ids)
         #expect(PhotoEditViewModel.Tool(id: "nonsense") == .film)
+    }
+
+    @Test func exposureSnapsToThirdStopsReadsOutAndResets() async {
+        let edit = settledEdit(stock: .daylight200)
+        #expect(edit.exposure == 0 && edit.exposureReadout == "0 EV")
+        edit.setExposure(0.3)
+        #expect(edit.exposure == 1.0 / 3.0 && edit.exposureReadout == "+0.3 EV")
+        edit.setExposure(-1)
+        #expect(edit.exposureReadout == "\u{2212}1.0 EV" && edit.isModified)
+        edit.setExposure(5)
+        #expect(edit.exposure == 2 && edit.exposureReadout == "+2.0 EV")
+        #expect(PhotoEditViewModel.exposureReadout(for: 2.0 / 3.0) == "+0.7 EV")
+
+        // Switching stock keeps the exposure; reset returns it to 0
+        edit.selectStock(.cine500T)
+        #expect(edit.exposure == 2)
+        #expect(edit.canResetToStockDefaults)
+        edit.resetToStockDefaults()
+        #expect(edit.exposure == 0 && edit.exposureReadout == "0 EV" && !edit.canResetToStockDefaults)
+        await edit.renderSettled()
+    }
+
+    @Test func exposureAloneRendersWithStockOff() async {
+        let edit = settledEdit(stock: .none, preview: photo(0.5))
+        let original = edit.photo
+        #expect(edit.renderedPhoto === original)
+        edit.setExposure(1)
+        await edit.renderSettled()
+        #expect(edit.renderedPhoto !== original)
+        #expect(meanLuma(edit.displayedPhoto) > meanLuma(original))
+        edit.setExposure(0)
+        await edit.renderSettled()
+        #expect(edit.renderedPhoto === original, "back to 0 EV shows the untouched original")
+    }
+
+    @Test func isDevelopingPhotoIsTrueExactlyWhileTheRAWIsPending() async {
+        let preview = photo(0.5)
+        #expect(!PhotoEditViewModel(preview: preview, stock: .none).isDevelopingPhoto, "no RAW, nothing to wait for")
+        let (stream, continuation) = AsyncStream.makeStream(of: UIImage.self)
+        let development = Task { for await image in stream { return image }; return preview }
+        let edit = PhotoEditViewModel(preview: preview, stock: .none, development: development)
+        #expect(edit.isDevelopingPhoto)
+        continuation.yield(photo(0.5, size: CGSize(width: 200, height: 150)))
+        _ = await edit.developedPhoto()
+        await Task.yield()
+        #expect(!edit.isDevelopingPhoto)
     }
 
     @Test func theRenderDebounceIsShortUnderUITestFast() {
@@ -827,5 +874,169 @@ struct RollDeleteWithEntryTests {
         defer { try? FileManager.default.removeItem(at: FileManager.documentsURL(forRelativePath: entry.photoPath)) }
         try RollViewModel.clearRoll(context: context)
         #expect(try entries(context).count == 1 && fileExists(atRelative: entry.photoPath))
+    }
+}
+
+
+// MARK: - Stock and print previews (v5.2 M5)
+
+@MainActor
+struct PhotoPreviewTests {
+
+    private func edit(stock: StripCustomization.FilmStock = .portrait400) -> PhotoEditViewModel {
+        PhotoEditViewModel(preview: photo(0.5, size: CGSize(width: 160, height: 120)), stock: stock)
+    }
+
+    @Test func rendersEveryStockAndEveryAvailablePrintOfThisPhoto() async {
+        let edit = edit()
+        edit.requestPreviews(size: CGSize(width: 24, height: 24), scale: 2)
+        await edit.previewsSettled()
+        #expect(Set(edit.stockPreviews.keys) == Set(StripCustomization.FilmStock.allCases))
+        #expect(Set(edit.printPreviews.keys) == Set(StripCustomization.FilmStock.portrait400.availablePrints))
+        // Covers the requested pixel size, never enlarged beyond the photo
+        let off = edit.stockPreviews[.none]
+        #expect(off.map { min($0.size.width, $0.size.height) } == 48)
+        // Different stocks look different
+        #expect(meanLuma(edit.stockPreviews[.cine500T]!) != meanLuma(edit.stockPreviews[.mono400]!))
+        // Stock Off has no print choice, slide film only the projection
+        edit.selectStock(.none)
+        edit.requestPreviews(size: CGSize(width: 24, height: 24), scale: 2)
+        await edit.previewsSettled()
+        #expect(edit.printPreviews.isEmpty)
+    }
+
+    @Test func previewsAreDeterministicAndCachedPerLookAndSize() async throws {
+        let edit = edit()
+        let size = CGSize(width: 20, height: 20)
+        edit.requestPreviews(size: size, scale: 2)
+        await edit.previewsSettled()
+        let firstImage = try #require(edit.stockPreviews[.daylight200])
+        let first = try #require(Raster(firstImage))
+        #expect(edit.previewRenderCount == 1)
+
+        // Same look and size: served from the cache, no render
+        let cachedImage = edit.stockPreviews[.daylight200]
+        edit.requestPreviews(size: size, scale: 2)
+        await edit.previewsSettled()
+        #expect(edit.previewRenderCount == 1 && edit.stockPreviews[.daylight200] === cachedImage)
+
+        // Picking a stock changes only the print row: the stock row is reused
+        edit.selectStock(.cine500T)
+        edit.requestPreviews(size: size, scale: 2)
+        await edit.previewsSettled()
+        #expect(edit.previewRenderCount == 2)
+        #expect(edit.stockPreviews[.daylight200] === cachedImage)
+
+        // A different look (exposure) or size renders again
+        edit.setExposure(1)
+        edit.requestPreviews(size: size, scale: 2)
+        await edit.previewsSettled()
+        #expect(edit.previewRenderCount == 3)
+        edit.requestPreviews(size: CGSize(width: 30, height: 30), scale: 2)
+        await edit.previewsSettled()
+        #expect(edit.previewRenderCount == 4)
+
+        // Deterministic: a second view model with the same photo and capture date matches pixel for pixel
+        let again = PhotoEditViewModel(preview: photo(0.5, size: CGSize(width: 160, height: 120)), stock: .portrait400, captureDate: edit.captureDate)
+        again.requestPreviews(size: size, scale: 2)
+        await again.previewsSettled()
+        let againImage = try #require(again.stockPreviews[.daylight200])
+        #expect(Raster(againImage) == first)
+    }
+
+    @Test func zeroSizeRequestsAreIgnored() async {
+        let edit = edit()
+        edit.requestPreviews(size: .zero, scale: 3)
+        await edit.previewsSettled()
+        #expect(edit.stockPreviews.isEmpty && edit.previewRenderCount == 0)
+    }
+}
+
+// MARK: - Library accessors (v5.2 M6)
+
+@MainActor
+struct RollDaySectionTests {
+
+    private func rollPhoto(_ date: Date) -> RollPhoto {
+        RollPhoto(capturedAt: date, photoPath: "Roll/x.jpg", look: .original)
+    }
+
+    @Test func groupsByDayNewestFirstWithinAndAcross() {
+        let calendar = Calendar.current
+        let today = Date.now
+        let earlierToday = calendar.startOfDay(for: today).addingTimeInterval(60)
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: today) ?? today
+        let longAgo = calendar.date(byAdding: .day, value: -40, to: today) ?? today
+        let a = rollPhoto(earlierToday), b = rollPhoto(today), c = rollPhoto(yesterday), d = rollPhoto(longAgo)
+
+        let sections = RollViewModel.daySections([c, d, a, b])
+        #expect(sections.count == 3)
+        #expect(sections.map(\.id) == [today.startOfDay, yesterday.startOfDay, longAgo.startOfDay])
+        #expect(sections[0].photos.map(\.id) == RollViewModel.sorted([a, b]).map(\.id))
+        #expect(sections[0].title == "Today" && sections[1].title == "Yesterday")
+        #expect(sections[2].title == longAgo.librarySectionTitle)
+        #expect(RollViewModel.daySections([]).isEmpty)
+    }
+}
+
+@MainActor
+struct LinkedEntryCountTests {
+
+    @Test func theIfKnownCountsMatchTheOldOnesWhenTheFetchWorks() async throws {
+        let context = try makeContext()
+        let row = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        defer { removeFiles([row]) }
+        context.insert(DiaryEntry(photoPath: row.photoPath, prompt: "p", response: "r", rollPhotoID: row.id))
+        try context.save()
+        #expect(RollViewModel.linkedEntryCountIfKnown(for: row, in: context) == 1)
+        #expect(RollViewModel.linkedEntryCountIfKnown(in: context) == 1)
+        #expect(RollViewModel.linkedEntryCount(for: row, in: context) == 1)
+        #expect(RollViewModel.linkedEntryCount(in: context) == 1)
+        let edit = try #require(PhotoEditViewModel(editing: row))
+        #expect(edit.linkedEntryCountIfKnown(in: context) == 1)
+        #expect(PhotoEditViewModel(preview: photo(), stock: .none).linkedEntryCountIfKnown(in: context) == 0)
+    }
+
+    @Test func aFailedFetchIsNilNotZero() {
+        struct Boom: Error {}
+        #expect(RollViewModel.knownCount(describing: "test") { throw Boom() } == nil)
+        #expect(RollViewModel.knownCount(describing: "test") { 3 } == 3)
+    }
+}
+
+// MARK: - Edit after each shot (v5.2)
+
+@MainActor
+struct EditAfterEachShotTests {
+
+    @Test func defaultsOnAndFollowsTheSetting() throws {
+        let defaults = try makeScratchDefaults()
+        let camera = CameraViewModel(defaults: defaults)
+        #expect(camera.editAfterEachShot)
+        defaults.set(false, forKey: Constants.DefaultsKeys.editAfterEachShot)
+        #expect(!camera.editAfterEachShot)
+        defaults.set(true, forKey: Constants.DefaultsKeys.editAfterEachShot)
+        #expect(camera.editAfterEachShot)
+    }
+
+    @Test func offSavesStraightToTheRollWithTheStockDefaultsAndNoEditor() async throws {
+        let defaults = try makeScratchDefaults()
+        defaults.set(false, forKey: Constants.DefaultsKeys.editAfterEachShot)
+        let camera = CameraViewModel(defaults: defaults)
+        let context = try makeContext()
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let saved = await camera.saveStraightToRoll(
+            preview: photo(), stock: .cine500T, captureDate: date,
+            development: Task { photo(0.4, size: CGSize(width: 200, height: 150)) }, context: context
+        )
+        let row = try #require(saved)
+        defer { removeFiles([row]) }
+        #expect(row.look == .stockDefaults(for: .cine500T))
+        #expect(row.capturedAt == date)
+        #expect(try context.fetch(FetchDescriptor<RollPhoto>()).count == 1)
+        #expect(camera.photoEdit == nil && !camera.isPhotoEditPresented, "no editor opened")
+        // The developed original is what was stored, not the preview
+        let stored = try #require(RollViewModel.loadPhoto(for: row))
+        #expect(stored.size.width == 200)
     }
 }

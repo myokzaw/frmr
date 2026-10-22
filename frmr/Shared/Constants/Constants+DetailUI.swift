@@ -2,20 +2,9 @@ import Foundation
 import CoreGraphics
 
 nonisolated extension Constants {
-    // MARK: Full-screen detail viewers (entry photo / strip; v5.1 F10)
+    // MARK: Full-screen detail viewers (entry / strip; v5.1 F10, v5.2 §5.7)
     enum DetailUI {
-        static let topBarButtonSize: CGFloat = 44
-        static let topBarIconSize: CGFloat = 16
-        static let topBarPadding: CGFloat = 16
-        static let footerCornerRadius: CGFloat = 28
-        static let footerPadding: CGFloat = 20
-        static let footerSpacing: CGFloat = 8
-        static let footerOuterPadding: CGFloat = 12
-        static let textPanelMaxHeight: CGFloat = 220
-        static let promptOpacity: CGFloat = 0.6
-        static let metaOpacity: CGFloat = 0.5
-        static let photoCornerRadius: CGFloat = 20
-        static let photoInset: CGFloat = 8
-        static let stripInset: CGFloat = 72
+        static let textSpacing: CGFloat = Constants.DesignUI.Space.m
+        static let photoHeightFraction: CGFloat = 0.6
     }
 }

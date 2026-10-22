@@ -65,7 +65,6 @@ struct TypewriterText<Style: ShapeStyle>: View {
         "What were you trying to hold onto in this moment?",
         foregroundStyle: Color.appBlack
     )
-    .font(.system(size: Constants.EditorUI.promptFontSize, weight: .medium, design: .serif))
-    .italic()
+    .font(.frmrPrompt)
     .padding()
 }

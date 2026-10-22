@@ -121,3 +121,55 @@ struct CameraFilmStockTests {
             == StripCustomization.FilmStock.allCases)
     }
 }
+
+
+// MARK: - Chrome placement (v5.2 S1)
+
+struct ChromePlacementTests {
+    private func place(_ width: CGFloat, _ height: CGFloat, top: CGFloat = 0, bottom: CGFloat = 0) -> ChromePlacement {
+        CameraViewModel.chromePlacement(
+            for: CGSize(width: width, height: height),
+            safeArea: EdgeInsets(top: top, leading: 0, bottom: bottom, trailing: 0)
+        )
+    }
+
+    private struct Device: CustomTestStringConvertible {
+        let name: String
+        let width: CGFloat, height: CGFloat, top: CGFloat, bottom: CGFloat
+        let expected: ChromePlacement
+        var testDescription: String { name }
+    }
+
+    // Real devices; the bottom inset includes a 49pt tab bar
+    private static let devices: [Device] = [
+        Device(name: "17 Pro Max", width: 440, height: 956, top: 62, bottom: 83, expected: .below),
+        Device(name: "17 Pro", width: 402, height: 874, top: 62, bottom: 83, expected: .below),
+        Device(name: "15", width: 393, height: 852, top: 59, bottom: 83, expected: .below),
+        Device(name: "13", width: 390, height: 844, top: 47, bottom: 83, expected: .below),
+        Device(name: "12 mini", width: 375, height: 812, top: 50, bottom: 83, expected: .overlay),
+        Device(name: "SE", width: 375, height: 667, top: 20, bottom: 49, expected: .overlay),
+    ]
+
+    @Test(arguments: devices)
+    private func tallPhonesPlaceTheChromeBelowAndShortOnesOverlay(device: Device) {
+        #expect(place(device.width, device.height, top: device.top, bottom: device.bottom) == device.expected)
+    }
+
+    @Test func thresholdIsExactlyViewfinderPlusStack() {
+        typealias C = Constants.Camera
+        let width: CGFloat = 300
+        let needed = width * C.viewfinderAspectHeightOverWidth + C.belowChromeStackHeight + C.belowChromeTopMargin
+        #expect(place(width, needed) == .below)
+        #expect(place(width, needed - 1) == .overlay)
+        #expect(place(width, needed + 40, top: 20, bottom: 20) == .below)
+        #expect(place(width, needed + 39, top: 20, bottom: 20) == .overlay)
+    }
+
+    @Test func degenerateSizesOverlay() {
+        #expect(place(0, 900) == .overlay && place(400, 0) == .overlay)
+    }
+
+    @Test func aLandscapeScreenOverlays() {
+        #expect(place(874, 402) == .overlay)
+    }
+}

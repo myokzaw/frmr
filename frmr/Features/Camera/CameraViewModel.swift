@@ -1,7 +1,17 @@
 import AVFoundation
 import Observation
+import SwiftData
 import SwiftUI
 import UIKit
+
+/// Where the stock dial and shutter stack sit relative to the viewfinder
+/// (v5.2 S1).
+nonisolated enum ChromePlacement: Equatable, Sendable {
+    /// Under a 3:4 viewfinder, on their own band (tall phones).
+    case below
+    /// Over the bottom of the viewfinder (short phones).
+    case overlay
+}
 
 @Observable
 final class CameraViewModel {
@@ -500,6 +510,23 @@ final class CameraViewModel {
         expanded ? WBMode.allCases : [selected]
     }
 
+    // MARK: Chrome placement (v5.2 S1)
+
+    /// `.below` when a 3:4 viewfinder (full width) plus the dial and shutter
+    /// stack fits in the height left after the safe area, else `.overlay`.
+    /// - Parameters:
+    ///   - viewSize: the camera screen's full size, safe areas included.
+    ///   - safeArea: its insets; the bottom one includes the tab bar when
+    ///     the caller wants it reserved.
+    static func chromePlacement(for viewSize: CGSize, safeArea: EdgeInsets) -> ChromePlacement {
+        typealias C = Constants.Camera
+        guard viewSize.width > 0, viewSize.height > 0 else { return .overlay }
+        let viewfinderHeight = viewSize.width * C.viewfinderAspectHeightOverWidth
+        let needed = viewfinderHeight + C.belowChromeStackHeight + C.belowChromeTopMargin
+        let available = viewSize.height - safeArea.top - safeArea.bottom
+        return needed <= available ? .below : .overlay
+    }
+
     // MARK: Photo mode (v5 F4)
 
     /// The edit session for the last Photo-mode capture; lives until it is
@@ -510,9 +537,18 @@ final class CameraViewModel {
     /// sit under a cover with no view behind it.
     var isPhotoEditPresented = false
 
+    /// Whether a Photo-mode shot opens the editor (default) or goes straight
+    /// to the Roll (`Constants.DefaultsKeys.editAfterEachShot`, v5.2).
+    var editAfterEachShot: Bool {
+        defaults.object(forKey: Constants.DefaultsKeys.editAfterEachShot) as? Bool ?? true
+    }
+
     /// The shutter in Photo mode: capture, then open the edit step with the
-    /// camera's stock on that stock's defaults.
-    func captureForPhoto() async {
+    /// camera's stock on that stock's defaults. With "Edit after each shot"
+    /// off and a `context`, the photo is saved straight to the Roll instead
+    /// (no editor; the Roll's newest photo, and so the last-photo thumbnail,
+    /// updates) and the saved haptic plays.
+    func captureForPhoto(context: ModelContext? = nil) async {
         let stock = filmStock
         let captureDate = Date.now
         guard let photo = await capturePhoto() else { return }
@@ -524,7 +560,39 @@ final class CameraViewModel {
             guard let self else { return preview }
             return await self.processRAWIfPresent(photo, fallback: preview)
         }
-        beginPhotoEdit(preview: preview, stock: stock, captureDate: captureDate, development: development)
+        if !editAfterEachShot, let context {
+            await saveStraightToRoll(
+                preview: preview, stock: stock, captureDate: captureDate, development: development, context: context
+            )
+        } else {
+            beginPhotoEdit(preview: preview, stock: stock, captureDate: captureDate, development: development)
+        }
+    }
+
+    /// Saves a capture to the Roll on the camera's stock defaults without an
+    /// editor (the seam `captureForPhoto` and tests share). Waits for the
+    /// developed RAW so the stored original is never the JPEG preview.
+    @discardableResult
+    func saveStraightToRoll(
+        preview: UIImage,
+        stock: StripCustomization.FilmStock,
+        captureDate: Date = .now,
+        development: Task<UIImage, Never>? = nil,
+        context: ModelContext
+    ) async -> RollPhoto? {
+        let original = await development?.value ?? preview
+        do {
+            let saved = try RollViewModel.insert(
+                original: original, look: .stockDefaults(for: stock), capturedAt: captureDate, context: context
+            )
+            Haptics.play(.saved)
+            return saved
+        } catch let error as AppError {
+            errorState?.raise(error)
+        } catch {
+            errorState?.raise(.persistenceFailed(reason: error.localizedDescription))
+        }
+        return nil
     }
 
     /// Opens the edit step for a fresh capture (the seam `captureForPhoto`
@@ -599,7 +667,7 @@ final class CameraViewModel {
         defer { isCapturing = false }
 
         // Fired before the capture so the thunk lands with the shutter, not after
-        Haptics.shutterFired()
+        Haptics.play(.shutterAdvance)
 
         do {
             return try await captureSession.capturePhoto()

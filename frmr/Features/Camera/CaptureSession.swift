@@ -352,7 +352,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                     device.unlockForConfiguration()
                 }
             }
-            Task { @MainActor in Haptics.focusLocked() }
+            Task { @MainActor in Haptics.play(.detent) }
         }
 
         // If the device never reports settling, stop holding the observer

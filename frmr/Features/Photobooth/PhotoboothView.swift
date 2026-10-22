@@ -2,50 +2,116 @@ import PhotosUI
 import SwiftData
 import SwiftUI
 
-// v5.1 F9: the strip layer of the camera (Film strip mode). The camera chrome
-// around it is identical to Photo mode; this adds, just above the dial, four
-// compact slot thumbnails under an "n of 4" count, with the gallery picker,
-// Pick from Roll and undo as small glass icons beside them. Generate lives in
-// the shutter row (GenerateStripButton). Capture itself stays with
-// CameraView's shutter. Square slots and round icons turn individually
-// (rotatingWithDevice); the count is a short upright status line.
-struct PhotoboothView: View {
-    @Bindable var viewModel: PhotoboothViewModel
-    @State private var isRollPickerPresented = false
+// v5.2 S2 (user decision): Film strip mode keeps the camera's chrome
+// identical to Photo. The four slots become a mini-strip in the last-photo
+// thumbnail's place; tapping it opens a sheet with the slots, the gallery,
+// Pick from Roll, Undo and Generate. Capture itself stays with the shutter.
 
-    private var countText: String { viewModel.stripProgressText }
+/// A small paper tab of four 4:5 frames that fill as you shoot, with an
+/// "n/4" badge. Square-ish and small, so it turns in place.
+struct MiniStripButton: View {
+    let viewModel: PhotoboothViewModel
+    let action: () -> Void
+
+    private typealias UI = Constants.CameraUI
 
     var body: some View {
-        VStack(spacing: Constants.CameraUI.stripCountSpacing) {
-            Text(countText)
-                .font(.system(size: Constants.CameraUI.captionFontSize, weight: .medium))
-                .foregroundStyle(.white.opacity(Constants.CameraUI.dialNameOpacity))
-                .accessibilityLabel("Captured \(countText)")
+        Button(action: action) {
+            VStack(spacing: UI.miniStripFrameSpacing) {
+                ForEach(0..<Constants.entriesPerStrip, id: \.self) { index in
+                    MiniFrame(image: viewModel.image(at: index))
+                }
+            }
+            .padding(UI.miniStripPadding)
+            .frame(width: UI.miniStripWidth, height: UI.miniStripHeight)
+            .background(Color.appCream, in: RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb))
+            .overlay(alignment: .topTrailing) {
+                // CONTRACT: a stripProgressBadge ("2/4") on PhotoboothViewModel
+                Text("\(viewModel.shots.count)/\(viewModel.slotCount)")
+                    .font(.frmrCode)
+                    .foregroundStyle(Color.appBlack)
+                    .padding(.horizontal, Constants.DesignUI.Space.xs)
+                    .background(Color.appAmber, in: Capsule())
+                    .fixedSize()
+                    .offset(x: UI.miniStripBadgeOffset, y: -UI.miniStripBadgeOffset)
+            }
+            .frmrChromeTypeSize()
+            .rotatingWithDevice()
+            .frame(minWidth: Constants.DesignUI.targetMin, minHeight: Constants.DesignUI.targetMin)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Strip, \(viewModel.stripProgressText) frames")
+        .accessibilityHint("Opens the strip")
+        .accessibilityIdentifier("strip.miniStrip")
+        .frmrLargeContent("Strip", systemImage: "film.stack")
+    }
+}
+
+private struct MiniFrame: View {
+    let image: UIImage?
+
+    var body: some View {
+        Color.appBlack.opacity(Constants.CameraUI.stripEmptySlotOpacity)
+            .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                }
+            }
+            .clipped()
+    }
+}
+
+/// The strip's slots and its actions: four larger frames with the count,
+/// then gallery, Pick from Roll and Undo as glass icons, and Generate as the
+/// one amber primary (enabled from one frame).
+struct StripSlotsSheet: View {
+    @Bindable var viewModel: PhotoboothViewModel
+    let onGenerate: () -> Void
+
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @State private var isRollPickerPresented = false
+
+    private typealias UI = Constants.CameraUI
+    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .darkroom, contrast: contrast) }
+
+    var body: some View {
+        VStack(spacing: Constants.DesignUI.Space.l) {
+            Text("Captured \(viewModel.stripProgressText)")
+                .font(.frmrLabel)
+                .foregroundStyle(theme.textMuted)
                 .accessibilityIdentifier("strip.count")
 
-            HStack(spacing: Constants.CameraUI.stripSlotSpacing) {
+            HStack(spacing: UI.stripSlotSpacing) {
                 ForEach(0..<Constants.entriesPerStrip, id: \.self) { index in
-                    SlotView(image: viewModel.image(at: index))
-                        .rotatingWithDevice()
+                    SlotView(image: viewModel.image(at: index), number: index + 1)
                 }
-                Spacer(minLength: Constants.CameraUI.chipSpacing)
+            }
+
+            HStack(spacing: Constants.DesignUI.Space.m) {
                 PhotosPicker(
                     selection: $viewModel.pickerItems,
                     maxSelectionCount: max(viewModel.remainingSlots, 1),
                     matching: .images
                 ) {
-                    GlassIconGlyph(systemImage: "photo.on.rectangle", size: Constants.DesignUI.targetMin)
+                    GlassIconGlyph(systemImage: "photo.on.rectangle", size: UI.sheetIconSize, rotates: false)
                 }
                 .accessibilityLabel("Choose photos from library")
                 .accessibilityIdentifier("strip.gallery")
                 .disabled(viewModel.isFull)
+                .opacity(viewModel.isFull ? UI.disabledControlOpacity : 1)
 
                 GlassIconButton(
                     systemImage: "film.stack",
                     label: "Pick from Roll",
                     identifier: "strip.pickRoll",
-                    size: Constants.DesignUI.targetMin,
+                    size: UI.sheetIconSize,
                     isDisabled: viewModel.isFull,
+                    rotates: false,
                     action: { isRollPickerPresented = true }
                 )
 
@@ -53,74 +119,64 @@ struct PhotoboothView: View {
                     systemImage: "arrow.uturn.backward",
                     label: "Undo last photo",
                     identifier: "strip.undo",
-                    size: Constants.DesignUI.targetMin,
+                    size: UI.sheetIconSize,
                     isDisabled: !viewModel.hasShots,
+                    rotates: false,
                     action: viewModel.removeLastShot
                 )
+
+                Button(action: onGenerate) {
+                    Text("Generate")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .frmrPrimaryButtonStyle()
+                .disabled(!viewModel.canGenerate)
+                .accessibilityLabel("Generate strip")
+                .accessibilityHint("Builds a strip from the photos so far")
+                .accessibilityIdentifier("strip.generate")
             }
         }
-        .padding(.horizontal, Constants.CameraUI.screenMargin)
+        .padding(Constants.DesignUI.gutter)
+        .foregroundStyle(theme.text)
+        .frmrChromeTypeSize()
         .onChange(of: viewModel.pickerItems) {
             Task { await viewModel.loadPickerSelection() }
         }
         .sheet(isPresented: $isRollPickerPresented) {
-            RollPickerSheet(remainingSlots: viewModel.remainingSlots, onPick: pickFromRoll)
+            RollPickerSheet(remainingSlots: viewModel.remainingSlots, onPick: viewModel.add(rollPhoto:))
         }
-    }
-
-    // A Roll photo joins the strip linked, with its full look (v5-8)
-    private func pickFromRoll(_ photo: RollPhoto) {
-        viewModel.add(rollPhoto: photo)
+        .presentationDetents([.height(UI.slotsSheetHeight)])
+        .presentationDragIndicator(.visible)
+        .frmrSheetBackground()
+        .preferredColorScheme(.dark)
     }
 }
 
 private struct SlotView: View {
     let image: UIImage?
+    let number: Int
+
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb) }
 
     var body: some View {
-        RoundedRectangle(cornerRadius: Constants.CameraUI.stripSlotCornerRadius)
-            .fill(.white.opacity(Constants.CameraUI.stripEmptySlotOpacity))
-            .frame(width: Constants.CameraUI.stripSlotSize, height: Constants.CameraUI.stripSlotSize)
-            .overlay(SlotImage(image: image))
-    }
-}
-
-private struct SlotImage: View {
-    let image: UIImage?
-
-    var body: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFill()
-                .frame(width: Constants.CameraUI.stripSlotSize, height: Constants.CameraUI.stripSlotSize)
-                .clipShape(RoundedRectangle(cornerRadius: Constants.CameraUI.stripSlotCornerRadius))
-        }
-    }
-}
-
-// Primary in Film strip mode, once at least one slot is filled. A round
-// amber disc with a glyph: a "Generate strip" pill is far wider than tall,
-// so turning its label in place would overflow it.
-struct GenerateStripButton: View {
-    let isVisible: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "checkmark")
-                .font(.system(size: Constants.CameraUI.stripGenerateIconSize, weight: .bold))
-                .foregroundStyle(Color.appBlack)
-                .rotatingWithDevice()
-                .frame(width: Constants.CameraUI.stripGenerateSize, height: Constants.CameraUI.stripGenerateSize)
-                .background(Color.appAmber, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Generate strip")
-        .accessibilityHint("Builds a strip from the photos so far")
-        .accessibilityIdentifier("strip.generate")
-        .opacity(isVisible ? 1 : 0)
-        .disabled(!isVisible)
+        Color.white.opacity(Constants.CameraUI.stripEmptySlotOpacity)
+            .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Text("\(number)")
+                        .font(.frmrValue)
+                        .foregroundStyle(.white.opacity(Constants.CameraUI.dialUnselectedOpacity))
+                }
+            }
+            .clipShape(shape)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(image == nil ? "Frame \(number), empty" : "Frame \(number)")
+            .accessibilityIdentifier("strip.slot")
     }
 }
 
@@ -134,35 +190,37 @@ struct RollPickerSheet: View {
     let onPick: (RollPhoto) -> Void
 
     private var columns: [GridItem] {
-        Array(repeating: GridItem(.flexible(), spacing: Constants.CameraUI.rollPickerSpacing), count: Constants.CameraUI.rollPickerColumns)
+        Array(repeating: GridItem(.flexible(), spacing: Constants.DesignUI.contactSheetGutter), count: Constants.CameraUI.rollPickerColumns)
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                if photos.isEmpty {
-                    Text("Your roll is empty. Photos you save to the roll show up here.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(Constants.CameraUI.sheetPadding)
-                        .accessibilityIdentifier("strip.rollPicker.empty")
-                } else {
-                    LazyVGrid(columns: columns, spacing: Constants.CameraUI.rollPickerSpacing) {
-                        ForEach(photos) { photo in
-                            Button { pick(photo) } label: {
-                                RollLookImage(photo: photo, contentMode: .fill) { Color.clear }
-                                    .aspectRatio(1, contentMode: .fit)
-                                    .clipShape(RoundedRectangle(cornerRadius: Constants.CameraUI.rollPickerCornerRadius))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(remainingSlots == 0)
-                            .accessibilityLabel("Roll photo")
-                            .accessibilityHint("Adds this photo to the strip")
-                            .accessibilityIdentifier("strip.rollPicker.photo")
+                LazyVGrid(columns: columns, spacing: Constants.DesignUI.contactSheetGutter) {
+                    ForEach(photos) { photo in
+                        Button { pick(photo) } label: {
+                            Color.clear
+                                .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
+                                .overlay { RollLookImage(photo: photo, contentMode: .fill) { Color.clear } }
+                                .clipped()
                         }
+                        .buttonStyle(.plain)
+                        .disabled(remainingSlots == 0)
+                        .accessibilityLabel("Roll photo")
+                        .accessibilityHint("Adds this photo to the strip")
+                        .accessibilityIdentifier("strip.rollPicker.photo")
                     }
-                    .padding(Constants.CameraUI.rollPickerSpacing)
+                }
+                .padding(.horizontal, Constants.DesignUI.gutter)
+            }
+            .overlay {
+                if photos.isEmpty {
+                    ContentUnavailableView(
+                        "Your roll is empty",
+                        systemImage: "camera.aperture",
+                        description: Text("Photos you save to the roll show up here.")
+                    )
+                    .accessibilityIdentifier("strip.rollPicker.empty")
                 }
             }
             .navigationTitle("Pick from Roll")
@@ -187,6 +245,6 @@ struct RollPickerSheet: View {
 #Preview {
     ZStack {
         Color.black
-        PhotoboothView(viewModel: PhotoboothViewModel())
+        MiniStripButton(viewModel: PhotoboothViewModel(), action: {})
     }
 }
