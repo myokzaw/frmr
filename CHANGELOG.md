@@ -2,6 +2,42 @@
 
 What changed in each version of frmr, in plain language. Technical detail, decisions and test results live in the matching `frmr-v*-spec.md`.
 
+## v5.1 — Diary from the editor, and a modern look (branch `v5-photo-camera`)
+
+**Status:** built and tested on the simulator (2026-10-21); QA pass in progress; device checks outstanding. Spec: `frmr-v5.1-spec.md`.
+
+- **Diary is part of taking a photo.** The mode switch is now Photo / Film strip.
+  - After a shot, **Continue to diary** (next to Save to roll) saves the photo to your Roll and opens the prompt.
+  - The entry is linked to that photo, so re-editing the photo updates the entry.
+  - Older entries are unchanged.
+- **One camera for both modes.** Film strip uses the same camera as Photo:
+  - a glass mode switch, and white balance and exposure buttons at the top;
+  - the slim stock dial and the shutter.
+  - It adds four slots, gallery / Roll / undo buttons, and a Generate button once a slot is filled.
+- **A simpler editor.**
+  - Icon buttons for discard, retake and download.
+  - A row of tools (Film, Print, Halation, Haze, Light leak, Grain, Vignette) with one tick-mark scrubber that clicks every 10%.
+  - The photo stays large.
+- **A modern look everywhere.**
+  - Glass controls (Liquid Glass on iOS 26, frosted on older iOS) and amber primary buttons with dark text.
+  - A Library with Roll / Entries / Strips. Roll photos with a diary entry show a book badge. Entries show what you wrote first. Strips appear in two columns.
+  - Full-screen photo and strip viewers, and a refreshed Settings screen and walkthrough.
+- **Safer deletes.** Deleting a photo that has a diary entry asks whether to delete both or keep the entry. Clear roll keeps entries by default.
+- **Roll photos in strips keep their full look.** Print and effects carry over, not just the stock.
+- **Accessibility.**
+  - Higher-contrast colours that pass accessibility contrast checks, and every control at least 44pt.
+  - Respects Reduce Motion and Reduce Transparency.
+- **Faster development.**
+  - Each agent has its own simulator.
+  - One test script (`scripts/test.sh`) builds once and re-runs a suite in about 6 s; the full unit run takes under a minute.
+  - UI tests run across three simulators at once, and the constants are split into one file per section.
+
+**Not yet checked on a real iPhone:**
+- the new camera chrome in landscape;
+- the haptics;
+- the Liquid Glass look and the blur fallback on older iOS;
+- large text sizes.
+
 ## v5 — The camera is the main feature (branch `v5-photo-camera`)
 
 **Status:** built and tested on the simulator (2026-10-21); device checks outstanding. Spec: `frmr-v5-spec.md`.

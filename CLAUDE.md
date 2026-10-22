@@ -137,7 +137,7 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
 
 ## Current build status (2026-07-31)
 
-**v5 built on branch `v5-photo-camera` (2026-10-21); simulator-verified, device checks outstanding.** The **camera is the main feature**: the app launches in Photo mode (`CameraViewModel.Mode.photo`). Diary and Film strip are the other modes. See **frmr-v5-spec.md**.
+**v5 + v5.1 on branch `v5-photo-camera` (2026-10-21); simulator-verified, device checks outstanding.** The **camera is the main feature**: the app launches in Photo mode, and the modes are Photo and Film strip (`CameraViewModel.Mode` = `.photo`/`.photobooth`), both using the same chrome (`CameraChrome.swift`). The diary is reached from the editor with **Continue to diary**: it saves to the Roll and the `DiaryEntry` links via `rollPhotoID`. UI uses glass via `frmrGlass` / `frmrAdaptiveGlass` (`GlassBackground.swift`). Constants live in `frmr/Shared/Constants/`, one file per namespace. See **frmr-v5.1-spec.md** and **frmr-v5.2-spec.md** (next).
 - **Key types:**
   - `FilmLook` (stock, print, B&W, effect strengths 0…1.5, where 1 = v4 and 0 = off, pixel-identical);
   - `RollPhoto` and `RollViewModel` (non-destructive Roll);

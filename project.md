@@ -6,14 +6,14 @@ Full product specification. Read alongside `CLAUDE.md` (engineering rules). Toge
 
 ## §1 What this app is
 
-A minimalist iOS **film camera** with a physically based film look. **Since v5 the camera is the main feature:** the app opens in Photo mode, and Diary and Film strip are additional modes.
+A minimalist iOS **film camera** with a physically based film look. **Since v5 the camera is the main feature:** the app opens in Photo mode. Since v5.1 the modes are Photo and Film strip, sharing the same camera chrome, and the diary is reached from the editor (Continue to diary).
 
 Core loop (Photo mode):
 1. Pick a stock on the dial and set white balance and exposure; the viewfinder previews the look.
 2. Take the photo and fine-tune it in the editor: stock, print, B&W and effect strengths.
 3. Save it to the Roll, where it stays re-editable, or Download it to Photos.
 
-Diary mode: photo → review → reflective prompt → short entry. Film strip mode: four photos (camera, gallery or Roll) → photobooth-style strip.
+Diary (v5.1): photo → editor → **Continue to diary** (saves to the Roll) → reflective prompt → short entry linked to the Roll photo. Film strip mode: four photos (camera, gallery or Roll, keeping their looks) → photobooth-style strip.
 
 The film look (v4) simulates film rather than filtering it:
 - per-layer characteristic curves
@@ -127,7 +127,7 @@ Review the compiled strip and adjust its look before saving/sharing. *(Updated f
 - Select mode (up to 4) with Export and Make strip.
 - The empty state invites the user to take a photo.
 
-### Screen 4b — Diary review (v4)
+### Screen 4b — Diary review (v4; removed in v5.1, replaced by the editor and Continue to diary)
 
 Shown after a diary capture, before the prompt screen.
 - **Photo:** the photo in its chosen stock.
