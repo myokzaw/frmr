@@ -189,6 +189,8 @@ The F8 visual language applies everywhere:
 | Item | Status |
 |---|---|
 | v5 pushed | ✅ `v5-photo-camera` @ `1d4a1dd` |
-| Backend (Sonnet): F1, F4, F5, F7 model; Roll delete with entry; badge API; walkthrough copy | In progress |
-| Frontend (Sonnet): F2, F3, F6 deletions, F7 badge, F8 modern camera and editor, F9 Film strip camera = Photo camera, F10 modern UI everywhere | Queued after backend |
+| Backend (Sonnet): F1, F4, F5, F7 model; Roll delete with entry; badge API; walkthrough copy | ✅ 287 unit tests (lead, full tier, 48 s). Legacy camera shims remain until frontend A is done. New decision v5.1-12: Clear roll keeps linked entries as their own copies by default. |
+| Workflow (F11) | ✅ `Constants.swift` split into `frmr/Shared/Constants/` (one file per namespace); `scripts/test.sh` boots its simulator; restyle role added (`frmr-restyle`, UI shards `frmr-ui-4…6`); shared `GlassBackground` modifier; local checkpoint `84358fb` (not pushed). |
+| Frontend A (Sonnet, worktree `worktrees/camera`, branch `v5.1-camera`) | In progress: camera (Photo and Strip identical), editor scrubber and toolbar, Continue to diary and prompt, strip screen sheet, review screen deletion, `-UITestFast` |
+| Frontend B (Sonnet, worktree `worktrees/restyle`, branch `v5.1-restyle`) | In progress: tab bar, Library/Roll (badge, delete prompts), Entries, detail viewers, Settings, walkthrough; before/after screenshots |
 | QA (Sonnet) | Queued |

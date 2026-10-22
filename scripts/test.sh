@@ -72,13 +72,16 @@ STAMP="$(date +%H%M%S)"
 check_log() {
   # Swift Testing prints its own summary; XCTest (UI) prints "Executed".
   local log="$1" label="$2" ok=0
-  if grep -qE "error:|\*\* (TEST|BUILD) FAILED|Test run with .* failed|' failed \(" "$log"; then ok=1; fi
+  # Only real failures count: compiler/linker errors, xcodebuild's own
+  # failure banner, and failing tests. Simulator log noise such as CoreData
+  # "error:" lines from the app host is ignored.
+  if grep -qE "\.swift:[0-9]+:[0-9]+: error:|^ld: |error: (linker|cannot|no such|unable)|\*\* (TEST|BUILD) FAILED|Test run with .* failed|' failed \(|Testing failed:" "$log"; then ok=1; fi
   if grep -qE "\.swift:[0-9]+:[0-9]+: warning" "$log"; then
     echo "  ✗ $label: Swift warnings (treated as failures)"; grep -E "\.swift:[0-9]+:[0-9]+: warning" "$log" | sort -u | head -5
     ok=1
   fi
   grep -E "Test run with|Executed [0-9]+ tests?, with|\*\* (TEST|BUILD) (SUCCEEDED|FAILED)" "$log" | tail -2 | sed "s/^/  $label: /"
-  [ $ok -eq 0 ] || grep -E "error:|' failed|✘" "$log" | head -8 | sed "s/^/    /"
+  [ $ok -eq 0 ] || grep -E "\.swift:[0-9]+:[0-9]+: error:|' failed|✘|Testing failed:" "$log" | head -8 | sed "s/^/    /"
   return $ok
 }
 
