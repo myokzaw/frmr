@@ -40,3 +40,19 @@ See `research/v5.2-ui-makeover.md` §7. The order:
 1. A design-token PR by one agent first: Dynamic Type type roles, spacing, radii, colour roles with light and dark values, and the upgraded `frmrGlass`.
 2. Then camera, restyle and backend agents in parallel (separate worktrees).
 3. Then a QA accessibility pass.
+
+## Carried over from v5.1 QA (fold into v5.2)
+
+- **BUG-V51-02:** the flaky hold-to-compare UI poll.
+- **BUG-V51-03:**
+  - the editor hint is unreadable over light photos;
+  - the Film chip row clips at the right edge;
+  - Reduce Motion guards are missing on several animations;
+  - view-body logic in `ContentView` and the modified-tools set;
+  - raw hex colours in `ThemePalette+Accent`;
+  - the Roll badge and delete-prompt counts treat a failed fetch as 0 (backend).
+- **From the v5.1 agents' notes:**
+  - the strip sheet stops above the bottom safe area, leaving a beige band in light mode;
+  - large Dynamic Type sizes haven't been checked;
+  - a dark-mode screenshot pass across all screens is still to do;
+  - UI shards are balanced by test count, not time (`testStripScreenCyclesEveryStock` takes about 195 s).

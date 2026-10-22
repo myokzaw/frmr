@@ -31,6 +31,7 @@ Before writing a test:
 | `ImageProcessorTests.swift` | `ImageProcessor` strip look, EXIF orientation mapping, full-frame look, `FilmLookCache`, live film preview. |
 | `StripLookRegressionTests.swift` (QA) | Strip look across every stock × B&W × effect: orientation oracle, determinism, Off fast path, never-darken. |
 | `FilmAtCaptureRegressionTests.swift` (QA) | As shot strips, per-photo stock plumbing, booth paper, `renderFullLook` orientation and seeds, HEIC, Download. |
+| `V51AcceptanceTests.swift` (QA) | v5.1 acceptance: accent and destructive colour roles ≥4.5:1 on theme surfaces, text on accent and amber fills, 44pt minimum on interactive size constants, walkthrough copy. |
 | `RotationAcceptanceTests.swift` (QA) | Chrome counter-rotation across every start angle and orientation, onboarding portrait gate. |
 | `StripGeneratorTests.swift` | Chunking into strips, layout, the plain booth strip, superseded renders. |
 | `StripControlsTests.swift` | Strip screen controls and the As shot vs override rules. |

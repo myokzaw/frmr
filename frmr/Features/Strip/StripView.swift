@@ -26,6 +26,9 @@ struct StripView: View {
     }
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
+    // Selection marks sit on the cream sheet in light mode, where raw amber is
+    // ~1.6:1 (BUG-V51-01); the accent role is contrast-checked per scheme.
+    private var accent: Color { ThemePalette.accent(for: colorScheme) }
 
     private var shareImages: [Image] {
         viewModel.stripImages.map { Image(uiImage: $0) }
@@ -110,7 +113,7 @@ struct StripView: View {
                 selectedID: activeTool.id,
                 modifiedIDs: modifiedToolIDs,
                 identifierPrefix: "strip.tool",
-                selectedColor: .appAmber,
+                selectedColor: accent,
                 idleColor: theme.text,
                 onSelect: { tool = StripTool(id: $0) }
             )
@@ -118,7 +121,7 @@ struct StripView: View {
         }
         .padding(UI.sheetPadding)
         .foregroundStyle(theme.text)
-        .tint(.appAmber)
+        .tint(accent)
         // Chrome text stops growing at the first accessibility size so the
         // sheet never pushes Save off the screen
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
@@ -145,7 +148,7 @@ struct StripView: View {
                     label: option.label,
                     identifier: "strip.background.\(option.settingsName)",
                     isSelected: option == viewModel.customization.background,
-                    borderColor: .appAmber,
+                    borderColor: accent,
                     rimColor: theme.cardBorder,
                     action: { viewModel.customization.background = option }
                 )
@@ -193,7 +196,7 @@ struct StripView: View {
             accessibilityLabel: accessibilityLabel,
             identifier: identifier,
             isSelected: isSelected,
-            selectedColor: .appAmber,
+            selectedColor: accent,
             selectedForeground: .appBlack,
             idleForeground: theme.text,
             idleBackground: theme.text.opacity(UI.iconFillOpacity),
@@ -222,7 +225,7 @@ struct StripView: View {
             hint: effect.toolHint,
             identifier: "strip.scrubber",
             textColor: theme.text,
-            tint: .appAmber
+            tint: accent
         )
     }
 
