@@ -37,9 +37,9 @@ After taking a picture, the editor has an **Exposure** tool alongside the film t
 - **Backend:** `FilmLook.exposure`, Codable migration, pipeline stage, `PhotoEditViewModel` binding, tests, and an update to `docs/film-simulation.md` §3 (pipeline order) and §9 (recipes).
 - **Frontend A:** the toolbar entry and the EV scrubber mode.
 
-**Open:**
-- **v5.2-11:** should Exposure also appear on the strip screen as a strip-wide offset? Default: **no**, per photo only.
-- **v5.2-12:** should there be separate highlights/shadows controls? Default: **no**, exposure only.
+**Decided by the user (2026-10-22):**
+- **v5.2-11:** Exposure is **per photo only**; the strip screen gets no strip-wide offset.
+- **v5.2-12:** **exposure only**, with no separate highlights/shadows controls.
 
 ## Remaining open questions (proposed defaults)
 
