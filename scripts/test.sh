@@ -45,7 +45,7 @@ if [ "${1:-}" = "--no-build" ]; then BUILD=0; shift; fi
 
 case "$ROLE" in
   lead) SIM="frmr-lead"; DD="build/lead" ;;
-  backend) SIM="frmr-backend"; DD="build/backend" ;;
+  backend) SIM="frmr-backend"; DD="build/backend"; UI_SHARDS=(frmr-ui-4 frmr-ui-5 frmr-ui-6) ;;
   frontend) SIM="frmr-frontend"; DD="build/frontend" ;;
   qa) SIM="frmr-qa"; DD="qa/DerivedData" ;;
   restyle) SIM="frmr-restyle"; DD="build/restyle"; UI_SHARDS=(frmr-ui-4 frmr-ui-5 frmr-ui-6) ;;

@@ -219,6 +219,28 @@ Appearance, camera defaults, strip defaults, data management.
 
 ---
 
+### §5a Design tokens (v5.2: these supersede the pixel values in §5–§7 for new work)
+
+- **Type:** `Font.frmrTitle / Prompt / Reading / Label / Meta / Value / Code / HUD` (`Shared/Design/FrmrType.swift`).
+  - Built on text styles, so they scale with Dynamic Type.
+  - The serif is the system serif permanently; Newsreader is dropped (v5.2-8).
+  - Camera chrome caps text with `.frmrChromeTypeSize()`, and glyph-only buttons get `.frmrLargeContent`.
+- **Spacing and sizes** (`Constants.DesignUI`):
+  - a 4-pt space scale (2–32) and a 16 pt gutter;
+  - radii of 6 / 12 / 24;
+  - a 44 pt minimum target and a 50 pt primary button;
+  - the shutter at 76 / 64.
+  - Buttons are capsules or circles.
+- **Colour:** `ThemePalette.resolve(for:surface:contrast:)` returns bg, surface, text, textMuted, accentFill, onAccent, tint, destructive and selectedIndicator for three surfaces: **darkroom** (camera, editor), **paper light** and **paper dark**. Each has an Increase Contrast variant. Rules:
+  - Amber is a fill, never text or a thin line on cream.
+  - Mid-teal is never behind white text.
+  - Primary buttons are amber with `#001219` text.
+- **Glass:** `frmrGlass(in:prominent:interactive:surface:)` is Liquid Glass on iOS 26 and a blur on iOS 17–25, with an opaque surface under Reduce Transparency.
+  - Use it only on the control layer over media.
+  - Group with `FrmrGlassContainer`, and morph with `frmrGlassID`.
+  - The primary action uses `frmrPrimaryButtonStyle()`.
+- **Motion:** `FrmrMotion.snap / panel / develop` and the HUD timings, each with a Reduce Motion fallback, applied with `.frmrAnimation`.
+
 ### §6 Typography
 
 | Role | Font | Sizes / Weights |

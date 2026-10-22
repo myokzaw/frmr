@@ -14,6 +14,7 @@ struct ContentView: View {
     @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @State private var onboarding = OnboardingViewModel()
 
     init() {
@@ -40,20 +41,27 @@ struct ContentView: View {
         AppearanceMode(rawValue: appearanceMode)?.colorScheme
     }
 
+    // The camera tab is the darkroom whatever the system scheme; the other
+    // tabs follow it (v5.2 §4.4).
+    private var tabTint: Color {
+        let surface: FrmrSurface = onboarding.selectedTab == .camera ? .darkroom : .paper
+        return ThemePalette.resolve(for: colorScheme, surface: surface, contrast: contrast).tint
+    }
+
     var body: some View {
         TabView(selection: Bindable(onboarding).selectedTab.projectedValue) {
             LibraryView()
                 .tabItem { Label("Library", systemImage: "square.grid.2x2") }
                 .tag(AppTab.library)
             CameraView()
+                .toolbarColorScheme(.dark, for: .tabBar)
                 .tabItem { Label("Camera", systemImage: "camera.viewfinder") }
                 .tag(AppTab.camera)
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppTab.settings)
         }
-        // The camera is always dark, whatever the system scheme
-        .tint(ThemePalette.accent(for: onboarding.selectedTab == .camera ? .dark : colorScheme))
+        .tint(tabTint)
         .preferredColorScheme(preferredScheme)
         .overlay(alignment: .bottom) { tabItemAnchorProxies }
         .overlayPreferenceValue(TabItemAnchorKey.self) { anchors in

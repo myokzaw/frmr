@@ -28,7 +28,7 @@ struct StripView: View {
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
     // Selection marks sit on the cream sheet in light mode, where raw amber is
     // ~1.6:1 (BUG-V51-01); the accent role is contrast-checked per scheme.
-    private var accent: Color { ThemePalette.accent(for: colorScheme) }
+    private var accent: Color { theme.tint }
 
     private var shareImages: [Image] {
         viewModel.stripImages.map { Image(uiImage: $0) }

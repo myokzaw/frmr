@@ -22,7 +22,7 @@ nonisolated extension Constants {
         static let idleTickOpacity: CGFloat = 0.28
         static let activeTickOpacity: CGFloat = 0.85
         static let headerSpacing: CGFloat = 6
-        static let resetButtonSize: CGFloat = 44
+        static let resetButtonSize: CGFloat = Constants.DesignUI.targetMin
         static let disabledOpacity: CGFloat = 0.4
 
         // Tool icon bar
@@ -34,8 +34,7 @@ nonisolated extension Constants {
         static let toolIdleOpacity: CGFloat = 0.6
 
         // Round glass icon buttons
-        static let glassButtonSize: CGFloat = 44
+        static let glassButtonSize: CGFloat = Constants.DesignUI.buttonGlass
         static let glassButtonIconSize: CGFloat = 17
-        static let glassButtonSmallSize: CGFloat = 44
     }
 }

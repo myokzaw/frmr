@@ -1,7 +1,7 @@
 import SwiftUI
 
-// OPEN: spec calls for the Newsreader typeface; using the system serif design
-// until the font file is bundled (project.md §6)
+// The serif is the system serif permanently (v5.2-8, Newsreader dropped);
+// the prompt's font is `.frmrPrompt` (FrmrType.swift).
 struct PromptCard: View {
     let prompt: String
     let textColor: Color

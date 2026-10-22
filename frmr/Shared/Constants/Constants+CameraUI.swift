@@ -19,7 +19,7 @@ nonisolated extension Constants {
 
         // Rotate-in-place chrome (replaces v3 F2/F4): every chip is a fixed
         // circle, so turning it about its centre never overflows its frame
-        static let opaqueGlassOpacity: CGFloat = 0.92
+        static let opaqueGlassOpacity: CGFloat = Constants.DesignUI.opaqueDarkroomOpacity
         static let chipDiameter: CGFloat = 44
         static let chipIconSize: CGFloat = 16
         static let filmChipLineSpacing: CGFloat = 1

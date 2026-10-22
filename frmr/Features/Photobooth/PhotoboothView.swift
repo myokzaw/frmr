@@ -34,7 +34,7 @@ struct PhotoboothView: View {
                     maxSelectionCount: max(viewModel.remainingSlots, 1),
                     matching: .images
                 ) {
-                    GlassIconGlyph(systemImage: "photo.on.rectangle", size: Constants.ScrubberUI.glassButtonSmallSize)
+                    GlassIconGlyph(systemImage: "photo.on.rectangle", size: Constants.DesignUI.targetMin)
                 }
                 .accessibilityLabel("Choose photos from library")
                 .accessibilityIdentifier("strip.gallery")
@@ -44,7 +44,7 @@ struct PhotoboothView: View {
                     systemImage: "film.stack",
                     label: "Pick from Roll",
                     identifier: "strip.pickRoll",
-                    size: Constants.ScrubberUI.glassButtonSmallSize,
+                    size: Constants.DesignUI.targetMin,
                     isDisabled: viewModel.isFull,
                     action: { isRollPickerPresented = true }
                 )
@@ -53,7 +53,7 @@ struct PhotoboothView: View {
                     systemImage: "arrow.uturn.backward",
                     label: "Undo last photo",
                     identifier: "strip.undo",
-                    size: Constants.ScrubberUI.glassButtonSmallSize,
+                    size: Constants.DesignUI.targetMin,
                     isDisabled: !viewModel.hasShots,
                     action: viewModel.removeLastShot
                 )

@@ -305,7 +305,7 @@ nonisolated enum StripGenerator {
         attributed.draw(in: layout.dateRect)
     }
 
-    // OPEN: spec calls for Newsreader italic; system serif until the font is bundled
+    // System serif italic permanently (v5.2-8, Newsreader dropped)
     private static func serifItalicFont(size: CGFloat) -> UIFont {
         let base = UIFont.systemFont(ofSize: size)
         guard let descriptor = base.fontDescriptor

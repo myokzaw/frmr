@@ -110,7 +110,7 @@ The full mapping from every §8 invariant to its guarding tests, including the i
 | Role | Simulator | DerivedData |
 |---|---|---|
 | lead | `frmr-lead` | `build/lead` |
-| backend | `frmr-backend` | `build/backend` |
+| backend | `frmr-backend` | `build/backend` (its UI shards: `frmr-ui-4…6`, so it can run alongside the frontend) |
 | frontend | `frmr-frontend` | `build/frontend` |
 | qa | `frmr-qa` | `qa/DerivedData` |
 | restyle (second frontend agent) | `frmr-restyle` | `build/restyle` (its UI shards: `frmr-ui-4…6`) |
@@ -131,6 +131,8 @@ The full mapping from every §8 invariant to its guarding tests, including the i
 - `build-for-testing` runs once, then every run is `test-without-building`.
 - The slow suites (`StripLookRegressionTests`, `FilmAtCaptureRegressionTests`, `StripRenderTimingTests`) are skipped in `fast`.
 - UI classes are spread across three simulators that run at the same time. Xcode's own parallel testing stays off (`-parallel-testing-enabled NO`), because cloning simulators fails on this machine; the shards replace it.
+
+**Two agents at once:** frontend uses UI shards 1–3 and backend uses 4–6. Don't run `frmr-guard --all` or extra builds while UI shards are running; heavy load causes flaky UI timeouts.
 
 **The script fails on:** a build error, any failing test, or any Swift warning. Logs go to `build/test-logs/`.
 

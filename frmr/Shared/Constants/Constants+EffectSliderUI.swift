@@ -9,7 +9,7 @@ nonisolated extension Constants {
         static let percentWidth: CGFloat = 56
         static let titleWidth: CGFloat = 84
         static let titleMinScale: CGFloat = 0.7
-        static let rowMinHeight: CGFloat = 40
+        static let rowMinHeight: CGFloat = Constants.DesignUI.targetMin
         static let percentScale: Double = 100
     }
 }

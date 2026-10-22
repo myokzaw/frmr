@@ -48,8 +48,8 @@ struct SettingsView: View {
     @State private var linkedEntryCount = 0
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
-    private var accent: Color { ThemePalette.accent(for: colorScheme) }
-    private var destructive: Color { ThemePalette.destructive(for: colorScheme) }
+    private var accent: Color { theme.tint }
+    private var destructive: Color { theme.destructive }
 
     /// The stored default as a picker choice; nil = As shot
     private var stockChoice: StripCustomization.FilmStock? {

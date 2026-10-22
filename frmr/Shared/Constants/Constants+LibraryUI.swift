@@ -19,7 +19,7 @@ nonisolated extension Constants {
         static let stripCornerRadius: CGFloat = 10
         static let stripRowSpacing: CGFloat = 28
         // The glass segmented control above the Library's content
-        static let segmentHeight: CGFloat = 40
+        static let segmentHeight: CGFloat = Constants.DesignUI.targetMin
         static let segmentPadding: CGFloat = 4
         static let segmentSelectedOpacity: CGFloat = 0.22
         static let segmentedTopPadding: CGFloat = 4

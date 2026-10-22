@@ -22,7 +22,7 @@ struct RollView: View {
     @State private var linkedEntryCount = 0
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
-    private var accent: Color { ThemePalette.accent(for: colorScheme) }
+    private var accent: Color { theme.tint }
     private var photosWithEntry: Set<UUID> { RollViewModel.linkedPhotoIDs(in: entries) }
 
     private let columns = Array(
@@ -53,8 +53,8 @@ struct RollView: View {
             if photos.isEmpty {
                 EmptyRollView(
                     textColor: theme.muted,
-                    buttonColor: accent,
-                    buttonTextColor: ThemePalette.onAccent(for: colorScheme),
+                    buttonColor: theme.accentFill,
+                    buttonTextColor: theme.onAccent,
                     onTakePhoto: { onboarding.selectedTab = .camera }
                 )
             }
@@ -66,7 +66,7 @@ struct RollView: View {
                     exportedCount: viewModel.lastExportCount,
                     isExporting: viewModel.isExporting,
                     accent: accent,
-                    destructive: ThemePalette.destructive(for: colorScheme),
+                    destructive: theme.destructive,
                     mutedColor: theme.muted,
                     onExport: exportSelected,
                     onMakeStrip: makeStrip,

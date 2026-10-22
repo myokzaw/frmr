@@ -32,7 +32,7 @@ struct LibraryView: View {
         }
     }
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
-    private var accent: Color { ThemePalette.accent(for: colorScheme) }
+    private var accent: Color { theme.tint }
     private var hasEntriesToday: Bool {
         entries.contains { Calendar.current.isDateInToday($0.createdAt) }
     }
