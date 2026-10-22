@@ -1,12 +1,14 @@
 import XCTest
 
-// v5 UI: Photo mode chrome (F1–F3), the edit step (F4), sliders (F5) and the
-// Roll (F6). The simulator has no camera, so the edit step is reached through
-// the DEBUG-only `-UITestPhotoEdit` launch argument (a generated photo whose
-// Download writes nowhere; Save to roll really saves), and a Roll with photos
-// through `-UITestSeedRoll` (three generated photos added per launch).
-// Real capture, the camera-roll save, export, haptics and rotation are
-// device-only.
+// v5 / v5.1 UI: the camera chrome shared by Photo and Film strip (F1, F8,
+// F9), the white balance and exposure sheets, the editor with its icon
+// toolbar and tick-mark scrubber (F2, F3, F8), and the Roll (F6). The
+// simulator has no camera, so the editor is reached through the DEBUG-only
+// `-UITestPhotoEdit` launch argument (a generated photo whose Download writes
+// nowhere; Save to roll really saves), and a Roll with photos through
+// `-UITestSeedRoll` (three generated photos added per launch). Every launch
+// also passes `-UITestFast` (animations off). Real capture, the camera-roll
+// save, haptics and rotation are device-only.
 // Optional: TEST_RUNNER_SHOTS_DIR=<abs dir> writes the screenshots there.
 final class PhotoModeUITests: XCTestCase {
     private let timeout: TimeInterval = 10
@@ -14,56 +16,83 @@ final class PhotoModeUITests: XCTestCase {
     private let seedArgument = "-UITestSeedRoll"
     private let stockIDs = ["none", "daylight200", "portrait400", "cine500T", "slide100", "mono400", "mono3200"]
     private let effectIDs = ["halation", "haze", "lightLeak", "grain", "vignette"]
+    private let toolIDs = ["film", "print", "halation", "haze", "lightLeak", "grain", "vignette"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
     }
 
-    // MARK: F1–F3 camera chrome
+    // MARK: F1, F8, F9 camera chrome
 
     @MainActor
-    func testPhotoModeIsTheLaunchModeWithItsChrome() throws {
+    func testPhotoAndFilmStripShareOneCameraChrome() throws {
         let app = launch()
 
-        // F1: three-way switch, Photo first and selected
+        // F1 / v5.1-9: two modes, a small switch at the top left, Photo selected
         let photo = app.buttons["camera.mode.photo"]
-        let diary = app.buttons["camera.mode.diary"]
         let strip = app.buttons["camera.mode.filmstrip"]
         XCTAssertTrue(photo.waitForExistence(timeout: timeout), "Photo mode button missing")
-        XCTAssertEqual([photo.label, diary.label, strip.label], ["Photo", "Diary", "Film strip"])
-        XCTAssertLessThan(photo.frame.midX, diary.frame.midX)
-        XCTAssertLessThan(diary.frame.midX, strip.frame.midX)
+        XCTAssertEqual([photo.label, strip.label], ["Photo", "Film strip"])
+        XCTAssertFalse(app.buttons["camera.mode.diary"].exists, "Diary is no longer a camera mode")
+        XCTAssertLessThan(photo.frame.midX, strip.frame.midX)
+        XCTAssertLessThan(strip.frame.midX, app.frame.midX, "The mode switch sits top left")
+        XCTAssertLessThan(photo.frame.midY, app.frame.height * 0.2, "The mode switch sits at the top")
         XCTAssertTrue(photo.isSelected, "The app opens in Photo mode")
-        XCTAssertFalse(strip.isSelected, "Film strip must not be highlighted in Photo mode")
+        XCTAssertFalse(strip.isSelected)
 
-        // F2: the dial shows every stock, the Film chip is not used
+        // F8: WB and EV are small icons at the top right
+        let wb = app.buttons["camera.wb.chip"]
+        let ev = app.buttons["camera.ev.chip"]
+        XCTAssertTrue(wb.exists && ev.exists, "WB and EV buttons missing")
+        XCTAssertGreaterThan(wb.frame.midX, app.frame.midX)
+        XCTAssertGreaterThan(ev.frame.midX, wb.frame.midX)
+        XCTAssertEqual(wb.frame.midY, photo.frame.midY, accuracy: 12, "Top bar items share a row")
+
+        // The dial shows every stock; the old Film chip is gone
         for id in stockIDs {
             XCTAssertTrue(app.buttons["camera.dial.\(id)"].exists, "Dial detent \(id) missing")
         }
-        XCTAssertFalse(app.buttons["camera.film.none"].exists, "Photo mode replaces the Film chip with the dial")
-        saveScreenshot(named: "camera-photo-collapsed")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'camera.film.'")).firstMatch.exists, "The Film chip is gone")
+        let shutter = app.buttons["camera.shutter"]
+        XCTAssertTrue(shutter.exists)
+        let dial = app.descendants(matching: .any)["camera.dial"]
+        XCTAssertLessThan(dial.frame.maxY, shutter.frame.minY, "The dial sits above the shutter")
+        let photoDial = dial.frame
+        let photoShutter = shutter.frame
+        saveScreenshot(named: "camera-photo")
 
-        // Tapping a detent selects that stock
+        // Tapping a detent selects that stock; swiping moves to a neighbour
         let target = app.buttons["camera.dial.cine500T"]
         target.tap()
         XCTAssertTrue(waitUntilSelected(target), "Tapping a detent selects it")
         saveScreenshot(named: "camera-photo-dial-cine500T")
-
-        // Swiping the dial moves to a neighbour
-        let dial = app.descendants(matching: .any)["camera.dial"]
-        dial.swipeLeft(velocity: .slow)
+        target.swipeLeft(velocity: .slow)
         XCTAssertTrue(waitUntilNotSelected(target), "Swiping the dial leaves the previous stock")
-        let selectedCount = stockIDs.filter { app.buttons["camera.dial.\($0)"].isSelected }.count
-        XCTAssertEqual(selectedCount, 1, "Exactly one stock is selected")
+        XCTAssertEqual(stockIDs.filter { app.buttons["camera.dial.\($0)"].isSelected }.count, 1, "Exactly one stock is selected")
 
-        // Diary and Film strip keep the Film chip (v5-2), and Photo brings the dial back
-        diary.tap()
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'camera.film.'")).firstMatch.waitForExistence(timeout: timeout))
-        XCTAssertFalse(app.buttons["camera.dial.none"].exists)
-        saveScreenshot(named: "camera-diary-chip")
+        // F9: Film strip is the same screen plus a strip layer
+        strip.tap()
+        XCTAssertTrue(waitUntilSelected(strip))
+        XCTAssertTrue(app.buttons["camera.dial.none"].waitForExistence(timeout: timeout), "Film strip uses the same dial")
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'camera.film.'")).firstMatch.exists, "No Film chip in Film strip mode")
+        XCTAssertEqual(dial.frame, photoDial, "The dial does not move between modes")
+        XCTAssertEqual(shutter.frame, photoShutter, "The shutter does not move between modes")
+        XCTAssertTrue(app.buttons["camera.wb.chip"].exists && app.buttons["camera.ev.chip"].exists)
+        let count = app.staticTexts["strip.count"]
+        XCTAssertTrue(count.waitForExistence(timeout: timeout), "The strip count is missing")
+        XCTAssertEqual(count.label, "Captured 0 of 4")
+        XCTAssertLessThan(count.frame.maxY, dial.frame.minY, "The slots sit above the dial")
+        XCTAssertTrue(app.buttons["strip.gallery"].exists, "Gallery picker missing")
+        XCTAssertTrue(app.buttons["strip.pickRoll"].exists, "Pick from Roll missing")
+        XCTAssertFalse(app.buttons["strip.undo"].isEnabled, "Undo needs a shot")
+        XCTAssertFalse(app.buttons["strip.generate"].exists && app.buttons["strip.generate"].isEnabled, "Generate waits for a slot")
+        XCTAssertFalse(app.buttons["camera.lastPhoto"].exists, "The Roll thumbnail gives way to Generate")
+        saveScreenshot(named: "camera-filmstrip")
+
         photo.tap()
-        XCTAssertTrue(app.buttons["camera.dial.none"].waitForExistence(timeout: timeout))
+        XCTAssertTrue(waitUntilSelected(photo))
+        XCTAssertFalse(app.staticTexts["strip.count"].exists, "The strip layer is only in Film strip mode")
 
         // The camera's stock persists and gallery picks in other tests take
         // it (OPEN: v4-12): leave the simulator on Off
@@ -73,118 +102,142 @@ final class PhotoModeUITests: XCTestCase {
     }
 
     @MainActor
-    func testWhiteBalanceAndExposurePanelsAreExclusive() throws {
+    func testWhiteBalanceAndExposureOpenGlassSheets() throws {
         let app = launch()
-        let wbChip = app.buttons["camera.wb.chip"]
-        let evChip = app.buttons["camera.ev.chip"]
-        XCTAssertTrue(wbChip.waitForExistence(timeout: timeout))
-        XCTAssertEqual(wbChip.value as? String, "AUTO", "White balance starts on Auto")
-        XCTAssertEqual(evChip.value as? String, "0.0", "Exposure starts at zero")
+        let wb = app.buttons["camera.wb.chip"]
+        let ev = app.buttons["camera.ev.chip"]
+        XCTAssertTrue(wb.waitForExistence(timeout: timeout))
+        XCTAssertEqual(wb.value as? String, "AUTO", "White balance starts on Auto")
+        XCTAssertEqual(ev.value as? String, "0.0", "Exposure starts at zero")
 
-        wbChip.tap()
+        wb.tap()
         XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForExistence(timeout: timeout), "Kelvin slider missing")
         XCTAssertTrue(app.sliders["camera.wb.tint"].exists, "Tint slider missing")
         for preset in ["auto", "sunlight", "cloudy", "shade", "tungsten", "fluorescent"] {
             XCTAssertTrue(app.buttons["camera.wb.\(preset)"].exists, "Preset \(preset) missing")
         }
         XCTAssertTrue(app.buttons["camera.wb.auto"].isSelected, "Auto is the active preset")
-        saveScreenshot(named: "camera-photo-wb-panel")
+        saveScreenshot(named: "camera-wb-sheet")
 
-        // A preset sets the chip to its Kelvin
+        // A preset sets the button's value to its Kelvin
         app.buttons["camera.wb.tungsten"].tap()
-        XCTAssertTrue(waitForValue(wbChip) { $0.hasSuffix("K") }, "A preset shows its Kelvin on the chip")
+        XCTAssertTrue(waitForValue(wb) { $0.hasSuffix("K") }, "A preset shows its Kelvin")
         XCTAssertTrue(app.buttons["camera.wb.tungsten"].isSelected)
 
         // A slider leaves no preset selected
         app.sliders["camera.wb.kelvin"].adjust(toNormalizedSliderPosition: 0.9)
-        XCTAssertTrue(waitForValue(wbChip) { $0.hasSuffix("K") && $0 != "AUTO" })
+        XCTAssertTrue(waitForValue(wb) { $0.hasSuffix("K") && $0 != "AUTO" })
         XCTAssertFalse(app.buttons["camera.wb.tungsten"].isSelected, "A slider-set balance has no preset")
-        saveScreenshot(named: "camera-photo-wb-custom")
+        saveScreenshot(named: "camera-wb-sheet-custom")
 
-        // Only one panel at a time
-        evChip.tap()
-        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForExistence(timeout: timeout), "EV slider missing")
-        XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout), "WB panel should close when EV opens")
+        // One sheet at a time: EV swaps into the same sheet
+        ev.tap()
+        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForExistence(timeout: timeout), "EV slider missing: \(app.debugDescription.prefix(3000))")
+        XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout), "WB should give way when EV opens")
         app.buttons["camera.ev.brighter"].tap()
-        XCTAssertTrue(waitForValue(evChip) { $0 == "+0.3" }, "One step brighter reads +0.3")
+        XCTAssertTrue(waitForValue(ev) { $0 == "+0.3" }, "One step brighter reads +0.3")
         app.buttons["camera.ev.darker"].tap()
         app.buttons["camera.ev.darker"].tap()
-        XCTAssertTrue(waitForValue(evChip) { $0 == "-0.3" }, "Two steps darker reads -0.3, got \(String(describing: evChip.value))")
-        saveScreenshot(named: "camera-photo-ev-panel")
+        XCTAssertTrue(waitForValue(ev) { $0 == "-0.3" }, "Two steps darker reads -0.3, got \(String(describing: ev.value))")
+        saveScreenshot(named: "camera-ev-sheet")
 
-        wbChip.tap()
+        // Tapping the open sheet's button again closes it
+        ev.tap()
+        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForNonExistence(timeout: timeout), "The button closes its sheet")
+        wb.tap()
         XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForExistence(timeout: timeout))
-        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForNonExistence(timeout: timeout), "EV panel should close when WB opens")
-
-        // Tapping the chip again closes the panel
-        wbChip.tap()
+        wb.tap()
         XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout))
     }
 
-    // MARK: F4 edit step
+    // MARK: F2, F3, F8 editor
 
     @MainActor
-    func testEditStepTabsSlidersCompareAndDownload() throws {
+    func testEditorToolbarScrubberCompareAndDownload() throws {
         let app = launch(arguments: [editArgument])
         XCTAssertTrue(app.buttons["edit.save"].waitForExistence(timeout: timeout), "Edit step did not open")
+        let discard = app.buttons["edit.discard"]
         let retake = app.buttons["edit.retake"]
         let download = app.buttons["edit.download"]
-        let discard = app.buttons["edit.discard"]
+        let diary = app.buttons["edit.continueDiary"]
         let save = app.buttons["edit.save"]
+
+        // F2: icon buttons on glass, top bar
         XCTAssertTrue(retake.exists && download.exists && discard.exists)
+        XCTAssertEqual([discard.label, retake.label, download.label], ["Discard", "Retake", "Download photo"])
         XCTAssertFalse(app.buttons["edit.delete"].exists, "Delete is for Roll photos only")
-        XCTAssertLessThan(retake.frame.midX, app.frame.midX, "Retake sits top left")
+        XCTAssertLessThan(discard.frame.midX, retake.frame.midX, "Discard, then Retake, on the left")
+        XCTAssertLessThan(retake.frame.midX, app.frame.midX)
         XCTAssertGreaterThan(download.frame.midX, app.frame.midX, "Download sits top right")
-        XCTAssertLessThan(discard.frame.midX, save.frame.midX, "Discard left, Save to roll right")
+        // F3: Continue to diary (secondary) beside Save to roll (primary)
+        XCTAssertTrue(diary.exists, "Continue to diary is offered right after a capture")
+        XCTAssertLessThan(diary.frame.midX, save.frame.midX)
         XCTAssertEqual(save.label, "Save to roll")
 
-        // Film tab: every stock, the capture's stock selected
-        XCTAssertTrue(app.buttons["edit.tab.film"].isSelected)
+        // F8: all seven tools in the icon bar, Film first and selected
+        for id in toolIDs {
+            XCTAssertTrue(app.buttons["edit.tool.\(id)"].exists, "Tool \(id) missing")
+        }
+        XCTAssertTrue(app.buttons["edit.tool.film"].isSelected)
         for id in stockIDs {
             XCTAssertTrue(app.buttons["edit.stock.\(id)"].exists, "Stock chip \(id) missing")
         }
         XCTAssertTrue(app.buttons["edit.stock.portrait400"].isSelected)
-        saveScreenshot(named: "edit-film-tab")
+        let photoFrame = app.descendants(matching: .any)["edit.photo"].frame
+        XCTAssertGreaterThan(photoFrame.height, app.frame.height * 0.5, "The photo takes most of the screen")
+        saveScreenshot(named: "edit-tool-film")
         app.buttons["edit.stock.cine500T"].tap()
         XCTAssertTrue(app.buttons["edit.stock.cine500T"].isSelected)
 
-        // Print tab: prints for a stock that has a choice, plus B&W
-        app.buttons["edit.tab.print"].tap()
+        // Print: prints for a stock that has a choice, plus B&W
+        app.buttons["edit.tool.print"].tap()
         XCTAssertTrue(app.switches["edit.blackAndWhite"].waitForExistence(timeout: timeout))
-        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'edit.print.'")).count > 0, true, "Print chips expected for Cine 500T")
-        saveScreenshot(named: "edit-print-tab")
-        app.buttons["edit.tab.film"].tap()
+        XCTAssertGreaterThan(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'edit.print.'")).count, 0, "Print chips expected for Cine 500T")
+        saveScreenshot(named: "edit-tool-print")
+        app.buttons["edit.tool.film"].tap()
         app.buttons["edit.stock.mono400"].tap()
-        app.buttons["edit.tab.print"].tap()
+        app.buttons["edit.tool.print"].tap()
         XCTAssertFalse(app.switches["edit.blackAndWhite"].isEnabled, "A mono film is always black and white")
-        app.buttons["edit.tab.film"].tap()
+        app.buttons["edit.tool.film"].tap()
         app.buttons["edit.stock.portrait400"].tap()
 
-        // Effects tab: five percent sliders and Reset (v5-5)
-        app.buttons["edit.tab.effects"].tap()
-        for effect in effectIDs {
-            XCTAssertTrue(app.sliders["edit.slider.\(effect)"].waitForExistence(timeout: timeout), "\(effect) slider missing")
-        }
-        let reset = app.buttons["edit.effects.reset"]
-        XCTAssertFalse(reset.isEnabled, "Reset is off while the look is the stock's defaults")
-        let halation = app.sliders["edit.slider.halation"]
-        XCTAssertEqual(halation.value as? String, "100%")
-        saveScreenshot(named: "edit-effects-tab")
-        halation.adjust(toNormalizedSliderPosition: 0)
-        XCTAssertTrue(waitForValue(halation) { $0 == "0%" }, "Halation should read 0%, got \(String(describing: halation.value))")
-        let grain = app.sliders["edit.slider.grain"]
-        grain.adjust(toNormalizedSliderPosition: 1)
-        XCTAssertTrue(waitForValue(grain) { $0 == "150%" }, "Grain tops out at 150%, got \(String(describing: grain.value))")
-        XCTAssertTrue(waitUntilEnabled(reset), "Reset enables once an effect changes")
-        saveScreenshot(named: "edit-effects-changed")
+        // One scrubber serves all five effects (0–150%, default 100%)
+        let scrubber = app.descendants(matching: .any)["edit.scrubber"]
+        let reset = app.buttons["edit.scrubber.reset"]
+        app.buttons["edit.tool.halation"].tap()
+        XCTAssertTrue(scrubber.waitForExistence(timeout: timeout), "Scrubber missing")
+        XCTAssertEqual(scrubber.value as? String, "100%", "Halation starts at the stock default")
+        XCTAssertFalse(reset.isEnabled, "Reset is off while the value is the default")
+        saveScreenshot(named: "edit-tool-halation")
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "0%" }, "The left end reads 0%, got \(String(describing: scrubber.value))")
+        XCTAssertTrue(waitUntilEnabled(reset), "Reset enables once the value moves")
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "150%" }, "The right end reads 150%, got \(String(describing: scrubber.value))")
+        saveScreenshot(named: "edit-scrubber-150")
         reset.tap()
-        XCTAssertTrue(waitForValue(halation) { $0 == "100%" }, "Reset restores the stock's defaults")
-        XCTAssertTrue(waitForValue(grain) { $0 == "100%" })
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "100%" }, "Reset returns to the stock default")
+        // Double-tap resets too
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(scrubber) { $0 != "100%" })
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).doubleTap()
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "100%" }, "Double-tap resets to the default")
+
+        // Switching tools swaps the effect the scrubber adjusts
+        for effect in effectIDs.dropFirst() {
+            app.buttons["edit.tool.\(effect)"].tap()
+            XCTAssertTrue(waitForValue(scrubber) { $0.hasSuffix("%") })
+            XCTAssertTrue(scrubber.label.count > 0)
+            saveScreenshot(named: "edit-tool-\(effect)", settle: 0)
+        }
+        app.buttons["edit.tool.vignette"].tap()
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(scrubber) { $0 != "0%" })
+        saveScreenshot(named: "edit-vignette-changed")
 
         // Hold to compare: the photo reports "Original" while held. The press
         // blocks this thread, so the check runs from a background queue.
         let photo = app.descendants(matching: .any)["edit.photo"]
-        XCTAssertTrue(photo.waitForExistence(timeout: timeout), "Photo missing")
         let held = expectation(description: "photo reports Original while held")
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) {
             if (photo.value as? String) == "Original" { held.fulfill() }
@@ -196,11 +249,17 @@ final class PhotoModeUITests: XCTestCase {
         // Download: waits for the render, then confirms with Saved
         XCTAssertTrue(waitUntilEnabled(download), "Download stayed disabled")
         download.tap()
-        let saved = NSPredicate(format: "value == 'Saved'")
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: saved, object: download)], timeout: timeout),
-            .completed, "Download never showed Saved"
-        )
+        // "Saved" shows for about 1.5 s, so poll the cheap badge element hard
+        let badge = app.staticTexts["edit.saved"]
+        var samples: [String] = []
+        let deadline = Date().addingTimeInterval(15)
+        var sawSaved = false
+        while Date() < deadline && !sawSaved {
+            let value = (download.value as? String) ?? "nil"
+            samples.append(value)
+            sawSaved = value == "Saved" || badge.exists
+        }
+        XCTAssertTrue(sawSaved, "Download never showed Saved; values seen: \(samples)")
         saveScreenshot(named: "edit-download-saved", settle: 0)
 
         // Retake leaves nothing behind and returns to the camera
@@ -209,7 +268,7 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertFalse(save.exists)
     }
 
-    // MARK: F4 + F6 save, re-edit, delete
+    // MARK: Save, re-edit, delete
 
     @MainActor
     func testSaveToRollThenReEditAndDelete() throws {
@@ -232,14 +291,18 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertEqual(afterSave, before + 1, "Save to roll adds one photo (a discarded one adds none)")
         saveScreenshot(named: "library-roll-grid")
 
-        // Re-edit: Delete (not Retake), Save (not Save to roll); Discard leaves it unchanged
+        // Re-edit: Delete (not Retake), Save (not Save to roll), no Continue to
+        // diary (v5.1-2); Discard leaves it unchanged
         relaunched.buttons["roll.photo"].firstMatch.tap()
         XCTAssertTrue(relaunched.buttons["edit.delete"].waitForExistence(timeout: timeout), "Re-edit offers Delete")
         XCTAssertFalse(relaunched.buttons["edit.retake"].exists)
+        XCTAssertFalse(relaunched.buttons["edit.continueDiary"].exists, "Continue to diary is only right after a capture")
         XCTAssertEqual(relaunched.buttons["edit.save"].label, "Save")
         saveScreenshot(named: "edit-reedit")
-        relaunched.buttons["edit.tab.effects"].tap()
-        relaunched.sliders["edit.slider.vignette"].adjust(toNormalizedSliderPosition: 0.7)
+        relaunched.buttons["edit.tool.vignette"].tap()
+        let scrubber = relaunched.descendants(matching: .any)["edit.scrubber"]
+        XCTAssertTrue(scrubber.waitForExistence(timeout: timeout))
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         relaunched.buttons["edit.discard"].tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForExistence(timeout: timeout))
         XCTAssertEqual(rollCount(in: relaunched), afterSave, "Discard in re-edit keeps the photo")
@@ -247,89 +310,65 @@ final class PhotoModeUITests: XCTestCase {
         // Save in re-edit updates and returns to the Roll
         relaunched.buttons["roll.photo"].firstMatch.tap()
         XCTAssertTrue(relaunched.buttons["edit.save"].waitForExistence(timeout: timeout))
-        relaunched.buttons["edit.tab.effects"].tap()
-        let vignette = relaunched.sliders["edit.slider.vignette"]
-        XCTAssertEqual(vignette.value as? String, "0%", "Discarded changes must not have been saved")
-        vignette.adjust(toNormalizedSliderPosition: 0.7)
+        relaunched.buttons["edit.tool.vignette"].tap()
+        XCTAssertEqual(scrubber.value as? String, "0%", "Discarded changes must not have been saved")
+        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         relaunched.buttons["edit.save"].tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForExistence(timeout: timeout))
         relaunched.buttons["roll.photo"].firstMatch.tap()
         XCTAssertTrue(relaunched.buttons["edit.save"].waitForExistence(timeout: timeout))
-        relaunched.buttons["edit.tab.effects"].tap()
-        XCTAssertNotEqual(relaunched.sliders["edit.slider.vignette"].value as? String, "0%", "Saved vignette should persist")
+        relaunched.buttons["edit.tool.vignette"].tap()
+        XCTAssertNotEqual(scrubber.value as? String, "0%", "Saved vignette should persist")
 
-        // Delete asks first
+        // Delete asks first; a photo with no entry gets the plain confirmation
         relaunched.buttons["edit.delete"].tap()
         XCTAssertTrue(relaunched.buttons["edit.delete.confirm"].waitForExistence(timeout: timeout), "Delete needs a confirmation")
+        XCTAssertFalse(relaunched.buttons["edit.delete.keepEntry"].exists, "No entry, no entry question")
         saveScreenshot(named: "edit-delete-confirm")
         relaunched.buttons["edit.delete.confirm"].firstMatch.tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForNonExistence(timeout: 2) || rollCount(in: relaunched) == before, "Delete removes the photo")
         XCTAssertEqual(rollCount(in: relaunched), before)
     }
 
-    // MARK: F6 select, Make strip, strip sliders, Clear roll
+    // MARK: Roll → Make strip (the strip screen's own controls are in StripScreenUITests)
 
     @MainActor
-    func testRollSelectMakeStripThenClearRoll() throws {
+    func testRollSelectAndMakeStrip() throws {
         let app = launch(arguments: [seedArgument])
         openRoll(app)
         let cells = app.buttons.matching(identifier: "roll.photo")
         XCTAssertTrue(cells.firstMatch.waitForExistence(timeout: timeout), "Seeded Roll is empty")
         XCTAssertGreaterThanOrEqual(cells.count, 3)
-        saveScreenshot(named: "library-roll-seeded", settle: 3)
+        saveScreenshot(named: "library-roll-seeded", settle: 2)
 
         // Select mode: numbered selection, at most four photos
         app.buttons["roll.select"].tap()
+        XCTAssertTrue(app.buttons["roll.makeStrip"].waitForExistence(timeout: timeout), "The selection bar did not appear")
         XCTAssertFalse(app.buttons["roll.makeStrip"].isEnabled, "Make strip needs a selection")
         cells.element(boundBy: 0).tap()
         cells.element(boundBy: 1).tap()
         XCTAssertTrue(app.staticTexts["roll.selectionSummary"].label.contains("2 selected"), app.staticTexts["roll.selectionSummary"].label)
         XCTAssertTrue(app.buttons["roll.export"].isEnabled)
-        saveScreenshot(named: "library-roll-select", settle: 2)
+        saveScreenshot(named: "library-roll-select", settle: 1)
         cells.element(boundBy: 0).tap()
         XCTAssertTrue(app.staticTexts["roll.selectionSummary"].label.contains("1 selected"))
         cells.element(boundBy: 0).tap()
 
-        // Make strip opens the strip screen with effect sliders (F5)
+        // Make strip opens the strip screen with the effect tools (F10)
         app.buttons["roll.makeStrip"].tap()
-        XCTAssertTrue(app.buttons["strip.filmStock"].waitForExistence(timeout: timeout), "Strip screen did not open")
+        XCTAssertTrue(app.buttons["strip.tool.film"].waitForExistence(timeout: timeout), "Strip screen did not open")
         for effect in effectIDs {
-            XCTAssertTrue(app.sliders["strip.slider.\(effect)"].waitForExistence(timeout: timeout), "\(effect) slider missing on the strip screen")
+            XCTAssertTrue(app.buttons["strip.tool.\(effect)"].exists, "\(effect) tool missing on the strip screen")
         }
-        let halation = app.sliders["strip.slider.halation"]
+        app.buttons["strip.tool.halation"].tap()
+        let halation = app.descendants(matching: .any)["strip.scrubber"]
+        XCTAssertTrue(halation.waitForExistence(timeout: timeout))
         XCTAssertEqual(halation.value as? String, "100%", "Strip halation defaults to the stock default")
-        // The strip previews are tall: scroll the controls card into view
-        for _ in 0..<5 where !halation.isHittable { app.swipeUp() }
-        halation.adjust(toNormalizedSliderPosition: 0.5)
-        XCTAssertTrue(waitForValue(halation) { $0 != "100%" }, "Halation slider did not move: \(String(describing: halation.value))")
-        saveScreenshot(named: "strip-screen-sliders", settle: 3)
+        halation.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue(halation) { $0 != "100%" }, "Halation scrubber did not move: \(String(describing: halation.value))")
+        saveScreenshot(named: "strip-screen-roll-halation", settle: 2)
         app.buttons["Close"].tap()
-
-        // Settings: sliders replace the toggles; Clear roll is separate
-        app.tabBars.buttons["Settings"].tap()
-        let stock = app.buttons["settings.filmStock"]
-        XCTAssertTrue(stock.waitForExistence(timeout: timeout))
-        app.swipeUp()
-        for effect in effectIDs {
-            XCTAssertTrue(app.sliders["settings.slider.\(effect)"].waitForExistence(timeout: timeout), "\(effect) slider missing in Settings")
-        }
-        XCTAssertFalse(app.switches["settings.halation"].exists, "Toggles are gone")
-        XCTAssertFalse(app.switches["Remember white balance"].exists, "Remember white balance was removed (v5-4)")
-        saveScreenshot(named: "settings-sliders", settle: 2)
-        app.swipeUp()
-        let clearRoll = app.buttons["settings.clearRoll"]
-        XCTAssertTrue(clearRoll.waitForExistence(timeout: timeout), "Clear roll missing")
-        clearRoll.tap()
-        XCTAssertTrue(app.buttons["settings.clearRoll.confirm"].waitForExistence(timeout: timeout), "Clear roll needs a confirmation")
-        saveScreenshot(named: "settings-clear-roll-confirm", settle: 1)
-        app.buttons["settings.clearRoll.confirm"].firstMatch.tap()
-
-        // The Roll is empty and invites a shot
-        openRoll(app)
-        XCTAssertTrue(app.otherElements["roll.empty"].waitForExistence(timeout: timeout) || app.buttons["roll.takePhoto"].waitForExistence(timeout: timeout), "Empty Roll invitation missing")
-        saveScreenshot(named: "library-roll-empty", settle: 2)
-        app.buttons["roll.takePhoto"].tap()
-        XCTAssertTrue(app.buttons["camera.mode.photo"].waitForExistence(timeout: timeout), "The invitation opens the camera")
+        XCTAssertTrue(app.buttons["roll.select"].waitForExistence(timeout: timeout), "Close returns to the Roll")
     }
 
     // MARK: Steps
@@ -338,7 +377,7 @@ final class PhotoModeUITests: XCTestCase {
     private func launch(arguments: [String] = [], terminating previous: XCUIApplication? = nil) -> XCUIApplication {
         previous?.terminate()
         let app = XCUIApplication()
-        app.launchArguments = arguments
+        app.launchArguments = arguments + appearanceArguments
         addUIInterruptionMonitor(withDescription: "System alerts") { alert in
             for label in ["Allow", "OK", "Allow Full Access"] where alert.buttons[label].exists {
                 alert.buttons[label].tap()
@@ -351,12 +390,21 @@ final class PhotoModeUITests: XCTestCase {
         return app
     }
 
+    // TEST_RUNNER_SHOTS_SUFFIX=dark renders the light-and-dark screens dark
+    private var appearanceArguments: [String] {
+        ProcessInfo.processInfo.environment["SHOTS_SUFFIX"] == "dark" ? ["-AppleInterfaceStyle", "Dark"] : []
+    }
+
+    // The simulator has no camera, so an alert (OK) comes first; the
+    // first-run walkthrough (Skip) follows once it is answered
     private func dismissInAppOverlays(_ app: XCUIApplication) {
         app.tap()
-        let skip = app.buttons["Skip"]
-        if skip.waitForExistence(timeout: 2) { skip.tap() }
-        let ok = app.buttons["OK"]
-        if ok.waitForExistence(timeout: 1) { ok.tap() }
+        for _ in 0..<2 {
+            for label in ["OK", "Skip"] {
+                let button = app.buttons[label]
+                if button.waitForExistence(timeout: 3) { button.tap() }
+            }
+        }
     }
 
     private func openRoll(_ app: XCUIApplication) {
@@ -392,20 +440,21 @@ final class PhotoModeUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let value = element.value as? String, check(value) { return true }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         return false
     }
 
     private func saveScreenshot(named name: String, settle: UInt32 = 1) {
-        sleep(settle)
+        if settle > 0 { sleep(settle) }
         let screenshot = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
         if let directory = ProcessInfo.processInfo.environment["SHOTS_DIR"] {
-            let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name).png")
+            let suffix = ProcessInfo.processInfo.environment["SHOTS_SUFFIX"].map { "-\($0)" } ?? ""
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("\(name)\(suffix).png")
             try? screenshot.pngRepresentation.write(to: url)
         }
     }

@@ -11,6 +11,9 @@ struct FrmrApp: App {
         // Before any view reads the strip defaults: Settings binds its film
         // stock picker to the raw stored value, which may still be a v2 name
         StripViewModel.migrateLegacyDefaults(.standard)
+        #if DEBUG
+        UITestSupport.applyLaunchArguments()
+        #endif
     }
 
     var body: some Scene {

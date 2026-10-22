@@ -37,12 +37,8 @@ struct CameraView: View {
             viewModel.errorState = errorState
             photobooth.errorState = errorState
             #if DEBUG
-            // UI tests only: the simulator has no camera, so the review
-            // screen is reached through a fixture capture instead
-            if DiaryReviewFixture.isRequested {
-                DiaryReviewFixture.open(in: viewModel)
-                return
-            }
+            // UI tests only: the simulator has no camera, so the edit step is
+            // reached through a fixture capture instead
             if PhotoEditFixture.isRequested {
                 PhotoEditFixture.open(in: viewModel)
                 return
@@ -57,17 +53,14 @@ struct CameraView: View {
         .onDisappear {
             viewModel.stopCamera()
         }
-        // One cover for the whole diary flow (v4 F10): review, then the
-        // prompt screen. Two covers would have to dismiss one and present
-        // the other in the same update when OK is tapped.
-        .fullScreenCover(isPresented: diaryFlowPresented) {
-            DiaryFlowView(camera: viewModel)
+        // v5.1 F8: white balance and exposure open as glass sheets
+        .sheet(isPresented: controlSheetPresented) {
+            CameraControlSheet(viewModel: viewModel)
         }
-        // v5 F4: the Photo-mode edit step
-        .fullScreenCover(isPresented: photoEditPresented) {
-            if let edit = viewModel.photoEdit {
-                PhotoEditView(edit: edit)
-            }
+        // v5 F4 / v5.1 F4: one cover for a shot's editor and, after
+        // Continue to diary, the prompt screen (see EditorFlowView)
+        .fullScreenCover(isPresented: editorFlowPresented) {
+            EditorFlowView(camera: viewModel)
         }
         .fullScreenCover(isPresented: Bindable(photobooth).isStripPresented.projectedValue) {
             StripView(items: photobooth.stripItems, isPhotobooth: true, onDone: photobooth.clear)
@@ -77,19 +70,16 @@ struct CameraView: View {
     private var portraitChrome: some View {
         // Portrait positions are the only positions. In landscape each
         // control turns about its own centre (rotatingWithDevice) and
-        // nothing moves, stacks or reflows.
+        // nothing moves, stacks or reflows. Photo and Film strip share every
+        // piece; Film strip adds its slot layer above the dial.
         VStack {
-            modeToggle
-                .padding(.top)
-
-            if viewModel.isPhotoboothMode {
-                PhotoboothView(viewModel: photobooth)
-                    .padding(.top)
-            }
+            topBar
+                .padding(.horizontal, Constants.CameraUI.screenMargin)
+                .padding(.top, Constants.CameraUI.topBarTopPadding)
 
             Spacer()
 
-            VStack(spacing: Constants.CameraUI.chipSpacing) {
+            VStack(spacing: Constants.CameraUI.bottomStackSpacing) {
                 if viewModel.isLensSelectorVisible {
                     LensChipRow(
                         lenses: viewModel.availableLenses,
@@ -98,7 +88,12 @@ struct CameraView: View {
                     )
                 }
 
-                modeControls
+                if viewModel.isPhotoboothMode {
+                    PhotoboothView(viewModel: photobooth)
+                }
+
+                StockDial(selected: viewModel.filmStock, onSelect: viewModel.selectFilmStock)
+                    .padding(.horizontal, Constants.CameraUI.screenMargin)
 
                 // A circle looks identical at any angle, so the shutter
                 // itself never rotates.
@@ -106,12 +101,7 @@ struct CameraView: View {
                     ShutterButton(isDisabled: viewModel.isShutterDisabled, action: shutterTapped)
                 }
                 .frame(maxWidth: .infinity)
-                .overlay(alignment: .leading) {
-                    if viewModel.isPhotoMode {
-                        LastPhotoButton()
-                            .padding(.leading, Constants.EditorUI.buttonPadding)
-                    }
-                }
+                .overlay(alignment: .leading) { leadingAccessory }
                 .overlay(alignment: .trailing) {
                     FlipCameraButton(isVisible: viewModel.isFlipCameraVisible, action: viewModel.flipCamera)
                         .padding(.trailing, Constants.EditorUI.buttonPadding)
@@ -121,8 +111,39 @@ struct CameraView: View {
         }
     }
 
-    private var modeToggle: some View {
-        ModeToggle(selected: viewModel.mode, onSelect: selectMode)
+    // Mode switch at the top left, WB and EV at the top right (v5.1-9)
+    private var topBar: some View {
+        HStack {
+            ModeSwitch(selected: viewModel.mode, onSelect: selectMode)
+            Spacer()
+            controlButtons
+        }
+    }
+
+    // CONTRACT REQUEST — need `isWhiteBalanceAdjusted: Bool` and
+    // `isExposureAdjusted: Bool` on CameraViewModel (false on Auto / 0 EV),
+    // so the buttons' tint isn't derived here.
+    private var controlButtons: some View {
+        CameraControlButtons(
+            whiteBalanceText: viewModel.whiteBalanceChipText,
+            exposureText: viewModel.exposureReadout,
+            isWhiteBalanceAdjusted: viewModel.whiteBalance != .auto || viewModel.activeWhiteBalancePreset == nil,
+            isExposureAdjusted: viewModel.exposureBias != 0,
+            onToggleWhiteBalance: viewModel.toggleWhiteBalanceExpansion,
+            onToggleExposure: viewModel.toggleExposurePanel
+        )
+    }
+
+    // Photo: the newest Roll photo. Film strip: Generate, once a slot is
+    // filled, in the same place (v5.1 F9).
+    @ViewBuilder private var leadingAccessory: some View {
+        if viewModel.isPhotoMode {
+            LastPhotoButton()
+                .padding(.leading, Constants.EditorUI.buttonPadding)
+        } else {
+            GenerateStripButton(isVisible: photobooth.canGenerate) { photobooth.isStripPresented = true }
+                .padding(.leading, Constants.EditorUI.buttonPadding)
+        }
     }
 
     // The panel slot is shared, so leaving a mode closes whatever was open
@@ -130,61 +151,8 @@ struct CameraView: View {
         viewModel.closePanels()
         switch mode {
         case .photo: viewModel.selectPhotoMode()
-        case .diary: viewModel.selectDiaryMode()
         case .photobooth: viewModel.selectPhotoboothMode()
         }
-    }
-
-    // Photo mode (v5 F2/F3): WB and EV chips with their panels, then the
-    // stock dial. Diary and Film strip keep the v4 Film chip and WB bank
-    // (OPEN: v5-2).
-    @ViewBuilder private var modeControls: some View {
-        if viewModel.isPhotoMode {
-            photoControls
-        } else {
-            filmStockControl
-            WhiteBalanceControl(
-                selected: viewModel.whiteBalance,
-                isExpanded: viewModel.isWhiteBalanceExpanded,
-                onToggle: viewModel.toggleWhiteBalanceExpansion,
-                onSelect: viewModel.selectWhiteBalance
-            )
-        }
-    }
-
-    private var photoControls: some View {
-        VStack(spacing: Constants.CameraUI.chipSpacing) {
-            if viewModel.isWhiteBalanceExpanded {
-                WhiteBalancePanel(
-                    activePreset: viewModel.activeWhiteBalancePreset,
-                    kelvin: viewModel.whiteBalanceKelvin,
-                    tint: viewModel.whiteBalanceTint,
-                    onPreset: viewModel.chooseWhiteBalancePreset,
-                    onKelvin: viewModel.setWhiteBalanceKelvin,
-                    onTint: viewModel.setWhiteBalanceTint
-                )
-                .transition(.opacity)
-            }
-            if viewModel.isExposurePanelExpanded {
-                ExposurePanel(
-                    bias: viewModel.exposureBias,
-                    readout: viewModel.exposureReadout,
-                    onBias: viewModel.setExposureBias,
-                    onStep: viewModel.stepExposureBias(by:)
-                )
-                .transition(.opacity)
-            }
-            PhotoControlChips(
-                whiteBalanceText: viewModel.whiteBalanceChipText,
-                exposureText: viewModel.exposureReadout,
-                isWhiteBalanceOpen: viewModel.isWhiteBalanceExpanded,
-                isExposureOpen: viewModel.isExposurePanelExpanded,
-                onToggleWhiteBalance: viewModel.toggleWhiteBalanceExpansion,
-                onToggleExposure: viewModel.toggleExposurePanel
-            )
-            StockDial(selected: viewModel.filmStock, onSelect: viewModel.selectFilmStock)
-        }
-        .animation(.easeInOut(duration: Constants.CameraUI.panelAnimationDuration), value: viewModel.openPanel)
     }
 
     // Far-right dock, like the system Camera in landscape. Anchored with an
@@ -193,7 +161,7 @@ struct CameraView: View {
         Color.clear
             .overlay(alignment: .trailing) {
                 VStack(spacing: Constants.CameraUI.dockSpacing) {
-                    modeToggle
+                    ModeSwitch(selected: viewModel.mode, onSelect: selectMode)
                     if viewModel.isLensSelectorVisible {
                         LensChipRow(
                             lenses: viewModel.availableLenses,
@@ -201,7 +169,7 @@ struct CameraView: View {
                             onSelect: viewModel.selectLens
                         )
                     }
-                    modeControls
+                    controlButtons
                     ShutterButton(isDisabled: viewModel.isShutterDisabled, action: shutterTapped)
                     FlipCameraButton(isVisible: viewModel.isFlipCameraVisible, action: viewModel.flipCamera)
                 }
@@ -214,34 +182,28 @@ struct CameraView: View {
             }
     }
 
-    // v4 F9: shown in both Diary and Film strip modes
-    private var filmStockControl: some View {
-        FilmStockControl(
-            selected: viewModel.filmStock,
-            isExpanded: viewModel.isFilmStockExpanded,
-            onToggle: viewModel.toggleFilmStockExpansion,
-            onSelect: viewModel.selectFilmStock
-        )
-    }
-
-    // Dismissing the cover (Retake, Save, Skip) goes through the view model,
-    // which clears both flags; the setter only runs on a system dismissal
-    private var diaryFlowPresented: Binding<Bool> {
+    // The sheet shows while WB or EV is the open panel; a drag-down or a
+    // viewfinder tap closes it through the view model
+    private var controlSheetPresented: Binding<Bool> {
         Binding(
-            get: { viewModel.isReviewPresented || viewModel.isEditorPresented },
+            get: { viewModel.isWhiteBalanceExpanded || viewModel.isExposurePanelExpanded },
             set: { isPresented in
-                if !isPresented { viewModel.retake() }
+                if !isPresented { viewModel.closePanels() }
             }
         )
     }
 
-    // Retake, Discard and Save all end the edit session through the view
-    // model; the setter only runs on a system dismissal
-    private var photoEditPresented: Binding<Bool> {
+    // Retake, Discard, Save and the diary prompt's Save / Skip all end the
+    // session through the view model; the setter only runs on a system
+    // dismissal, which ends both stages
+    private var editorFlowPresented: Binding<Bool> {
         Binding(
-            get: { viewModel.isPhotoEditPresented },
+            get: { viewModel.isPhotoEditPresented || viewModel.isEditorPresented },
             set: { isPresented in
-                if !isPresented { viewModel.endPhotoEdit() }
+                if !isPresented {
+                    viewModel.endPhotoEdit()
+                    viewModel.endDiaryPrompt()
+                }
             }
         )
     }
@@ -324,8 +286,6 @@ struct CameraView: View {
             switch viewModel.mode {
             case .photo:
                 await viewModel.captureForPhoto()
-            case .diary:
-                await viewModel.captureForDiary()
             case .photobooth:
                 if let shot = await viewModel.captureForPhotobooth() {
                     photobooth.add(shot)
@@ -369,242 +329,22 @@ private struct FilmViewfinder: UIViewRepresentable {
     func updateUIView(_ uiView: FilmPreviewView, context: Context) {}
 }
 
-// The diary flow's single full-screen cover: the review (v4 F10) until OK,
-// then the prompt screen
-private struct DiaryFlowView: View {
-    let camera: CameraViewModel
-
-    var body: some View {
-        if camera.isEditorPresented {
-            EntryEditorView(camera: camera)
-        } else if let review = camera.review {
-            DiaryReviewView(review: review, onConfirm: camera.confirmReview, onRetake: camera.retake)
-        }
-    }
-}
-
-// A static capsule holding three square icon segments (v5 F1): Photo, Diary,
-// Film strip. The capsule never rotates — it is wider than tall — only the
-// glyph inside each segment does.
-private struct ModeToggle: View {
-    let selected: CameraViewModel.Mode
-    let onSelect: (CameraViewModel.Mode) -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(CameraViewModel.Mode.allCases, id: \.self) { mode in
-                ModeSegment(
-                    systemImage: mode.symbolName,
-                    label: mode.label,
-                    identifier: "camera.mode.\(mode.identifierName)",
-                    isActive: mode == selected,
-                    action: { onSelect(mode) }
-                )
-            }
-        }
-        .padding(Constants.CameraUI.modePillPadding)
-        .background(.white.opacity(Constants.CameraUI.chipInactiveOpacity), in: Capsule())
-    }
-}
-
-private extension CameraViewModel.Mode {
-    var symbolName: String {
-        switch self {
-        case .photo: return "camera"
-        case .diary: return "book.closed"
-        case .photobooth: return "film"
-        }
-    }
-
-    var identifierName: String {
-        switch self {
-        case .photo: return "photo"
-        case .diary: return "diary"
-        case .photobooth: return "filmstrip"
-        }
-    }
-}
-
-private struct ModeSegment: View {
-    let systemImage: String
-    let label: String
-    let identifier: String
-    let isActive: Bool
-    let action: () -> Void
-
-    private var background: Color {
-        isActive ? .white : .clear
-    }
-
-    private var foreground: Color {
-        isActive ? .appBlack : .white
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(.system(size: Constants.CameraUI.chipIconSize, weight: .semibold))
-                .foregroundStyle(foreground)
-                .rotatingWithDevice()
-                .frame(width: Constants.CameraUI.chipDiameter, height: Constants.CameraUI.chipDiameter)
-                .background(background, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-        .accessibilityIdentifier(identifier)
-    }
-}
-
-private struct ShutterButton: View {
-    let isDisabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Circle()
-                .fill(Color.appAmber)
-                .frame(
-                    width: Constants.CameraUI.shutterInnerDiameter,
-                    height: Constants.CameraUI.shutterInnerDiameter
-                )
-                .frame(
-                    width: Constants.CameraUI.shutterOuterDiameter,
-                    height: Constants.CameraUI.shutterOuterDiameter
-                )
-                .overlay(
-                    Circle().strokeBorder(.white, lineWidth: Constants.CameraUI.shutterRingWidth)
-                )
-        }
-        .buttonStyle(.plain)
-        .disabled(isDisabled)
-    }
-}
-
-private struct LensChipRow: View {
-    let lenses: [CameraLens]
-    let selected: CameraLens
-    let onSelect: (CameraLens) -> Void
-
-    var body: some View {
-        HStack(spacing: Constants.CameraUI.chipSpacing) {
-            ForEach(lenses) { lens in
-                CameraChip(label: lens.label, isSelected: lens == selected, action: { onSelect(lens) })
-            }
-        }
-    }
-}
-
-// v5: the newest Roll photo, at the shutter's left. Tapping opens that
-// photo's editor (re-edit mode) right here, so the next shot is one Save
-// away; the whole Roll is in the Library. Hidden, but still taking its
-// space, while the Roll is empty. The square keeps its shape in landscape:
-// only the picture inside turns, so it reads upright.
-private struct LastPhotoButton: View {
-    @Environment(ErrorState.self) private var errorState
-    @Query(LastPhotoButton.newestPhoto) private var newest: [RollPhoto]
-    @State private var edit: PhotoEditViewModel?
-
-    private static var newestPhoto: FetchDescriptor<RollPhoto> {
-        var descriptor = FetchDescriptor<RollPhoto>(sortBy: [SortDescriptor(\.capturedAt, order: .reverse)])
-        descriptor.fetchLimit = 1
-        return descriptor
-    }
-
-    var body: some View {
-        Group {
-            if let photo = newest.first {
-                Button { open(photo) } label: {
-                    RollLookImage(photo: photo, contentMode: .fill) { Color.clear }
-                        .rotatingWithDevice()
-                        .frame(width: Constants.CameraUI.lastPhotoSize, height: Constants.CameraUI.lastPhotoSize)
-                        .clipShape(RoundedRectangle(cornerRadius: Constants.CameraUI.lastPhotoCornerRadius))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Constants.CameraUI.lastPhotoCornerRadius)
-                                .strokeBorder(.white.opacity(Constants.CameraUI.lastPhotoBorderOpacity), lineWidth: Constants.CameraUI.lastPhotoBorderWidth)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Last photo")
-                .accessibilityHint("Opens your most recent photo to edit")
-                .accessibilityIdentifier("camera.lastPhoto")
-            } else {
-                Color.clear
-                    .frame(width: Constants.CameraUI.lastPhotoSize, height: Constants.CameraUI.lastPhotoSize)
-            }
-        }
-        .fullScreenCover(item: $edit) { session in
-            PhotoEditView(edit: session)
-        }
-    }
-
-    private func open(_ photo: RollPhoto) {
-        guard let session = PhotoEditViewModel(editing: photo) else {
-            errorState.raise(.persistenceFailed(reason: "This photo's file couldn't be read."))
-            return
-        }
-        session.onFinish = { _ in edit = nil }
-        edit = session
-    }
-}
-
-// Its screen position comes from the non-rotating `.overlay(alignment:
-// .trailing)` at the call site; only the icon inside the static disc rotates.
-private struct FlipCameraButton: View {
-    let isVisible: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "arrow.triangle.2.circlepath.camera")
-                .foregroundStyle(.white)
-                .rotatingWithDevice()
-                .frame(
-                    width: Constants.CameraUI.secondaryButtonSize,
-                    height: Constants.CameraUI.secondaryButtonSize
-                )
-                .background(.white.opacity(Constants.CameraUI.chipInactiveOpacity), in: Circle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Flip camera")
-        .opacity(isVisible ? 1 : 0)
-        .disabled(!isVisible)
-    }
-}
-
-private struct PermissionDeniedOverlay: View {
-    let isVisible: Bool
-
-    var body: some View {
-        Text("Camera access is off. Enable it in Settings to take photos.")
-            .font(.system(size: Constants.CameraUI.captionFontSize, design: .monospaced))
-            .foregroundStyle(.white.opacity(Constants.CameraUI.captionOpacity))
-            .multilineTextAlignment(.center)
-            // Bounded so the turned text (width becomes height) always stays
-            // on screen in landscape.
-            .frame(maxWidth: Constants.CameraUI.permissionTextMaxWidth)
-            .minimumScaleFactor(Constants.CameraUI.permissionTextMinScale)
-            .padding()
-            .opacity(isVisible ? 1 : 0)
-    }
-}
-
 #if DEBUG
-// Compiled out of release. Launched with `-UITestDiaryReview`, the camera
-// opens the v4 F10 review on a generated photo (no camera, no files) whose
-// Download writes nowhere, so a UI test can drive review → OK → prompt
-// without touching the photo library.
-private enum DiaryReviewFixture {
-    static let launchArgument = "-UITestDiaryReview"
+// Compiled out of release. Launched with `-UITestPhotoEdit`, the camera opens the v5 F4 edit step on
+// a generated photo (no camera) whose Download writes nowhere. Save to roll
+// really saves, so a UI test can follow a photo into the Library Roll.
+private enum PhotoEditFixture {
+    static let launchArgument = "-UITestPhotoEdit"
     static let stock = StripCustomization.FilmStock.portrait400
-    static let size = CGSize(width: 900, height: 1200)
 
     static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains(launchArgument)
     }
 
+    static let size = CGSize(width: 900, height: 1200)
+
     static func open(in camera: CameraViewModel) {
-        camera.beginReview(preview: photo(), stock: stock, savePhotoData: { _ in })
+        camera.beginPhotoEdit(preview: photo(), stock: stock, savePhotoData: { _ in })
     }
 
     // A warm-to-cool diagonal gradient, so a film look visibly changes it
@@ -619,22 +359,6 @@ private enum DiaryReviewFixture {
                 options: []
             )
         }
-    }
-}
-
-// Launched with `-UITestPhotoEdit`, the camera opens the v5 F4 edit step on
-// a generated photo (no camera) whose Download writes nowhere. Save to roll
-// really saves, so a UI test can follow a photo into the Library Roll.
-private enum PhotoEditFixture {
-    static let launchArgument = "-UITestPhotoEdit"
-    static let stock = StripCustomization.FilmStock.portrait400
-
-    static var isRequested: Bool {
-        ProcessInfo.processInfo.arguments.contains(launchArgument)
-    }
-
-    static func open(in camera: CameraViewModel) {
-        camera.beginPhotoEdit(preview: DiaryReviewFixture.photo(), stock: stock, savePhotoData: { _ in })
     }
 }
 #endif

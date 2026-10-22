@@ -18,12 +18,6 @@ final class CameraViewModel {
             case .photobooth: return "Film strip"
             }
         }
-
-        /// LEGACY(v5.1): lets the not-yet-updated CameraView compile its
-        /// `case .diary` branches (unreachable: it is not in `allCases`
-        /// and `selectDiaryMode()` selects Photo). Frontend deletes this
-        /// with those branches.
-        static let diary = Mode.photo
     }
 
     /// The app opens in Photo every launch (v5 F1, OPEN: v5-9). Diary and
@@ -175,8 +169,6 @@ final class CameraViewModel {
     var isFlipCameraVisible: Bool { hasFrontCamera && !isPermissionDenied }
 
     func selectPhotoMode() { mode = .photo }
-    /// LEGACY(v5.1): kept so CameraView compiles; selects Photo. Frontend deletes it.
-    func selectDiaryMode() { mode = .photo }
     func selectPhotoboothMode() { mode = .photobooth }
 
     func flipCamera() {
@@ -502,12 +494,6 @@ final class CameraViewModel {
         expanded ? WBMode.allCases : [selected]
     }
 
-    /// LEGACY(v5.1): the diary camera mode is gone; CameraView's unreachable
-    /// `.diary` branch still calls this. Frontend deletes it with that branch.
-    func captureForDiary() async {
-        await captureForPhoto()
-    }
-
     // MARK: Photo mode (v5 F4)
 
     /// The edit session for the last Photo-mode capture; lives until it is
@@ -582,28 +568,6 @@ final class CameraViewModel {
     func endDiaryPrompt() {
         pendingDiary = nil
         isEditorPresented = false
-    }
-
-    // MARK: Legacy review shims (v5.1 F6)
-
-    // LEGACY(v5.1): the old diary review screen is unreachable. These keep
-    // CameraView / DiaryReviewView (frontend-owned, deleted in the
-    // frontend round) compiling; nothing sets them.
-    private(set) var review: DiaryReviewViewModel?
-    var isReviewPresented = false
-    func confirmReview() {}
-    func retake() { endDiaryPrompt() }
-    func beginReview(
-        preview: UIImage,
-        stock: StripCustomization.FilmStock,
-        captureDate: Date = .now,
-        development: Task<UIImage, Never>? = nil,
-        savePhotoData: (@Sendable (Data) async throws -> Void)? = nil
-    ) {
-        beginPhotoEdit(
-            preview: preview, stock: stock, captureDate: captureDate,
-            development: development, savePhotoData: savePhotoData
-        )
     }
 
     /// The developed shot plus the stock chosen when the shutter fired

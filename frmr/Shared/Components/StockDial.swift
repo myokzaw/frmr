@@ -1,55 +1,27 @@
 import SwiftUI
 
-// v5 F2 film-stock dial for Photo mode: a horizontal strip of the seven
-// stocks that snaps one detent at a time, the selected one centred inside a
-// fixed window, its full name under it. Swiping or tapping selects; a
-// selection haptic ticks per detent.
+// v5 F2 / v5.1 F8 film-stock dial: a slim glass bar of the seven stock codes
+// that snaps one detent at a time, the selected one centred. Swiping or
+// tapping selects; a selection haptic ticks per detent. The selected stock's
+// full name is a tiny label just above the bar (no separate caption line).
 //
-// Rotation (v5-3): the strip is a wide control, so it never turns; each
-// code label turns about its own centre inside its fixed-width detent.
+// Rotation (v5-3): the bar is a wide control, so it never turns; each code
+// label turns about its own centre inside its fixed-width detent.
 struct StockDial: View {
     let selected: StripCustomization.FilmStock
     let onSelect: (StripCustomization.FilmStock) -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var position: StripCustomization.FilmStock?
 
     var body: some View {
-        VStack(spacing: Constants.CameraUI.dialCaptionSpacing) {
-            GeometryReader { geometry in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 0) {
-                        ForEach(StripCustomization.FilmStock.allCases) { stock in
-                            DialDetent(
-                                stock: stock,
-                                isSelected: stock == selected,
-                                action: { choose(stock) }
-                            )
-                            .id(stock)
-                        }
-                    }
-                    .scrollTargetLayout()
-                }
-                // Margins let the first and last stock reach the centre
-                .contentMargins(
-                    .horizontal,
-                    max(0, (geometry.size.width - Constants.CameraUI.dialItemWidth) / 2),
-                    for: .scrollContent
-                )
-                .scrollTargetBehavior(.viewAligned)
-                .scrollPosition(id: $position, anchor: .center)
-            }
-            .frame(height: Constants.CameraUI.dialHeight)
-            .overlay {
-                // The window the selected stock sits in
-                Capsule()
-                    .strokeBorder(.white.opacity(Constants.CameraUI.lastPhotoBorderOpacity), lineWidth: Constants.CameraUI.lastPhotoBorderWidth)
-                    .frame(width: Constants.CameraUI.dialItemWidth, height: Constants.CameraUI.dialHeight - Constants.CameraUI.dialCaptionSpacing * 2)
-                    .allowsHitTesting(false)
-            }
+        VStack(spacing: Constants.CameraUI.dialNameSpacing) {
             Text(selected.label)
-                .font(.system(size: Constants.CameraUI.captionFontSize, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(Constants.CameraUI.lastPhotoBorderOpacity))
+                .font(.system(size: Constants.CameraUI.dialNameFontSize, weight: .medium))
+                .foregroundStyle(.white.opacity(Constants.CameraUI.dialNameOpacity))
                 .accessibilityHidden(true)
+                .accessibilityIdentifier("camera.dial.name")
+            bar
         }
         .onAppear { position = selected }
         .onChange(of: position) { _, new in
@@ -57,7 +29,7 @@ struct StockDial: View {
         }
         .onChange(of: selected) { _, new in
             if position != new {
-                withAnimation(.easeOut(duration: Constants.CameraUI.dialSnapAnimationDuration)) { position = new }
+                withAnimation(snapAnimation) { position = new }
             }
         }
         .sensoryFeedback(.selection, trigger: selected)
@@ -65,8 +37,50 @@ struct StockDial: View {
         .accessibilityIdentifier("camera.dial")
     }
 
+    private var bar: some View {
+        GeometryReader { geometry in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 0) {
+                    ForEach(StripCustomization.FilmStock.allCases) { stock in
+                        DialDetent(
+                            stock: stock,
+                            isSelected: stock == selected,
+                            action: { choose(stock) }
+                        )
+                        .id(stock)
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            // Margins let the first and last stock reach the centre
+            .contentMargins(
+                .horizontal,
+                max(0, (geometry.size.width - Constants.CameraUI.dialItemWidth) / 2),
+                for: .scrollContent
+            )
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: $position, anchor: .center)
+        }
+        .frame(height: Constants.CameraUI.dialHeight)
+        .background {
+            // The window the selected stock sits in
+            Capsule()
+                .fill(.white.opacity(Constants.CameraUI.dialSelectedFillOpacity))
+                .frame(
+                    width: Constants.CameraUI.dialItemWidth,
+                    height: Constants.CameraUI.dialHeight - Constants.CameraUI.dialSelectedInset * 2
+                )
+        }
+        .frmrGlassCapsule()
+        .clipShape(Capsule())
+    }
+
+    private var snapAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: Constants.CameraUI.dialSnapAnimationDuration)
+    }
+
     private func choose(_ stock: StripCustomization.FilmStock) {
-        withAnimation(.easeOut(duration: Constants.CameraUI.dialSnapAnimationDuration)) { position = stock }
+        withAnimation(snapAnimation) { position = stock }
         if stock != selected { onSelect(stock) }
     }
 }
@@ -80,9 +94,8 @@ private struct DialDetent: View {
         Button(action: action) {
             Text(stock.shortCode)
                 .font(.system(size: Constants.CameraUI.dialCodeFontSize, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.white)
+                .foregroundStyle(isSelected ? Color.appAmber : .white)
                 .opacity(isSelected ? 1 : Constants.CameraUI.dialUnselectedOpacity)
-                .scaleEffect(isSelected ? Constants.CameraUI.dialSelectedScale : 1)
                 .rotatingWithDevice()
                 .frame(width: Constants.CameraUI.dialItemWidth, height: Constants.CameraUI.dialHeight)
                 .contentShape(Rectangle())
