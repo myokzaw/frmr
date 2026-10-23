@@ -45,31 +45,52 @@ final class DiaryViewModel {
         return index
     }
 
-    // Returns true when the entry was persisted and the editor can close.
-    // `image` is the original development; `filmStock` is stored beside it
-    // and applied only on display (v4 F11, non-destructive). The default
-    // keeps callers that predate the review step compiling until the
-    // frontend passes the reviewed stock.
+    /// Returns true when the entry was persisted and the editor can close.
+    ///
+    /// With `rollPhotoID` (v5.1 F4/F5) the entry LINKS to that Roll photo:
+    /// no image is copied, and `image`/`filmStock`/`look`/`capturedAt` are
+    /// ignored — the Roll photo's file, look and capture date are used.
+    /// Without it (entries from before v5.1) `image` is the original
+    /// development, copied to the diary's own file; `filmStock`/`look` are
+    /// stored beside it and applied only on display (v4 F11, non-destructive).
     func saveEntry(
         image: UIImage?,
         filmStock: StripCustomization.FilmStock = .none,
+        look: FilmLook? = nil,
         capturedAt: Date? = nil,
+        rollPhotoID: UUID? = nil,
         includeText: Bool,
         context: ModelContext
     ) -> Bool {
-        guard let image else {
-            errorState?.raise(.persistenceFailed(reason: "There's no photo to save."))
-            return false
-        }
         do {
-            let photoPath = try savePhotoFile(image)
-            let entry = DiaryEntry(
-                photoPath: photoPath,
-                prompt: prompt,
-                response: includeText ? responseText : "",
-                filmStock: filmStock,
-                capturedAt: capturedAt
-            )
+            let entry: DiaryEntry
+            if let rollPhotoID {
+                guard let photo = try RollViewModel.photo(withID: rollPhotoID, context: context) else {
+                    errorState?.raise(.persistenceFailed(reason: "The photo for this entry is no longer in the Roll."))
+                    return false
+                }
+                entry = DiaryEntry(
+                    photoPath: photo.photoPath,
+                    prompt: prompt,
+                    response: includeText ? responseText : "",
+                    capturedAt: photo.capturedAt,
+                    look: photo.look,
+                    rollPhotoID: photo.id
+                )
+            } else {
+                guard let image else {
+                    errorState?.raise(.persistenceFailed(reason: "There's no photo to save."))
+                    return false
+                }
+                entry = DiaryEntry(
+                    photoPath: try savePhotoFile(image),
+                    prompt: prompt,
+                    response: includeText ? responseText : "",
+                    filmStock: filmStock,
+                    capturedAt: capturedAt,
+                    look: look
+                )
+            }
             context.insert(entry)
             try context.save()
             return true
@@ -104,12 +125,12 @@ final class DiaryViewModel {
     /// get the original file. nil when the photo can't be read.
     static func displayImage(for entry: DiaryEntry, size: CGSize, scale: CGFloat) async -> UIImage? {
         let id = entry.id
-        let stock = entry.filmStock
+        let look = entry.look
         let seed = StripGenerator.photoLookSeed(for: entry.lookSeedDate)
         let url = FileManager.documentsURL(forRelativePath: entry.photoPath)
         let pixels = pixelSize(size, scale: scale)
         return await Task.detached(priority: .userInitiated) {
-            FilmLookCache.shared.image(id: id, stock: stock, seed: seed, pixelSize: pixels) {
+            FilmLookCache.shared.image(id: id, look: look, seed: seed, pixelSize: pixels) {
                 UIImage(contentsOfFile: url.path())
             }
         }.value
@@ -118,7 +139,7 @@ final class DiaryViewModel {
     /// The cached display image if one is ready, so a view can show it on
     /// its first frame instead of flashing a placeholder.
     static func cachedDisplayImage(for entry: DiaryEntry, size: CGSize, scale: CGFloat) -> UIImage? {
-        FilmLookCache.shared.cachedImage(id: entry.id, stock: entry.filmStock, pixelSize: pixelSize(size, scale: scale))
+        FilmLookCache.shared.cachedImage(id: entry.id, look: entry.look, pixelSize: pixelSize(size, scale: scale))
     }
 
     nonisolated static func pixelSize(_ size: CGSize, scale: CGFloat) -> CGSize {

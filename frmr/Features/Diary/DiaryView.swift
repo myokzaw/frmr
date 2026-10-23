@@ -1,49 +1,69 @@
 import SwiftData
 import SwiftUI
 
-// Diary entry list grouped by date. Embedded in the Library's Entries tab.
+// The Library's Entries tab (v5.1 F10, v5.2 M6): entries grouped by day,
+// each row led by the user's own words (serif, two lines), then the prompt
+// they answered (muted italic) and when / on what film. A 4:5 thumbnail in
+// the entry's own look sits beside it.
 struct DiaryView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Query(sort: \DiaryEntry.createdAt, order: .reverse) private var entries: [DiaryEntry]
     @State private var selectedEntry: DiaryEntry?
 
-    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
+    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .paper, contrast: contrast) }
     private var sections: [DiaryViewModel.DaySection] { DiaryViewModel.groupByDay(entries) }
 
     var body: some View {
-        List(sections) { section in
-            Section {
-                ForEach(section.entries) { entry in
-                    Button {
-                        selectedEntry = entry
-                    } label: {
-                        EntryRow(
-                            entry: entry,
-                            excerpt: entry.response.isEmpty ? entry.prompt : entry.response,
-                            textColor: theme.text
-                        )
+        List {
+            ForEach(sections) { section in
+                Section {
+                    ForEach(section.entries) { entry in
+                        Button {
+                            selectedEntry = entry
+                        } label: {
+                            EntryRow(
+                                entry: entry,
+                                excerpt: LibraryViewModel.excerpt(for: entry),
+                                prompt: entry.response.isEmpty ? "" : entry.prompt,
+                                metadata: LibraryViewModel.metadataLine(for: entry),
+                                theme: theme
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .listRowBackground(theme.bg)
+                        .accessibilityHint("Opens the entry")
+                        .accessibilityIdentifier("library.entry")
                     }
-                    .buttonStyle(.plain)
+                } header: {
+                    Text(section.title)
+                        .font(.frmrLabel.weight(.semibold))
+                        .foregroundStyle(theme.text)
+                        .accessibilityAddTraits(.isHeader)
                 }
-            } header: {
-                Text(section.title)
-                    .font(.system(size: Constants.LibraryUI.sectionFontSize, weight: .semibold))
-                    .textCase(.uppercase)
-                    .kerning(1)
-                    .foregroundStyle(theme.muted)
             }
-            .listRowBackground(theme.card)
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(theme.background)
-        .overlay(EmptyDiaryHint(isVisible: entries.isEmpty, color: theme.muted))
+        .frmrTabBarScrollInsets()
+        .overlay {
+            if entries.isEmpty {
+                ContentUnavailableView {
+                    Label("No entries yet", systemImage: "book.closed")
+                        .font(.frmrReading.weight(.semibold))
+                } description: {
+                    Text("Take a photo, then choose Continue to diary to write about it.")
+                        .font(.frmrMeta)
+                }
+                .foregroundStyle(theme.textMuted)
+            }
+        }
         .fullScreenCover(item: $selectedEntry) { entry in
             EntryDetailView(
                 entry: entry,
                 prompt: entry.prompt,
                 response: entry.response,
-                dateText: entry.createdAt.entryDetailTimestamp
+                metadata: LibraryViewModel.metadataLine(for: entry)
             )
         }
     }
@@ -52,18 +72,35 @@ struct DiaryView: View {
 private struct EntryRow: View {
     let entry: DiaryEntry
     let excerpt: String
-    let textColor: Color
+    /// The prompt as a second line, or empty when it is already the excerpt.
+    let prompt: String
+    let metadata: String
+    let theme: ThemePalette
 
     var body: some View {
-        HStack(spacing: Constants.LibraryUI.rowSpacing) {
+        HStack(alignment: .top, spacing: Constants.DesignUI.Space.m) {
             Thumbnail(entry: entry)
-            Text(excerpt)
-                .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
-                .italic()
-                .foregroundStyle(textColor)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: Constants.DesignUI.Space.xs) {
+                Text(excerpt.isEmpty ? "No words yet" : excerpt)
+                    .font(.frmrReading)
+                    .foregroundStyle(excerpt.isEmpty ? theme.textMuted : theme.text)
+                    .lineLimit(Constants.LibraryUI.excerptLineLimit)
+                    .multilineTextAlignment(.leading)
+                if !prompt.isEmpty {
+                    Text(prompt)
+                        .font(.frmrMeta.italic())
+                        .foregroundStyle(theme.textMuted)
+                        .lineLimit(1)
+                }
+                Text(metadata)
+                    .font(.frmrMeta)
+                    .foregroundStyle(theme.textMuted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Constants.DesignUI.Space.s)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -73,21 +110,9 @@ private struct Thumbnail: View {
 
     var body: some View {
         Color.appBlack.opacity(Constants.Strip.emptySlotAlpha)
-            .frame(width: Constants.LibraryUI.thumbnailSize, height: Constants.LibraryUI.thumbnailSize)
+            .frame(width: Constants.LibraryUI.thumbnailWidth, height: Constants.LibraryUI.thumbnailWidth / Constants.CameraUI.stripFrameAspect)
             .overlay(EntryLookImage(entry: entry, contentMode: .fill) { EmptyView() })
-            .clipShape(RoundedRectangle(cornerRadius: Constants.LibraryUI.thumbnailCornerRadius))
-    }
-}
-
-private struct EmptyDiaryHint: View {
-    let isVisible: Bool
-    let color: Color
-
-    var body: some View {
-        Text("No entries yet. Take a photo to start your journal.")
-            .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
-            .italic()
-            .foregroundStyle(color)
-            .opacity(isVisible ? 1 : 0)
+            .clipShape(RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb))
+            .accessibilityHidden(true)
     }
 }

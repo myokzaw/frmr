@@ -22,4 +22,9 @@ struct InterfaceOrientationLockTests {
         InterfaceOrientationLock.unlock()
         #expect(InterfaceOrientationLock.mask == .allButUpsideDown)
     }
+
+    @Test(arguments: [(AppTab.camera, InterfaceOrientationLock.Mode.portraitLocked), (.library, .unlocked), (.settings, .unlocked)])
+    func onlyTheCameraTabLocksPortrait(tab: AppTab, expected: InterfaceOrientationLock.Mode) {
+        #expect(InterfaceOrientationLock.mode(for: tab) == expected)
+    }
 }

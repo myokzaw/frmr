@@ -253,7 +253,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                             temperature: preset.temperature,
                             tint: preset.tint
                         )
-                        let gains = self.clampedGains(camera.deviceWhiteBalanceGains(for: values), for: camera)
+                        let gains = Self.clampedGains(camera.deviceWhiteBalanceGains(for: values), maxGain: camera.maxWhiteBalanceGain)
                         camera.setWhiteBalanceModeLocked(with: gains)
                     }
                 } else if camera.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
@@ -265,6 +265,39 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                 print("[CaptureSession] Could not set white balance: \(error)")
             }
         }
+    }
+
+    /// A free white balance (v5 F3): the Kelvin and tint sliders. Locks the
+    /// device to the gains for that colour temperature, clamped to what the
+    /// device can apply. Runs on the session queue like every other lock.
+    func apply(temperature: Float, tint: Float) {
+        sessionQueue.async {
+            guard let camera = self.camera else { return }
+            guard camera.isWhiteBalanceModeSupported(.locked) else { return }
+            do {
+                try camera.lockForConfiguration()
+                defer { camera.unlockForConfiguration() }
+                let values = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(
+                    temperature: Self.clampedKelvin(temperature),
+                    tint: Self.clampedTint(tint)
+                )
+                let gains = Self.clampedGains(camera.deviceWhiteBalanceGains(for: values), maxGain: camera.maxWhiteBalanceGain)
+                camera.setWhiteBalanceModeLocked(with: gains)
+            } catch {
+                // Safe to continue: the previous white balance stays active
+                print("[CaptureSession] Could not set white balance: \(error)")
+            }
+        }
+    }
+
+    static func clampedKelvin(_ kelvin: Float) -> Float {
+        let range = Constants.Camera.whiteBalanceKelvinRange
+        return min(max(kelvin.isNaN ? range.lowerBound : kelvin, range.lowerBound), range.upperBound)
+    }
+
+    static func clampedTint(_ tint: Float) -> Float {
+        let range = Constants.Camera.whiteBalanceTintRange
+        return min(max(tint.isNaN ? 0 : tint, range.lowerBound), range.upperBound)
     }
 
     // MARK: Manual controls (v2 F1–F3)
@@ -319,7 +352,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                     device.unlockForConfiguration()
                 }
             }
-            Task { @MainActor in Haptics.focusLocked() }
+            Task { @MainActor in Haptics.play(.detent) }
         }
 
         // If the device never reports settling, stop holding the observer
@@ -446,14 +479,17 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         return AVCapturePhotoSettings(format: processedFormat)
     }
 
-    private func clampedGains(
+    /// Device gains must sit in 1…maxWhiteBalanceGain or the device throws;
+    /// a Kelvin/tint far from the sensor's neutral can ask for more. Pure so
+    /// the clamp is unit-testable without a camera.
+    static func clampedGains(
         _ gains: AVCaptureDevice.WhiteBalanceGains,
-        for camera: AVCaptureDevice
+        maxGain: Float
     ) -> AVCaptureDevice.WhiteBalanceGains {
         var clamped = gains
-        clamped.redGain = min(max(clamped.redGain, 1), camera.maxWhiteBalanceGain)
-        clamped.greenGain = min(max(clamped.greenGain, 1), camera.maxWhiteBalanceGain)
-        clamped.blueGain = min(max(clamped.blueGain, 1), camera.maxWhiteBalanceGain)
+        clamped.redGain = min(max(clamped.redGain, 1), maxGain)
+        clamped.greenGain = min(max(clamped.greenGain, 1), maxGain)
+        clamped.blueGain = min(max(clamped.blueGain, 1), maxGain)
         return clamped
     }
 }

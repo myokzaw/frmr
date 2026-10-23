@@ -1,1 +1,4 @@
 - [Camera rotate-in-place](camera-rotate-in-place.md) — chip/glyph rotation rules and headless-simulator limits
+- [v5 UI lessons](v5-ui-lessons.md) — dial, panels, edit step, Roll, UI-test fixtures
+- [v5.2 design tokens](v52-design-tokens.md) — token locations, resolve API, UI-test flake under load
+- [v5.2 makeover lessons](v52-makeover-lessons.md) — TipKit literal rules, selectAppTab, segmented Library tabs, mini-strip sheet, strip controls sheet

@@ -2,7 +2,9 @@ import SwiftUI
 
 // The square that draws in and fades out where the user tapped to focus
 // (v2 F1). Pure presentation — the view model owns when it appears and clears.
+// Reduce Motion skips the draw-in and keeps only the fade (v5.2 M7).
 struct FocusIndicatorView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var scale = Constants.Camera.focusIndicatorAppearScale
     @State private var opacity: Double = 1
 
@@ -17,7 +19,7 @@ struct FocusIndicatorView: View {
             .opacity(opacity)
             .allowsHitTesting(false)
             .onAppear {
-                withAnimation(.easeOut(duration: Constants.Camera.focusIndicatorAppearDuration)) {
+                withAnimation(reduceMotion ? nil : .easeOut(duration: Constants.Camera.focusIndicatorAppearDuration)) {
                     scale = 1
                 }
                 withAnimation(

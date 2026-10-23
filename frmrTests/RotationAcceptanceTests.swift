@@ -83,16 +83,32 @@ struct RotationAcceptanceTests {
         }
     }
 
-    @Test func onboardingIsPortraitCoversEveryCaseForBothPriorStates() {
-        for prior in [true, false] {
-            for o in Self.allCases {
-                let r = OnboardingViewModel.isPortrait(for: o, current: prior)
-                switch o {
-                case .portrait, .portraitUpsideDown: #expect(r)
-                case .landscapeLeft, .landscapeRight: #expect(!r)
-                default: #expect(r == prior)
-                }
-            }
-        }
+    // Exact values the matrix above cannot see: the sign of each pose from the
+    // upright start (these are what the chrome animates to), the short arc
+    // between landscapes, and no wrapping, ever (720 + 90 stays 810).
+    @Test func chromeCounterRotatesToTheFourCardinalOrientations() {
+        #expect(CameraViewModel.rotationAngle(for: .portrait, current: .degrees(90)) == .zero)
+        #expect(CameraViewModel.rotationAngle(for: .portraitUpsideDown, current: .zero) == .degrees(180))
+        #expect(CameraViewModel.rotationAngle(for: .landscapeLeft, current: .zero) == .degrees(90))
+        #expect(CameraViewModel.rotationAngle(for: .landscapeRight, current: .zero) == .degrees(-90))
+    }
+
+    @Test func chromeRotationTakesTheShortArcAndAccumulatesWithoutWrapping() {
+        let a = CameraViewModel.rotationAngle(for: .landscapeRight, current: .degrees(90))
+        #expect(abs(a.degrees - 90) == 180)
+        // 270 is the same pose as -90: no animation
+        #expect(CameraViewModel.rotationAngle(for: .landscapeRight, current: .degrees(270)) == .degrees(270))
+
+        var angle = Angle.zero
+        angle = CameraViewModel.rotationAngle(for: .portraitUpsideDown, current: angle)
+        #expect(angle.degrees == 180)
+        angle = CameraViewModel.rotationAngle(for: .landscapeLeft, current: angle)
+        #expect(angle.degrees == 90)   // 180 -> 90, delta -90
+        angle = CameraViewModel.rotationAngle(for: .portrait, current: angle)
+        #expect(angle.degrees == 0)
+
+        // Already on the pose: held, whatever the accumulated turns
+        #expect(CameraViewModel.rotationAngle(for: .landscapeLeft, current: .degrees(90)) == .degrees(90))
+        #expect(CameraViewModel.rotationAngle(for: .landscapeLeft, current: .degrees(720)) == .degrees(810))
     }
 }

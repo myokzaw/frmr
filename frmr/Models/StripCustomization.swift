@@ -13,8 +13,29 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     /// Only meaningful with an override; as-shot frames use their own
     /// stock's default print.
     var printStock: PrintStock? = nil
-    var effects: FilmEffects = .stockDefaults
+    /// Effect strengths (v5 F5), 0 = off and 1 = the v4 strength. As shot
+    /// frames take these strip-level strengths too, except Roll frames,
+    /// which keep their own look (`effective(forFrameStock:look:)`).
+    var strengths: FilmLook.Strengths = .stockDefaults
     var blackAndWhite: Bool = false
+    /// Exposure compensation in EV (v5.2 F-EXP). Per photo only: it comes
+    /// from a Roll photo's `FilmLook`, never from the strip-wide settings.
+    var exposure: Double = 0
+    /// The linear-light gain 2^EV.
+    var exposureGain: Double { exposure == 0 ? 1 : pow(2, exposure) }
+
+    /// The v4 on/off view of the first three strengths, kept so code and
+    /// tests written against the toggles still compile and mean the same
+    /// thing: on is any strength above 0, switching on restores the v4
+    /// strength, switching off sets 0. New code binds `strengths`.
+    var effects: FilmEffects {
+        get { FilmEffects(strengths: strengths) }
+        set {
+            strengths.halation = newValue.strengths.halation
+            strengths.haze = newValue.strengths.haze
+            strengths.lightLeak = newValue.strengths.lightLeak
+        }
+    }
 
     /// The print the strip is actually rendered on; nil for stock Off and
     /// for As shot (each frame then resolves its own, see `effective`).
@@ -40,6 +61,17 @@ nonisolated struct StripCustomization: Equatable, Sendable {
         return frame
     }
 
+    /// The customization one frame is rendered with when it may carry its
+    /// own Roll look (v5 F6): under As shot such a frame renders exactly
+    /// that look; an override stock, or a frame with no look, behaves as
+    /// `effective(forFrameStock:)`.
+    func effective(forFrameStock frameStock: FilmStock, look: FilmLook?) -> StripCustomization {
+        guard filmStock == nil, let look else { return effective(forFrameStock: frameStock) }
+        var frame = look.customization
+        frame.background = background
+        return frame
+    }
+
     /// One photo's own look (v4 F10/F11/F13): its stock on the stock's
     /// default print with the stock's default effects, colour unless the
     /// stock is monochrome. The review screen, entry display and Download
@@ -47,7 +79,7 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     static func stockDefaults(for stock: FilmStock) -> StripCustomization {
         var customization = StripCustomization()
         customization.filmStock = stock
-        customization.effects = FilmEffects.defaults(for: stock)
+        customization.strengths = .defaults(for: stock)
         return customization
     }
 
@@ -260,27 +292,52 @@ nonisolated struct StripCustomization: Equatable, Sendable {
         }
     }
 
-    // v4 F7: which physical effects are on. Toggles, not strengths
-    // (OPEN: v4-2, Constants.ImageProcessing.Film.effectsAreToggles); each
-    // stock supplies its own strength when an effect is on (F4–F6).
-    struct FilmEffects: Equatable, Sendable, Codable {
-        var halation: Bool
-        var bloom: Bool
-        var lightLeak: Bool
+    // v4 F7's on/off effects, now a facade over `FilmLook.Strengths` (v5 F5,
+    // which overturns OPEN: v4-2, Constants.ImageProcessing.Film
+    // .effectsAreToggles). Source compatibility only: `bloom` is haze, and a
+    // toggle is "strength above 0".
+    struct FilmEffects: Equatable, Sendable {
+        fileprivate(set) var strengths: FilmLook.Strengths
 
-        // Halation is on by default at each stock's own strength (Cine 500T
-        // strongest); bloom and light leak are opt-in
-        static let stockDefaults = FilmEffects(
-            halation: Constants.ImageProcessing.Film.halationOnByDefault,
-            bloom: false,
-            lightLeak: false
-        )
+        fileprivate init(strengths: FilmLook.Strengths) {
+            self.strengths = strengths
+        }
+
+        init(halation: Bool, bloom: Bool, lightLeak: Bool) {
+            strengths = .stockDefaults
+            self.halation = halation
+            self.bloom = bloom
+            self.lightLeak = lightLeak
+        }
+
+        var halation: Bool {
+            get { strengths.halation > 0 }
+            set { strengths.halation = Self.toggled(newValue, from: strengths.halation) }
+        }
+
+        var bloom: Bool {
+            get { strengths.haze > 0 }
+            set { strengths.haze = Self.toggled(newValue, from: strengths.haze) }
+        }
+
+        var lightLeak: Bool {
+            get { strengths.lightLeak > 0 }
+            set { strengths.lightLeak = Self.toggled(newValue, from: strengths.lightLeak) }
+        }
+
+        // Switching on keeps a strength the user already set
+        private static func toggled(_ on: Bool, from current: Double) -> Double {
+            guard on else { return 0 }
+            return current > 0 ? current : Constants.ImageProcessing.Film.Strength.migratedOn
+        }
+
+        // Halation on, haze and light leak off (v4 F4–F6 defaults)
+        static let stockDefaults = FilmEffects(strengths: .stockDefaults)
 
         /// The defaults a stock starts with. Every stock shares one set; the
-        /// strength difference lives in the stock's constants. Effects never
-        /// apply with the stock Off.
+        /// strength difference lives in the stock's constants.
         static func defaults(for stock: FilmStock) -> FilmEffects {
-            .stockDefaults
+            FilmEffects(strengths: .defaults(for: stock))
         }
     }
 

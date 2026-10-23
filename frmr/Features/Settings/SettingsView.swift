@@ -19,32 +19,35 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
-// Settings reads and writes UserDefaults directly — no ViewModel by design
+// Settings reads and writes UserDefaults directly — no ViewModel by design.
+// v5.2 S6: a grouped Form with title-case headers. The five effect defaults
+// moved to their own "Default look" page (DefaultLookView); destructive rows
+// are system destructive buttons, each confirmed from its own row.
 struct SettingsView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.modelContext) private var modelContext
     @Environment(ErrorState.self) private var errorState
-    @Environment(OnboardingViewModel.self) private var onboarding
 
     @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
-    // OPEN: WB persistence TBD — this toggle is stored but the camera always
-    // resets to Auto on launch until the decision lands (build notes)
-    @AppStorage(Constants.DefaultsKeys.rememberWhiteBalance) private var rememberWhiteBalance = Constants.rememberWhiteBalanceDefault
+    @AppStorage(Constants.DefaultsKeys.editAfterEachShot) private var editAfterEachShot = true
+    @AppStorage(Constants.DefaultsKeys.filmAdvanceHaptics) private var filmAdvanceHaptics = true
     @AppStorage(Constants.DefaultsKeys.stripBackground) private var stripBackground = StripCustomization.StripBackground.white.settingsName
     // v4 F12: stored as a String so As shot can be a sentinel; read and
     // written only through StripCustomization's stored-value helpers
     @AppStorage(Constants.DefaultsKeys.stripFilmStock) private var stripFilmStock = Constants.Strip.asShotStoredValue
     // nil (key absent) = the stock's own default print
     @AppStorage(Constants.DefaultsKeys.stripPrintStock) private var stripPrintStock: StripCustomization.PrintStock?
-    // A missing effect key means the stock default, which for halation is on
-    @AppStorage(Constants.DefaultsKeys.stripHalation) private var stripHalation = StripCustomization.FilmEffects.stockDefaults.halation
-    @AppStorage(Constants.DefaultsKeys.stripBloom) private var stripBloom = StripCustomization.FilmEffects.stockDefaults.bloom
-    @AppStorage(Constants.DefaultsKeys.stripLightLeak) private var stripLightLeak = StripCustomization.FilmEffects.stockDefaults.lightLeak
     @AppStorage(Constants.DefaultsKeys.stripBlackAndWhite) private var stripBlackAndWhite = false
 
     @State private var isClearDiaryConfirmationPresented = false
+    @State private var isClearRollConfirmationPresented = false
+    @State private var didRequestTips = false
+    // v5.1-12: how many diary entries link to Roll photos, read when the
+    // prompt opens; nil = the count couldn't be read, so ask both ways
+    @State private var linkedEntryCount: Int?
 
-    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
+    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, contrast: contrast) }
 
     /// The stored default as a picker choice; nil = As shot
     private var stockChoice: StripCustomization.FilmStock? {
@@ -78,94 +81,203 @@ struct SettingsView: View {
         )
     }
 
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
     var body: some View {
         NavigationStack {
-            List {
-                Section("Appearance") {
-                    Picker("Appearance", selection: $appearanceMode) {
-                        ForEach(AppearanceMode.allCases) { mode in
-                            Text(mode.label).tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-                .listRowBackground(theme.card)
-
-                Section("Camera defaults") {
-                    Toggle("Remember white balance", isOn: $rememberWhiteBalance)
-                }
-                .listRowBackground(theme.card)
-
-                Section("Strip defaults") {
-                    Picker("Background", selection: $stripBackground) {
-                        // v4 F8: white and black only
-                        ForEach(StripCustomization.StripBackground.allCases, id: \.settingsName) { background in
-                            Text(background.label).tag(background.settingsName)
-                        }
-                    }
-                    .accessibilityHint("The background new strips start with")
-                    .accessibilityIdentifier("settings.background")
-                    Picker("Film stock", selection: stockChoiceBinding) {
-                        ForEach(StripCustomization.stockChoices, id: \.self) { choice in
-                            Text(StripCustomization.label(forStockChoice: choice)).tag(choice)
-                        }
-                    }
-                    .accessibilityHint("The film new strips start on. As shot keeps each photo's own film.")
-                    .accessibilityIdentifier("settings.filmStock")
-                    if isPrintRowVisible {
-                        Picker("Print", selection: $stripPrintStock) {
-                            Text("Stock default").tag(StripCustomization.PrintStock?.none)
-                            ForEach(printChoices) { printStock in
-                                Text(printStock.label).tag(StripCustomization.PrintStock?.some(printStock))
-                            }
-                        }
-                        .accessibilityHint("The paper new strips are printed on. Stock default uses the film's own print.")
-                    }
-                    if areEffectsVisible {
-                        // OPEN: v4-2 — on/off toggles, not strength sliders
-                        // (Constants.ImageProcessing.Film.effectsAreToggles)
-                        Toggle("Halation", isOn: $stripHalation)
-                            .accessibilityHint("New strips start with a warm glow around bright highlights")
-                            .accessibilityIdentifier("settings.halation")
-                        Toggle("Bloom", isOn: $stripBloom)
-                            .accessibilityHint("New strips start with bright areas softened and spread")
-                        Toggle("Light leak", isOn: $stripLightLeak)
-                            .accessibilityHint("New strips start with a streak of light at the frame edge")
-                    }
-                    Toggle("Black & white", isOn: blackAndWhiteDefault)
-                        .disabled(isBlackAndWhiteLocked)
-                        .accessibilityHint("New strips start in black and white. Mono stocks are always black and white.")
-                        .accessibilityIdentifier("settings.blackAndWhite")
-                }
-                .listRowBackground(theme.card)
-                .animation(.easeInOut(duration: Constants.StripUI.controlRowAnimationDuration), value: stripFilmStock)
-
-                Section("Help") {
-                    // OPEN: v3-3 — replay in landscape appears to do nothing
-                    // until the phone is upright; no extra copy for now
-                    Button("Show intro again", action: onboarding.replayWalkthrough)
-                }
-                .listRowBackground(theme.card)
-
-                Section("Data") {
-                    Button("Clear diary", role: .destructive) {
-                        isClearDiaryConfirmationPresented = true
-                    }
-                    .foregroundStyle(Color.appRust)
-                }
-                .listRowBackground(theme.card)
+            Form {
+                appearanceSection
+                cameraSection
+                stripSection
+                helpSection
+                dataSection
+                aboutSection
             }
-            .tint(theme.primary)
+            .formStyle(.grouped)
+            .tint(theme.tint)
             .scrollContentBackground(.hidden)
             .background(theme.background)
+            .frmrTabBarScrollInsets()
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: SettingsPage.self) { _ in
+                DefaultLookView()
+            }
+        }
+    }
+
+    // MARK: Sections
+
+    private var appearanceSection: some View {
+        Section("Appearance") {
+            Picker("Appearance", selection: $appearanceMode) {
+                ForEach(AppearanceMode.allCases) { mode in
+                    Text(mode.label).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("settings.appearance")
+        }
+        .listRowBackground(theme.card)
+    }
+
+    private var cameraSection: some View {
+        Section {
+            Toggle("Edit after each shot", isOn: $editAfterEachShot)
+                .accessibilityHint("When off, photos go straight to your roll and you edit them later")
+                .accessibilityIdentifier("settings.editAfterEachShot")
+            Toggle("Film-advance haptics", isOn: $filmAdvanceHaptics)
+                .accessibilityHint("The shutter plays a film-winding pattern. When off, a single tap.")
+                .accessibilityIdentifier("settings.filmAdvanceHaptics")
+        } header: {
+            Text("Camera")
+        } footer: {
+            Text("With Edit after each shot off, keep shooting and edit later from the last-photo thumbnail.")
+        }
+        .listRowBackground(theme.card)
+    }
+
+    private var stripSection: some View {
+        Section {
+            Picker("Paper", selection: $stripBackground) {
+                // v4 F8: white and black only
+                ForEach(StripCustomization.StripBackground.allCases, id: \.settingsName) { background in
+                    Text(background.label).tag(background.settingsName)
+                }
+            }
+            .accessibilityHint("The paper new strips start with")
+            .accessibilityIdentifier("settings.background")
+            Picker("Film stock", selection: stockChoiceBinding) {
+                ForEach(StripCustomization.stockChoices, id: \.self) { choice in
+                    Text(StripCustomization.label(forStockChoice: choice)).tag(choice)
+                }
+            }
+            .accessibilityHint("The film new strips start on. As shot keeps each photo's own film.")
+            .accessibilityIdentifier("settings.filmStock")
+            if isPrintRowVisible {
+                Picker("Print", selection: $stripPrintStock) {
+                    Text("Stock default").tag(StripCustomization.PrintStock?.none)
+                    ForEach(printChoices) { printStock in
+                        Text(printStock.label).tag(StripCustomization.PrintStock?.some(printStock))
+                    }
+                }
+                .accessibilityHint("The paper new strips are printed on. Stock default uses the film's own print.")
+                .accessibilityIdentifier("settings.print")
+            }
+            Toggle("Black & white", isOn: blackAndWhiteDefault)
+                .disabled(isBlackAndWhiteLocked)
+                .accessibilityHint("New strips start in black and white. Mono stocks are always black and white.")
+                .accessibilityIdentifier("settings.blackAndWhite")
+            if areEffectsVisible {
+                NavigationLink(value: SettingsPage.defaultLook) {
+                    Text("Default look")
+                }
+                .accessibilityHint("Halation, haze, light leak, grain and vignette for new strips")
+                .accessibilityIdentifier("settings.defaultLook")
+            }
+        } header: {
+            Text("Strip Defaults")
+        }
+        .listRowBackground(theme.card)
+        .frmrAnimation(.snap, value: stripFilmStock)
+    }
+
+    private var helpSection: some View {
+        Section {
+            Button("Show tips again") {
+                FrmrTips.requestReset()
+                didRequestTips = true
+            }
+            .disabled(didRequestTips)
+            .accessibilityIdentifier("settings.showTips")
+        } header: {
+            Text("Help")
+        } footer: {
+            Text(didRequestTips ? "Tips show again the next time you open frmr." : "Tips point out the camera's controls the first time you use them.")
+        }
+        .listRowBackground(theme.card)
+    }
+
+    private var dataSection: some View {
+        Section {
+            Button("Clear diary", role: .destructive) {
+                isClearDiaryConfirmationPresented = true
+            }
+            .foregroundStyle(theme.destructive)
+            .accessibilityIdentifier("settings.clearDiary")
             .confirmationDialog(
                 "Delete all entries and strips? This can't be undone.",
                 isPresented: $isClearDiaryConfirmationPresented,
                 titleVisibility: .visible
             ) {
                 Button("Delete everything", role: .destructive, action: clearDiary)
+                    .accessibilityIdentifier("settings.clearDiary.confirm")
             }
+            // v5 F6 (OPEN: v5-7): the Roll is cleared on its own
+            Button("Clear roll", role: .destructive, action: askToClearRoll)
+                .foregroundStyle(theme.destructive)
+                .accessibilityIdentifier("settings.clearRoll")
+                .confirmationDialog(
+                    clearRollTitle,
+                    isPresented: $isClearRollConfirmationPresented,
+                    titleVisibility: .visible
+                ) {
+                    clearRollButtons
+                }
+        } header: {
+            Text("Your Data")
+        }
+        .listRowBackground(theme.card)
+        .sensoryFeedback(.warning, trigger: isClearRollConfirmationPresented) { _, shown in shown }
+        .sensoryFeedback(.warning, trigger: isClearDiaryConfirmationPresented) { _, shown in shown }
+    }
+
+    private var aboutSection: some View {
+        Section {
+            LabeledContent("Version", value: appVersion)
+        } header: {
+            Text("About")
+        } footer: {
+            Text("frmr works fully offline: no accounts, no analytics, no network.")
+        }
+        .listRowBackground(theme.card)
+    }
+
+    // v5.1-7/12: with linked diary entries the prompt offers both; Keep
+    // entries is the default and keeps the old confirm identifier so the
+    // flow reads the same to the UI tests. An unreadable count (nil) asks
+    // both ways rather than risk deleting entries without saying so.
+    private var clearRollTitle: String {
+        RollPromptText.clearRollTitle(linkedEntries: linkedEntryCount)
+    }
+
+    @ViewBuilder
+    private var clearRollButtons: some View {
+        if linkedEntryCount == 0 {
+            Button("Delete roll", role: .destructive) { clearRoll(entries: .keepEntry) }
+                .accessibilityIdentifier("settings.clearRoll.confirm")
+        } else {
+            Button("Keep entries") { clearRoll(entries: .keepEntry) }
+                .accessibilityIdentifier("settings.clearRoll.confirm")
+            Button("Delete photos and diary entries", role: .destructive) { clearRoll(entries: .deleteBoth) }
+                .accessibilityIdentifier("settings.clearRoll.deleteBoth")
+        }
+    }
+
+    private func askToClearRoll() {
+        linkedEntryCount = RollViewModel.linkedEntryCountIfKnown(in: modelContext)
+        isClearRollConfirmationPresented = true
+    }
+
+    private func clearRoll(entries: RollViewModel.RollDeletion) {
+        do {
+            try RollViewModel.clearRoll(entries: entries, context: modelContext)
+        } catch let error as AppError {
+            errorState.raise(error)
+        } catch {
+            errorState.raise(.persistenceFailed(reason: error.localizedDescription))
         }
     }
 
@@ -191,8 +303,12 @@ struct SettingsView: View {
     }
 }
 
+/// Settings' pushed pages.
+enum SettingsPage: Hashable {
+    case defaultLook
+}
+
 #Preview {
     SettingsView()
         .environment(ErrorState())
-        .environment(OnboardingViewModel())
 }

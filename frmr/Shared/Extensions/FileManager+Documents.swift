@@ -19,6 +19,12 @@ extension FileManager {
         return url
     }
 
+    static func createRollDirectory() throws -> URL {
+        let url = documentsDirectory.appending(path: Constants.Roll.photosDirectoryName, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
     static func createStripsDirectory() throws -> URL {
         let url = documentsDirectory.appending(path: "Strips", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)

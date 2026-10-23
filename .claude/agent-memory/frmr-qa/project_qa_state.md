@@ -27,3 +27,22 @@ metadata:
 - UI tests: `xcrun simctl addmedia <udid> qa/fixtures/strip-fixture-*.png` first. DiaryReviewUITests use the DEBUG `-UITestDiaryReview` fixture (CameraView.swift:434-466, inside #if DEBUG).
 - Recurring bug class confirmed: OPEN items with no code site lose their marker (v4-4, v4-8, then v4-13).
 - The scratchpad is shared with other agents (dng/, sheets*/ hold the user's personal renders). Never copy anything from it into the repo.
+
+## Test consolidation pass (2026-10-21, user-approved one-off)
+- Unit suite 310 tests / 56 suites / 16 files / 5,429 lines -> 283 / 58 / 25 files (incl. TestSupport) / 5,368 lines; argument cases 369 -> ~430. UI: template tests deleted, 14 -> 11 tests. Runtime unit ~35.5 s -> ~36.6 s (noise +-4 s: parameterised cases went up); UI 502.8 s -> 464.9 s.
+- `frmrTests.swift` is gone: split into themed files; shared helpers in `frmrTests/TestSupport.swift` (PixelBuffer, solidImage, Raster, flatImage, ciFlat, makeScratchDefaults). Rules + file map in `docs/testing.md`; proof in `qa/test-consolidation/` (before/after lists, mapping.md, list-tests.sh, cases.py).
+- Search the theme before adding a test; extend the parameterised ones (OffIsIdentityTests, StripLookRegressionTests matrix, FullLookRegressionTests, FilmStockMigrationTests.storedValuesMigrateToTheirStock).
+- `xcodebuild ... -enumerate-tests -test-enumeration-style flat -test-enumeration-format json -test-enumeration-output-path <inside repo>` lists tests (sandbox blocks /var/folders). Swift Testing log lines carry a zero-width space prefix.
+- Swift Testing: a `@Test(arguments: staticMember)` needs the types in the signature to be non-private.
+- Off + any B&W renders have no seeded effect: seed-sensitivity asserts must skip stock .none.
+- Flaky UI: DiaryReviewUITests.testCameraFilmControlExpandsAndCollapses failed once in the baseline ("Film chip missing", Diary tap after the overlay dismissal) and passed on the next run.
+- Gap found: no direct test for "colour matrix rows sum to 1" (film-simulation.md 8.2) until `colourMatrixRowsSumToOne`.
+- DiaryReviewViewModel and PhotoEditViewModel tests are near-parallel (RAW replaces preview, Download waits for RAW, failed Download); a shared protocol in tests could merge them. Left as a follow-up.
+
+## v5.1 QA pass (2026-10-21/22)
+- Full run: guard clean (43 OPEN warnings, 6 min when run beside UI shards); unit 294 -> 300 tests / 63 suites (~37-41 s); UI 17 tests over 3 shards, 4-5.5 min each wall (shard 2 PhotoMode 330 s, shard 1 227 s, shard 3 245 s; testStripScreenCyclesEveryStock alone ~195 s, so count-balanced shards are time-unbalanced). Total ~17 min when guard and UI overlap.
+- Flaky: PhotoModeUITests.testEditorToolbarScrubberCompareAndDownload (compare poll) failed once under load, passed after. Don't run guard beside UI shards.
+- Screenshot recipe: `TEST_RUNNER_SHOTS_DIR=<abs> [TEST_RUNNER_SHOTS_SUFFIX=dark] scripts/test.sh ui qa --no-build StripScreenUITests PhotoModeUITests DiaryFlowUITests LibraryScreenshotTour` (~4 min). Tour writes light and dark itself. Shots in qa/screenshots/v5.1/qa/{light,dark}. "script `grep real`" for time doesn't work: output says "total".
+- My new file: frmrTests/V51AcceptanceTests.swift (contrast roles, 44 pt floor, walkthrough copy).
+- Bug class: amber used as text/indicator on cream (StripView). Amber is only valid as a fill with .appBlack text.
+- Device-only v5.1: glass look on iOS 26, Reduce Transparency, AX5 Dynamic Type, VoiceOver of scrubber/tool bar, haptic ticks, real capture to Continue to diary flow.

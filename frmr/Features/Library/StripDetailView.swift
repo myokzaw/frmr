@@ -1,78 +1,71 @@
 import SwiftUI
 
-// Full-screen view of a saved strip, presented from the Library's Strips tab.
+// Full-screen view of a saved strip, presented from the Library's Strips tab
+// (v5.1 F10, v5.2 §5.7): the strip as the hero on the darkroom, Close on
+// glass at the top left and [Share, Download] at the top right. The date is
+// printed on the strip itself, so the bar carries no title.
 struct StripDetailView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
 
     let image: UIImage?
     let dateText: String
     let onSaveToCameraRoll: () -> Void
 
+    private var theme: ThemePalette { ThemePalette.resolve(for: .dark, surface: .darkroom, contrast: contrast) }
+
     var body: some View {
-        detailContent
-            .appErrorAlert(errorState)
-    }
-
-    private var detailContent: some View {
-        ZStack(alignment: .topLeading) {
-            Color.appBlack
-                .ignoresSafeArea()
-
-            VStack(spacing: Constants.EditorUI.buttonPadding) {
-                StripImage(image: image)
-                Text(dateText)
-                    .font(.system(size: Constants.LibraryUI.sectionFontSize, design: .monospaced))
-                    .textCase(.uppercase)
-                    .kerning(1)
-                    .foregroundStyle(Color.appTealLight)
-                SaveToCameraRollButton(isEnabled: image != nil, action: onSaveToCameraRoll)
-            }
+        StripImage(image: image, dateText: dateText, mutedColor: theme.textMuted)
+            .padding(.horizontal, Constants.DesignUI.Space.xxl)
+            .padding(.vertical, Constants.DesignUI.Space.l)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding()
-
-            CloseCircleButton(action: { dismiss() })
-                .padding()
-        }
-    }
-}
-
-private struct SaveToCameraRollButton: View {
-    let isEnabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label("Save to camera roll", systemImage: "square.and.arrow.down")
-                .font(.system(size: Constants.StripUI.actionFontSize, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, Constants.EditorUI.buttonPadding)
-                .padding(.vertical, Constants.CameraUI.generateButtonVerticalPadding)
-                .background(Color.appTeal, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .disabled(!isEnabled)
-        .opacity(isEnabled ? 1 : Constants.CameraUI.disabledControlOpacity)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                DetailTopBar(onClose: { dismiss() }) {
+                    if let image {
+                        ShareLink(item: Image(uiImage: image), preview: SharePreview("Film strip", image: Image(uiImage: image))) {
+                            GlassIconGlyph(systemImage: "square.and.arrow.up", rotates: false)
+                        }
+                        .accessibilityLabel("Share")
+                        .accessibilityIdentifier("detail.share")
+                    }
+                    GlassIconButton(
+                        systemImage: "arrow.down.to.line",
+                        label: "Download",
+                        identifier: "detail.save",
+                        isEnabled: image != nil,
+                        rotates: false,
+                        action: onSaveToCameraRoll
+                    )
+                    .accessibilityHint("Saves the strip to your photo library")
+                }
+            }
+            .background(theme.bg.ignoresSafeArea())
+            .frmrDarkroomStatusBar()
+            .appErrorAlert(errorState)
     }
 }
 
 private struct StripImage: View {
     let image: UIImage?
+    let dateText: String
+    let mutedColor: Color
 
     var body: some View {
         if let image {
             Image(uiImage: image)
                 .resizable()
                 .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb))
                 .shadow(
                     color: .black.opacity(Constants.StripUI.previewShadowOpacity),
                     radius: Constants.StripUI.previewShadowRadius / 2
                 )
+                .accessibilityLabel("Film strip from \(dateText)")
         } else {
             Text("This strip file is missing.")
-                .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
-                .italic()
-                .foregroundStyle(Color.appCream.opacity(Constants.CameraUI.captionOpacity))
+                .font(.frmrMeta)
+                .foregroundStyle(mutedColor)
         }
     }
 }

@@ -24,6 +24,16 @@ enum InterfaceOrientationLock {
         case unlocked
     }
 
+    // Only the camera tab needs the portrait lock (its preview must not
+    // rotate); every other tab follows the device. Exhaustive on purpose so a
+    // new tab forces a decision here.
+    nonisolated static func mode(for tab: AppTab) -> Mode {
+        switch tab {
+        case .camera: .portraitLocked
+        case .library, .settings: .unlocked
+        }
+    }
+
     private static let log = Logger(subsystem: "frmr", category: "orientation")
 
     private(set) static var mode: Mode = .unlocked

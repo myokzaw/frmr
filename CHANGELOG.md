@@ -2,7 +2,112 @@
 
 What changed in each version of frmr, in plain language. Technical detail, decisions and test results live in the matching `frmr-v*-spec.md`.
 
-## v4 — Film pipeline (branch `v4-film-pipeline`)
+## v5.2 — UI makeover (branch `v5.2-makeover`)
+
+**Status:** built and tested on the simulator (2026-10-23): 332 unit tests and all UI tests pass. Device checks in progress; the QA accessibility pass is deferred. Spec: `frmr-v5.2-spec.md`; research behind it: `research/v5.2-ui-makeover.md`.
+
+- **Exposure in the editor.** A new first tool: −2 to +2 stops in ⅓-stop steps, applied before the film look. Bright areas roll off like overexposed film instead of clipping, and the setting is saved with the photo.
+- **Camera.**
+  - On tall phones the dial and shutter sit below a 3:4 viewfinder, so nothing covers the image.
+  - The dial shows a colour swatch for each stock.
+  - White balance and exposure show their values when you change them, and a brief flash shows the new setting.
+  - The status bar is hidden over the viewfinder, like the system Camera. Other screens follow your Appearance setting, so the status bar stays readable in light mode.
+- **Film strip.** The four slots live in a small strip next to the shutter. Tap it for gallery, Roll, undo and Generate.
+- **Editor.**
+  - Film and Print show small previews of your photo in each option.
+  - Effect icons show a ring for their strength.
+  - Compare is a button.
+  - A fresh photo fades in as it "develops".
+- **Strip screen.** One "Keep strip" button, with Share and Download as icons.
+- **Prompt screen.** Redesigned around the photo and your words.
+- **Library.**
+  - The Roll is a contact sheet grouped by day.
+  - Entries show what you wrote first.
+  - Strips sit in two columns.
+  - Empty screens use the system style.
+- **Settings.** A grouped list with a Default look page, plus two new switches: **Edit after each shot** (turn it off to keep shooting and edit later) and **Film-advance haptics**.
+- **Tips instead of a tour.** The walkthrough is replaced by short tips that point at the real controls.
+- **Accessibility everywhere.**
+  - Text scales with Dynamic Type.
+  - Every control is at least 44pt.
+  - High-contrast colours, with Increase Contrast variants.
+  - Reduce Motion and Reduce Transparency are respected.
+- **Shared design system.** One set of type, spacing, colour, glass and motion values (`project.md` §5a).
+
+**Not yet checked on a real iPhone:**
+- the shutter's film-advance haptic;
+- the new camera layout on different phone sizes;
+- the Liquid Glass look and the blur on older iOS;
+- the tips appearing over the real camera permission prompt.
+
+## v5.1 — Diary from the editor, and a modern look (branch `v5-photo-camera`)
+
+**Status:** built and tested on the simulator, and QA-verified (2026-10-21); device checks outstanding. Spec: `frmr-v5.1-spec.md`.
+
+- **Diary is part of taking a photo.** The mode switch is now Photo / Film strip.
+  - After a shot, **Continue to diary** (next to Save to roll) saves the photo to your Roll and opens the prompt.
+  - The entry is linked to that photo, so re-editing the photo updates the entry.
+  - Older entries are unchanged.
+- **One camera for both modes.** Film strip uses the same camera as Photo:
+  - a glass mode switch, and white balance and exposure buttons at the top;
+  - the slim stock dial and the shutter.
+  - It adds four slots, gallery / Roll / undo buttons, and a Generate button once a slot is filled.
+- **A simpler editor.**
+  - Icon buttons for discard, retake and download.
+  - A row of tools (Film, Print, Halation, Haze, Light leak, Grain, Vignette) with one tick-mark scrubber that clicks every 10%.
+  - The photo stays large.
+- **A modern look everywhere.**
+  - Glass controls (Liquid Glass on iOS 26, frosted on older iOS) and amber primary buttons with dark text.
+  - A Library with Roll / Entries / Strips. Roll photos with a diary entry show a book badge. Entries show what you wrote first. Strips appear in two columns.
+  - Full-screen photo and strip viewers, and a refreshed Settings screen and walkthrough.
+- **Safer deletes.** Deleting a photo that has a diary entry asks whether to delete both or keep the entry. Clear roll keeps entries by default.
+- **Roll photos in strips keep their full look.** Print and effects carry over, not just the stock.
+- **Accessibility.**
+  - Higher-contrast colours that pass accessibility contrast checks, and every control at least 44pt.
+  - Respects Reduce Motion and Reduce Transparency.
+- **Faster development.**
+  - Each agent has its own simulator.
+  - One test script (`scripts/test.sh`) builds once and re-runs a suite in about 6 s; the full unit run takes under a minute.
+  - UI tests run across three simulators at once, and the constants are split into one file per section.
+
+**Not yet checked on a real iPhone:**
+- the new camera chrome in landscape;
+- the haptics;
+- the Liquid Glass look and the blur fallback on older iOS;
+- large text sizes.
+
+## v5 — The camera is the main feature (branch `v5-photo-camera`)
+
+**Status:** built and tested on the simulator (2026-10-21); device checks outstanding. Spec: `frmr-v5-spec.md`.
+
+- **Opens on the camera.** The app now opens straight into a Photo camera. Diary and Film strip are options in the mode switch (camera, book, film icons).
+- **Stock dial.** Swipe a dial of the seven stocks above the shutter; the viewfinder shows the look live.
+- **White balance and exposure.** Presets plus Kelvin and tint sliders, and exposure compensation in ⅓-stop steps (the swipe gesture still works). Only one panel opens at a time.
+- **Edit after every shot.**
+  - Change the stock, the print, black and white, and each effect's strength.
+  - Hold the photo to compare with the original.
+  - Download to Photos, or Save to roll.
+- **Effect sliders everywhere.** Halation, Haze (the old bloom), Light leak, Grain and a new Vignette are 0–150% sliders on the editor, strip screen, diary review and Settings. 0% is the same as off, and existing photos and strips look exactly as before.
+- **Roll.** A new first tab in the Library.
+  - Every saved photo keeps its original plus its look, so it can be re-edited.
+  - Export to Photos, delete, or pick up to four photos for a strip.
+  - Settings has a separate "Clear roll".
+- **Smaller changes.**
+  - The last photo's thumbnail sits beside the shutter.
+  - The walkthrough describes the camera as the main screen.
+  - The unused "Remember white balance" setting is gone.
+  - Dragging a strip slider no longer buzzes repeatedly.
+- **Docs.** New `docs/film-simulation.md` explains how the film look works for anyone (or any agent) changing it. New `docs/testing.md` maps where tests live.
+- **Leaner tests.** Repeated tests were merged into parameterised ones. The test file was split by theme, and the Xcode template UI tests were removed. 310 → 283 unit tests (151 parameterised cases) and 14 → 11 UI tests, with every removed test mapped to the one that now covers it.
+
+**Not yet checked on a real iPhone:**
+- a real capture flowing into the editor;
+- white balance and exposure on the real camera;
+- the dial's haptics;
+- export to Photos;
+- landscape layouts.
+
+## v4 — Film pipeline (released on `main`)
 
 ### Part 2: Film at capture — done on the simulator (2026-10-21), device checks outstanding
 

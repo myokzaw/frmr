@@ -137,6 +137,21 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
 
 ## Current build status (2026-07-31)
 
+**v5.2 on branch `v5.2-makeover` (2026-10-22): UI makeover.** Read **project.md §5a (design tokens)** before any UI work.
+- **Use the tokens:** `Font.frmr*`, `Constants.DesignUI`, `ThemePalette.resolve(for:surface:contrast:)`, `frmrGlass`, `frmrPrimaryButtonStyle`, `FrmrMotion`. No fixed font sizes and no raw hex.
+- **New pieces:** `FilmLook.exposure` (in the film cube), `ChromePlacement`, `HapticEvent` / `Haptics.play`, `FilmSwatch`, editor stock/print previews, and TipKit tips (`FrmrTips.swift`). The old coach-mark walkthrough and `Features/Onboarding` are gone.
+- **Agents:** the user prefers 2 per round (one frontend, one backend).
+
+**v5 + v5.1 on branch `v5-photo-camera` (2026-10-21); simulator-verified, device checks outstanding.** The **camera is the main feature**: the app launches in Photo mode, and the modes are Photo and Film strip (`CameraViewModel.Mode` = `.photo`/`.photobooth`), both using the same chrome (`CameraChrome.swift`). The diary is reached from the editor with **Continue to diary**: it saves to the Roll and the `DiaryEntry` links via `rollPhotoID`. UI uses glass via `frmrGlass` / `frmrAdaptiveGlass` (`GlassBackground.swift`). Constants live in `frmr/Shared/Constants/`, one file per namespace. See **frmr-v5.1-spec.md** and **frmr-v5.2-spec.md** (next).
+- **Key types:**
+  - `FilmLook` (stock, print, B&W, effect strengths 0…1.5, where 1 = v4 and 0 = off, pixel-identical);
+  - `RollPhoto` and `RollViewModel` (non-destructive Roll);
+  - `PhotoEditViewModel` / `PhotoEditView` (editor after every Photo shot);
+  - `StockDial`, `CameraPanels` (white balance Kelvin/tint and ⅓-EV).
+- **Every sub-agent runs on Sonnet** (`model: "sonnet"`).
+- **Tests:** read `docs/testing.md` before adding one. It covers where each kind of test lives, the parameterised theme tests, and the "search before adding a test" rule.
+- **The v4 notes below still apply.**
+
 **v4 built (Parts 1 and 2, 2026-10-21); simulator-verified, device checks outstanding.** See **frmr-v4-spec.md** §Implementation status and **CHANGELOG.md**.
 - **Strip pipeline:** resize to slot → B&W luminance → halation → film colour cube (per-stock colour matrix → negative curve → print → shadow toe and black/white normalisation, `Features/Camera/FilmModel.swift`) → bloom → light leak → grain. Seeded by the global frame index, so re-renders are identical.
 - **`StripCustomization`:** `filmStock: FilmStock?` (nil = "As shot", each frame keeps its own stock), `printStock`, `effects`, `background` (paper white/black).
@@ -145,6 +160,7 @@ Do not add dependencies. Do not make network calls. Do not resolve OPEN: items b
   - Diary captures go through `DiaryReviewView` / `DiaryReviewViewModel` (stock row, OK, Retake, top-right Download via `ImageProcessor.renderFullLook`) before the editor.
   - Entries store the original photo plus `filmStockRaw` and render through `FilmLookCache`.
 - **Booth strip:** 4:5 frames, thin border and gaps, one-line captions, textured paper (OPEN v4-16).
+- **Before touching the film look:** read `docs/film-simulation.md`, the pipeline guide covering order, maths, constants, seeds, invariants and how to tune or extend it. Keep it updated in the same change.
 - **Rules:**
   - Never call `CIImage(image:)` on a photo; use `ImageProcessor.uprightCIImage(from:)`.
   - Personal test photos stay outside the repo: the gated `FilmStockSampleSheetTests` / `StripSampleRenderTests` read them via `TEST_RUNNER_FRMR_*` env vars.

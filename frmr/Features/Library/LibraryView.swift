@@ -1,148 +1,124 @@
 import SwiftData
 import SwiftUI
 
-// Library (project.md §2, screen 5): Entries tab (the diary list) and Strips
-// tab, plus the explicit "compile today's entries into a strip" action.
+// Library (project.md §2, screen 5; v5 F6; v5.2 M6): Roll (the default),
+// Entries and Strips, switched by a system segmented control in the
+// navigation bar's principal slot (no large title). Each tab owns its
+// trailing toolbar actions, hidden (not disabled) when they don't apply.
 struct LibraryView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
     @State private var viewModel = LibraryViewModel()
-    @Query(sort: \DiaryEntry.createdAt, order: .reverse) private var entries: [DiaryEntry]
 
-    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
-    private var hasEntriesToday: Bool {
-        entries.contains { Calendar.current.isDateInToday($0.createdAt) }
-    }
+    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .paper, contrast: contrast) }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                LibraryTabRow(
-                    isEntriesActive: viewModel.isEntriesTabActive,
-                    activeColor: theme.primary,
-                    inactiveColor: theme.muted,
-                    onSelectEntries: viewModel.selectEntriesTab,
-                    onSelectStrips: viewModel.selectStripsTab
-                )
-                content
-            }
-            .background(theme.background)
-            .navigationTitle("Library")
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    // Diary strips are compiled only on this explicit tap
-                    Button("Make today's strip", action: compileToday)
-                        .disabled(!hasEntriesToday)
+            content
+                .background(theme.bg.ignoresSafeArea())
+                .navigationTitle(viewModel.tab.label)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .principal) {
+                        Picker("Library", selection: $viewModel.tab) {
+                            ForEach(LibraryViewModel.Tab.allCases, id: \.self) { section in
+                                Text(section.label)
+                                    .accessibilityIdentifier("library.tab.\(section.label.lowercased())")
+                                    .tag(section)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .fixedSize()
+                        .accessibilityIdentifier("library.tabs")
+                    }
                 }
-            }
+                .tint(theme.tint)
         }
         .task {
             viewModel.errorState = errorState
-        }
-        .fullScreenCover(isPresented: Bindable(viewModel).isCompileStripPresented.projectedValue) {
-            StripView(items: LibraryViewModel.todaysItems(from: entries), isPhotobooth: false)
         }
     }
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isEntriesTabActive {
-            DiaryView()
-        } else {
-            StripsList(viewModel: viewModel)
+        switch viewModel.tab {
+        case .roll: RollView()
+        case .entries: DiaryView()
+        case .strips: StripsList(viewModel: viewModel)
         }
-    }
-
-    private func compileToday() {
-        viewModel.isCompileStripPresented = true
     }
 }
 
-private struct LibraryTabRow: View {
-    let isEntriesActive: Bool
-    let activeColor: Color
-    let inactiveColor: Color
-    let onSelectEntries: () -> Void
-    let onSelectStrips: () -> Void
-
-    var body: some View {
-        HStack(spacing: 0) {
-            LibraryTab(
-                label: "Entries",
-                isActive: isEntriesActive,
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                action: onSelectEntries
-            )
-            LibraryTab(
-                label: "Strips",
-                isActive: !isEntriesActive,
-                activeColor: activeColor,
-                inactiveColor: inactiveColor,
-                action: onSelectStrips
-            )
-        }
-        .padding(.horizontal)
-    }
-}
-
-private struct LibraryTab: View {
-    let label: String
-    let isActive: Bool
-    let activeColor: Color
-    let inactiveColor: Color
-    let action: () -> Void
-
-    private var textColor: Color { isActive ? activeColor : inactiveColor }
-    private var fontWeight: Font.Weight { isActive ? .semibold : .medium }
-    private var underline: Color { isActive ? activeColor : .clear }
-
-    var body: some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: Constants.LibraryUI.tabFontSize, weight: fontWeight))
-                .foregroundStyle(textColor)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Constants.CameraUI.chipVerticalPadding)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(underline)
-                        .frame(height: Constants.StripUI.swatchBorderWidth)
-                }
-        }
-        .buttonStyle(.plain)
-    }
-}
-
+// v5.2 M6: strips in two columns, each drawn at the column width with its
+// date below. "+" makes today's strip from the diary (moved from Entries:
+// it is a strip action), shown only when there are entries from today.
 private struct StripsList: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Query(sort: \DailyStrip.createdAt, order: .reverse) private var strips: [DailyStrip]
+    @Query(sort: \DiaryEntry.createdAt, order: .reverse) private var entries: [DiaryEntry]
     @State private var selectedStrip: DailyStrip?
 
-    let viewModel: LibraryViewModel
+    @Bindable var viewModel: LibraryViewModel
 
-    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme) }
+    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .paper, contrast: contrast) }
+    private var hasEntriesToday: Bool { LibraryViewModel.hasEntriesToday(in: entries) }
+
+    private let columns = Array(
+        repeating: GridItem(.flexible(), spacing: Constants.LibraryUI.stripColumnSpacing, alignment: .top),
+        count: Constants.LibraryUI.stripColumns
+    )
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: Constants.LibraryUI.rowSpacing) {
+            LazyVGrid(columns: columns, spacing: Constants.LibraryUI.stripRowSpacing) {
                 ForEach(strips) { strip in
                     Button {
                         selectedStrip = strip
                     } label: {
-                        StripRow(
+                        StripTile(
                             image: LibraryViewModel.loadStripImage(for: strip),
                             dateText: strip.createdAt.librarySectionTitle,
-                            textColor: theme.muted
+                            textColor: theme.textMuted
                         )
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Strip from \(strip.createdAt.librarySectionTitle)")
+                    .accessibilityHint("Opens the strip")
                     .accessibilityIdentifier("library.strip")
                 }
             }
-            .padding()
+            .padding(.horizontal, Constants.DesignUI.gutter)
+            .padding(.top, Constants.DesignUI.Space.l)
         }
-        .overlay(EmptyStripsHint(isVisible: strips.isEmpty, color: theme.muted))
+        .frmrTabBarScrollInsets()
+        .overlay {
+            if strips.isEmpty {
+                ContentUnavailableView {
+                    Label("No strips yet", systemImage: "film.stack")
+                        .font(.frmrReading.weight(.semibold))
+                } description: {
+                    Text("Use Film strip mode on the camera, or make today's strip from your entries.")
+                        .font(.frmrMeta)
+                }
+                .foregroundStyle(theme.textMuted)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if hasEntriesToday {
+                    // Diary strips are compiled only on this explicit tap
+                    Button {
+                        viewModel.isCompileStripPresented = true
+                    } label: {
+                        Label("Make today's strip", systemImage: "plus")
+                    }
+                    .accessibilityHint("Builds a strip from today's diary entries")
+                    .accessibilityIdentifier("library.makeTodaysStrip")
+                }
+            }
+        }
         .fullScreenCover(item: $selectedStrip) { strip in
             StripDetailView(
                 image: LibraryViewModel.loadStripImage(for: strip),
@@ -150,54 +126,33 @@ private struct StripsList: View {
                 onSaveToCameraRoll: { Task { await viewModel.saveStripToCameraRoll(strip) } }
             )
         }
+        .fullScreenCover(isPresented: $viewModel.isCompileStripPresented) {
+            StripView(items: LibraryViewModel.todaysItems(from: entries), isPhotobooth: false)
+        }
     }
 }
 
-private struct StripRow: View {
+private struct StripTile: View {
     let image: UIImage?
     let dateText: String
     let textColor: Color
 
     var body: some View {
-        VStack(spacing: Constants.Strip.captionSpacing) {
-            StripThumbnail(image: image)
+        VStack(spacing: Constants.DesignUI.Space.s) {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .clipShape(RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb))
+                    .shadow(
+                        color: .black.opacity(Constants.StripUI.previewShadowOpacity),
+                        radius: Constants.StripUI.previewShadowRadius / 2
+                    )
+            }
             Text(dateText)
-                .font(.system(size: Constants.LibraryUI.sectionFontSize, weight: .semibold))
-                .textCase(.uppercase)
-                .kerning(1)
+                .font(.frmrMeta)
                 .foregroundStyle(textColor)
         }
-    }
-}
-
-private struct StripThumbnail: View {
-    let image: UIImage?
-
-    var body: some View {
-        if let image {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(height: Constants.LibraryUI.stripThumbnailHeight)
-                .shadow(
-                    color: .black.opacity(Constants.StripUI.previewShadowOpacity),
-                    radius: Constants.StripUI.previewShadowRadius / 2
-                )
-        }
-    }
-}
-
-private struct EmptyStripsHint: View {
-    let isVisible: Bool
-    let color: Color
-
-    var body: some View {
-        Text("No strips yet. Compile today's entries or use film strip mode.")
-            .font(.system(size: Constants.LibraryUI.excerptFontSize, design: .serif))
-            .italic()
-            .foregroundStyle(color)
-            .multilineTextAlignment(.center)
-            .padding()
-            .opacity(isVisible ? 1 : 0)
+        .frame(maxWidth: .infinity)
     }
 }

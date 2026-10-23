@@ -11,11 +11,19 @@ nonisolated enum StripGenerator {
         /// The stock the photo was taken on (v4 F11). Used when the strip has
         /// no stock override ("As shot", v4 F12).
         let filmStock: StripCustomization.FilmStock
+        /// A Roll photo's own look (v5 F6); As shot renders it as is.
+        let look: FilmLook?
 
-        init(image: UIImage?, caption: String, filmStock: StripCustomization.FilmStock = .none) {
+        init(
+            image: UIImage?,
+            caption: String,
+            filmStock: StripCustomization.FilmStock = .none,
+            look: FilmLook? = nil
+        ) {
             self.image = image
             self.caption = caption
-            self.filmStock = filmStock
+            self.filmStock = look?.stock ?? filmStock
+            self.look = look
         }
 
         static let empty = Cell(image: nil, caption: "")
@@ -239,7 +247,7 @@ nonisolated enum StripGenerator {
             // or the stock it was shot on (v4 F12)
             let filtered = ImageProcessor.applyStripLook(
                 to: image,
-                customization: customization.effective(forFrameStock: cell.filmStock),
+                customization: customization.effective(forFrameStock: cell.filmStock, look: cell.look),
                 outputWidth: photoRect.width * Constants.Strip.renderScale,
                 seed: seed(for: date, slot: frame)
             )
@@ -297,7 +305,7 @@ nonisolated enum StripGenerator {
         attributed.draw(in: layout.dateRect)
     }
 
-    // OPEN: spec calls for Newsreader italic; system serif until the font is bundled
+    // System serif italic permanently (v5.2-8, Newsreader dropped)
     private static func serifItalicFont(size: CGFloat) -> UIFont {
         let base = UIFont.systemFont(ofSize: size)
         guard let descriptor = base.fontDescriptor

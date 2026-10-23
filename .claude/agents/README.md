@@ -57,3 +57,7 @@ Current state from `frmr-v3-spec.md`: v3 F1–F6 are implemented with a clean bu
    - `frmr-backend` takes the backend-owned failures.
    - `frmr-frontend` takes the frontend-owned failures. Specifically ask it to check the `UIDeviceOrientation` vs `UIInterfaceOrientation` landscape inversion against the v3-5 mapping **before any device session**.
 3. **frmr-qa again** once both have finished.
+
+## Film pipeline reference
+
+Any agent changing the film look (stocks, prints, effects, grain, cube, live preview) reads `docs/film-simulation.md` first and updates it in the same change.

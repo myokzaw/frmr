@@ -12,12 +12,23 @@ struct StripItem {
     let caption: String
     let entryID: UUID?
     let filmStock: StripCustomization.FilmStock
+    /// A Roll photo's own look (v5 F6). Under As shot the frame renders
+    /// exactly this look; nil for diary entries and photobooth shots, which
+    /// carry only their stock.
+    let look: FilmLook?
 
-    init(image: UIImage?, caption: String, entryID: UUID?, filmStock: StripCustomization.FilmStock = .none) {
+    init(
+        image: UIImage?,
+        caption: String,
+        entryID: UUID?,
+        filmStock: StripCustomization.FilmStock = .none,
+        look: FilmLook? = nil
+    ) {
         self.image = image
         self.caption = caption
         self.entryID = entryID
-        self.filmStock = filmStock
+        self.filmStock = look?.stock ?? filmStock
+        self.look = look
     }
 
     static let empty = StripItem(image: nil, caption: "", entryID: nil)
@@ -99,6 +110,14 @@ final class StripViewModel {
     private var renderTask: Task<[UIImage]?, Never>?
     private var renderGeneration = 0
 
+    // Dragging an effect slider re-renders many times; only the screen's
+    // first completed render earns the haptic
+    private(set) var hasPlayedCompletionHaptic = false
+
+    static func shouldPlayCompletionHaptic(alreadyPlayed: Bool, hasImages: Bool) -> Bool {
+        hasImages && !alreadyPlayed
+    }
+
     func renderStrips() async {
         renderTask?.cancel()
         renderGeneration += 1
@@ -106,7 +125,7 @@ final class StripViewModel {
         isRendering = true
         Haptics.prepareStripComplete()
 
-        let cells = items.map { StripGenerator.Cell(image: $0.image, caption: $0.caption, filmStock: $0.filmStock) }
+        let cells = items.map { StripGenerator.Cell(image: $0.image, caption: $0.caption, filmStock: $0.filmStock, look: $0.look) }
         let chunks = StripGenerator.chunked(cells, paddingWith: .empty)
         let customization = customization
         let date = date
@@ -132,14 +151,33 @@ final class StripViewModel {
         // The previous strip stays on screen until this one is ready (no blanking)
         stripImages = rendered
 
-        if !stripImages.isEmpty {
-            Haptics.stripCompleted()
+        if Self.shouldPlayCompletionHaptic(alreadyPlayed: hasPlayedCompletionHaptic, hasImages: !stripImages.isEmpty) {
+            hasPlayedCompletionHaptic = true
+            Haptics.play(.saved)
         }
     }
 
+    /// True for a moment after a successful Download, so the screen can
+    /// confirm (like the editor's `didSaveDownload`).
+    private(set) var didSaveToCameraRoll = false
+    @ObservationIgnored private var savedResetTask: Task<Void, Never>?
+
     func saveToCameraRoll() async {
+        await saveToCameraRoll { try await PHPhotoLibrary.saveToCameraRoll($0) }
+    }
+
+    /// The seam tests use in place of Photos.
+    func saveToCameraRoll(using save: ([UIImage]) async throws -> Void) async {
+        didSaveToCameraRoll = false
+        savedResetTask?.cancel()
         do {
-            try await PHPhotoLibrary.saveToCameraRoll(stripImages)
+            try await save(stripImages)
+            didSaveToCameraRoll = true
+            savedResetTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Constants.PhotoEdit.downloadSavedConfirmationDuration))
+                guard !Task.isCancelled else { return }
+                self?.didSaveToCameraRoll = false
+            }
         } catch let error as AppError {
             errorState?.raise(error)
         } catch {
@@ -193,14 +231,7 @@ final class StripViewModel {
         customization.filmStock = defaultFilmStock(defaults)
         customization.printStock = defaults.string(forKey: K.stripPrintStock)
             .flatMap(StripCustomization.PrintStock.init(rawValue:))
-        let stockEffects = StripCustomization.FilmEffects.defaults(for: customization.filmStock ?? .none)
-        // object(forKey:), not bool(forKey:): a missing key means "the stock's
-        // default", which for halation is on
-        customization.effects = StripCustomization.FilmEffects(
-            halation: defaults.object(forKey: K.stripHalation) as? Bool ?? stockEffects.halation,
-            bloom: defaults.object(forKey: K.stripBloom) as? Bool ?? stockEffects.bloom,
-            lightLeak: defaults.object(forKey: K.stripLightLeak) as? Bool ?? stockEffects.lightLeak
-        )
+        customization.strengths = storedStrengths(in: defaults)
         customization.blackAndWhite = defaults.bool(forKey: K.stripBlackAndWhite)
         return customization
     }
@@ -216,10 +247,35 @@ final class StripViewModel {
         } else {
             defaults.removeObject(forKey: K.stripPrintStock)
         }
-        defaults.set(customization.effects.halation, forKey: K.stripHalation)
-        defaults.set(customization.effects.bloom, forKey: K.stripBloom)
-        defaults.set(customization.effects.lightLeak, forKey: K.stripLightLeak)
+        defaults.set(customization.strengths.halation, forKey: K.stripHalation)
+        defaults.set(customization.strengths.haze, forKey: K.stripHaze)
+        defaults.set(customization.strengths.lightLeak, forKey: K.stripLightLeak)
+        defaults.set(customization.strengths.grain, forKey: K.stripGrain)
+        defaults.set(customization.strengths.vignette, forKey: K.stripVignette)
         defaults.set(customization.blackAndWhite, forKey: K.stripBlackAndWhite)
+    }
+
+    /// The stored effect strengths (v5 F5). A key written by v4 holds a
+    /// Bool: on reads as the v4 strength (1), off as 0 — which a numeric
+    /// read of the same NSNumber already gives. A missing key is the
+    /// default (halation on, the rest per `FilmLook.Effect.defaultStrength`).
+    /// Haze falls back to the old bloom key once. `object(forKey:)` rather
+    /// than `double(forKey:)`, so "never stored" stays distinguishable
+    /// from 0.
+    nonisolated static func storedStrengths(in defaults: UserDefaults) -> FilmLook.Strengths {
+        typealias K = Constants.DefaultsKeys
+        func strength(_ key: String, _ effect: FilmLook.Effect, legacyKey: String? = nil) -> Double {
+            let stored = defaults.object(forKey: key) ?? legacyKey.flatMap(defaults.object(forKey:))
+            guard let number = stored as? NSNumber else { return effect.defaultStrength }
+            return FilmLook.clampedStrength(number.doubleValue)
+        }
+        return FilmLook.Strengths(
+            halation: strength(K.stripHalation, .halation),
+            haze: strength(K.stripHaze, .haze, legacyKey: K.stripBloom),
+            lightLeak: strength(K.stripLightLeak, .lightLeak),
+            grain: strength(K.stripGrain, .grain),
+            vignette: strength(K.stripVignette, .vignette)
+        )
     }
 
     /// Rewrites a v2 stock value (or the pre-v2 grain Bool) and a pre-F8

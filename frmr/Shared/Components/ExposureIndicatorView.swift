@@ -15,10 +15,10 @@ struct ExposureIndicatorView: View {
         VStack(spacing: Constants.Camera.exposureIndicatorSpacing) {
             Image(systemName: "sun.max.fill")
             Text(formattedBias)
-                .font(.system(size: Constants.Camera.exposureIndicatorFontSize, design: .monospaced))
-                .monospacedDigit()
+                .font(.frmrValue)
         }
         .foregroundStyle(Color.appAmber)
+        .frmrChromeTypeSize()
         .padding(Constants.Camera.exposureIndicatorSpacing)
         .background(.black.opacity(Constants.CameraUI.chipInactiveOpacity), in: Capsule())
         .allowsHitTesting(false)
