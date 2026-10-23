@@ -146,7 +146,7 @@ struct ChromePlacementTests {
         Device(name: "17 Pro", width: 402, height: 874, top: 62, bottom: 83, expected: .below),
         Device(name: "15", width: 393, height: 852, top: 59, bottom: 83, expected: .below),
         Device(name: "13", width: 390, height: 844, top: 47, bottom: 83, expected: .below),
-        Device(name: "12 mini", width: 375, height: 812, top: 50, bottom: 83, expected: .overlay),
+        Device(name: "12 mini", width: 375, height: 812, top: 50, bottom: 83, expected: .below),
         Device(name: "SE", width: 375, height: 667, top: 20, bottom: 49, expected: .overlay),
     ]
 

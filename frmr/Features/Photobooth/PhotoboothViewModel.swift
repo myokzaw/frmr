@@ -33,6 +33,8 @@ final class PhotoboothViewModel {
     var remainingSlots: Int { slotCount - shots.count }
 
     /// "1 of 4": shots taken so far out of the strip's slots.
+    /// "2/4": the strip's fill, for the mini-strip badge.
+    var stripProgressBadge: String { "\(shots.count)/\(slotCount)" }
     var stripProgressText: String { "\(shots.count) of \(slotCount)" }
 
     var capturedCountText: String {

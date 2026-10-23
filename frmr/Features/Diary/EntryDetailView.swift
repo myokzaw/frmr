@@ -44,7 +44,7 @@ struct EntryDetailView: View {
             DetailTopBar(onClose: { dismiss() }) { EmptyView() }
         }
         .background(theme.bg.ignoresSafeArea())
-        .preferredColorScheme(.dark)
+        .frmrDarkroomStatusBar()
     }
 }
 

@@ -41,7 +41,7 @@ struct StripDetailView: View {
                 }
             }
             .background(theme.bg.ignoresSafeArea())
-            .preferredColorScheme(.dark)
+            .frmrDarkroomStatusBar()
             .appErrorAlert(errorState)
     }
 }

@@ -196,7 +196,9 @@ struct CameraControlSheet: View {
         .presentationBackgroundInteraction(.enabled)
         .presentationDragIndicator(.visible)
         .frmrSheetBackground()
-        .preferredColorScheme(.dark)
+        // Inherits the dark presenter; a preferred scheme here outlived the
+        // sheet and left light status text over the paper tabs
+        .environment(\.colorScheme, .dark)
     }
 }
 

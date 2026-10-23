@@ -111,17 +111,4 @@ struct RotationAcceptanceTests {
         #expect(CameraViewModel.rotationAngle(for: .landscapeLeft, current: .degrees(90)) == .degrees(90))
         #expect(CameraViewModel.rotationAngle(for: .landscapeLeft, current: .degrees(720)) == .degrees(810))
     }
-
-    @Test func onboardingIsPortraitCoversEveryCaseForBothPriorStates() {
-        for prior in [true, false] {
-            for o in Self.allCases {
-                let r = OnboardingViewModel.isPortrait(for: o, current: prior)
-                switch o {
-                case .portrait, .portraitUpsideDown: #expect(r)
-                case .landscapeLeft, .landscapeRight: #expect(!r)
-                default: #expect(r == prior)
-                }
-            }
-        }
-    }
 }

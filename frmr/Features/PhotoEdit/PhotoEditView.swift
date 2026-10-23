@@ -45,8 +45,9 @@ struct PhotoEditView: View {
         // photo and the bottom row always fit
         .frmrChromeTypeSize()
         .background(theme.bg.ignoresSafeArea())
-        // Darkroom: toggles and sheets draw for a dark page
+        // Darkroom: toggles, sheets and the status bar draw for a dark page
         .environment(\.colorScheme, .dark)
+        .frmrDarkroomStatusBar()
         .appErrorAlert(errorState)
         .task { edit.errorState = errorState }
         .sensoryFeedback(.warning, trigger: isDeleteConfirmationPresented) { _, shown in shown }

@@ -5,10 +5,23 @@ import UIKit
 
 @Observable
 final class LibraryViewModel {
-    enum Tab {
+    enum Tab: CaseIterable {
         case roll
         case entries
         case strips
+
+        var label: String {
+            switch self {
+            case .roll: return "Roll"
+            case .entries: return "Entries"
+            case .strips: return "Strips"
+            }
+        }
+    }
+
+    /// Whether any entry was created today (the compile-today's-strip offer).
+    static func hasEntriesToday(in entries: [DiaryEntry]) -> Bool {
+        entries.contains { Calendar.current.isDateInToday($0.createdAt) }
     }
 
     var errorState: ErrorState?

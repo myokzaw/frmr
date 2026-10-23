@@ -38,6 +38,12 @@ final class StripScreenUITests: XCTestCase {
 
         let filmStripMode = app.buttons["camera.mode.filmstrip"]
         XCTAssertTrue(filmStripMode.waitForExistence(timeout: timeout), "Film strip mode switch missing")
+        // Gallery picks take the camera's stock; the checks below assume Off,
+        // whatever an earlier test left the simulator on
+        let off = app.buttons["camera.dial.none"]
+        let dial = app.descendants(matching: .any)["camera.dial"]
+        for _ in 0..<5 where off.frame.minX < 0 { dial.swipeRight() }
+        off.tap()
         filmStripMode.tap()
 
         // v5.2 S2: the gallery lives in the mini-strip's sheet

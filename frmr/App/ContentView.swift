@@ -38,6 +38,8 @@ struct ContentView: View {
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
+    // The user's appearance choice only (nil = System), never varied by
+    // tab: the camera hides the status bar instead (v5.2 cleanup)
     private var preferredScheme: ColorScheme? {
         AppearanceMode(rawValue: appearanceMode)?.colorScheme
     }
@@ -63,6 +65,8 @@ struct ContentView: View {
         }
         .tint(tabTint)
         .preferredColorScheme(preferredScheme)
+        // Like the system Camera: no status bar over the viewfinder
+        .statusBarHidden(selectedTab == .camera)
         .environment(\.selectAppTab, AppTabSelection { selectedTab = $0 })
         .appErrorAlert(errorState)
         // The lock follows the selected tab, not CameraView's appear/disappear,
@@ -85,10 +89,8 @@ struct ContentView: View {
         }
     }
 
-    // CONTRACT: lockMode(for:) still lives on OnboardingViewModel (a pure
-    // static); it moves with the walkthrough's removal
     private func applyOrientationLock() {
-        switch OnboardingViewModel.lockMode(for: selectedTab) {
+        switch InterfaceOrientationLock.mode(for: selectedTab) {
         case .portraitLocked: InterfaceOrientationLock.lockToPortrait()
         case .unlocked: InterfaceOrientationLock.unlock()
         }
@@ -100,6 +102,7 @@ extension AppTab {
     nonisolated static func surface(for tab: AppTab) -> FrmrSurface {
         tab == .camera ? .darkroom : .paper
     }
+
 }
 
 #Preview {

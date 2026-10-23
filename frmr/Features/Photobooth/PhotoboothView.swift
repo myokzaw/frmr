@@ -26,8 +26,7 @@ struct MiniStripButton: View {
             .frame(width: UI.miniStripWidth, height: UI.miniStripHeight)
             .background(Color.appCream, in: RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb))
             .overlay(alignment: .topTrailing) {
-                // CONTRACT: a stripProgressBadge ("2/4") on PhotoboothViewModel
-                Text("\(viewModel.shots.count)/\(viewModel.slotCount)")
+                Text(viewModel.stripProgressBadge)
                     .font(.frmrCode)
                     .foregroundStyle(Color.appBlack)
                     .padding(.horizontal, Constants.DesignUI.Space.xs)
@@ -149,7 +148,9 @@ struct StripSlotsSheet: View {
         .presentationDetents([.height(UI.slotsSheetHeight)])
         .presentationDragIndicator(.visible)
         .frmrSheetBackground()
-        .preferredColorScheme(.dark)
+        // Inherits the dark presenter; a preferred scheme here outlived the
+        // sheet and left light status text over the paper tabs
+        .environment(\.colorScheme, .dark)
     }
 }
 

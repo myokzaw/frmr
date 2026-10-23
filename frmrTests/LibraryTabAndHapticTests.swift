@@ -25,6 +25,35 @@ struct LibraryTabAndHapticTests {
         #expect(library.isRollTabActive)
     }
 
+    @Test func tabsListInOrderWithLabels() {
+        #expect(LibraryViewModel.Tab.allCases.map(\.label) == ["Roll", "Entries", "Strips"])
+    }
+
+    @Test func hasEntriesTodayLooksAtTheCreationDay() {
+        func entry(_ date: Date) -> DiaryEntry { DiaryEntry(createdAt: date, photoPath: "Photos/x.jpg", prompt: "p", response: "r") }
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: .now) ?? .now
+        #expect(!LibraryViewModel.hasEntriesToday(in: []))
+        #expect(!LibraryViewModel.hasEntriesToday(in: [entry(yesterday)]))
+        #expect(LibraryViewModel.hasEntriesToday(in: [entry(yesterday), entry(.now)]))
+    }
+
+    @Test func downloadingAStripConfirmsOnlyOnSuccess() async {
+        struct Boom: Error {}
+        let strip = StripViewModel(items: [], isPhotobooth: true)
+        #expect(!strip.didSaveToCameraRoll)
+        await strip.saveToCameraRoll { _ in }
+        #expect(strip.didSaveToCameraRoll)
+        await strip.saveToCameraRoll { _ in throw Boom() }
+        #expect(!strip.didSaveToCameraRoll, "a failed download clears the confirmation")
+    }
+
+    @Test func theMiniStripBadgeReadsFilledOverSlots() {
+        let booth = PhotoboothViewModel()
+        #expect(booth.stripProgressBadge == "0/\(booth.slotCount)")
+        booth.add(UIImage())
+        #expect(booth.stripProgressBadge == "1/\(booth.slotCount)")
+    }
+
     @Test("The completion haptic plays only for the first render", arguments: [
         (false, true, true), (true, true, false), (false, false, false),
     ])

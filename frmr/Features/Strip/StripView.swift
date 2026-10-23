@@ -58,6 +58,7 @@ struct StripView: View {
             .overlay(alignment: .top) { topBar }
             .background(theme.bg.ignoresSafeArea())
             .environment(\.colorScheme, .dark)
+            .frmrDarkroomStatusBar()
             .appErrorAlert(errorState)
             .task {
                 viewModel.errorState = errorState
@@ -92,15 +93,17 @@ struct StripView: View {
                     }
                     .accessibilityLabel("Share")
                     .accessibilityIdentifier("strip.share")
-                    GlassIconButton(
-                        systemImage: isDownloading ? "ellipsis" : "arrow.down.to.line",
-                        label: "Download",
-                        identifier: "strip.download",
+                    // The editor's Download: spinner, then a "Saved" badge
+                    DownloadControl(
+                        isSaving: isDownloading,
+                        didSave: viewModel.didSaveToCameraRoll,
                         isDisabled: isDownloading,
-                        rotates: false,
+                        identifier: "strip.download",
+                        savedIdentifier: "strip.saved",
+                        label: "Download strip",
+                        hint: "Saves the strip to your photo library",
                         action: download
                     )
-                    .accessibilityHint("Saves the strip to your photo library")
                 }
             }
             .disabled(viewModel.areActionsDisabled)
@@ -176,7 +179,9 @@ struct StripView: View {
         .presentationDragIndicator(.visible)
         .interactiveDismissDisabled()
         .frmrSheetBackground()
-        .preferredColorScheme(.dark)
+        // Inherits the dark presenter; a preferred scheme here outlived the
+        // sheet and left light status text over the paper tabs
+        .environment(\.colorScheme, .dark)
     }
 
     @ViewBuilder private var toolControl: some View {
@@ -289,8 +294,6 @@ struct StripView: View {
         }
     }
 
-    // CONTRACT: StripViewModel.saveToCameraRoll() reports no success, so
-    // there is no "Saved" confirmation yet
     private func download() {
         isDownloading = true
         Task {

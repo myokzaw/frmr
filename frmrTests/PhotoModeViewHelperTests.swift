@@ -1,3 +1,4 @@
+import SwiftUI
 import Testing
 @testable import frmr
 
@@ -80,5 +81,14 @@ struct PhotoModeViewHelperTests {
         #expect(AppTab.surface(for: .camera) == .darkroom)
         #expect(AppTab.surface(for: .library) == .paper)
         #expect(AppTab.surface(for: .settings) == .paper)
+    }
+
+    // The window and paper covers take the user's appearance choice only;
+    // System is nil so SwiftUI follows the system setting
+    @Test func appearanceChoiceMapsToPreferredScheme() {
+        #expect(AppearanceMode.system.colorScheme == nil)
+        #expect(AppearanceMode.light.colorScheme == .light)
+        #expect(AppearanceMode.dark.colorScheme == .dark)
+        #expect(AppearanceMode(rawValue: "unknown")?.colorScheme == nil)
     }
 }

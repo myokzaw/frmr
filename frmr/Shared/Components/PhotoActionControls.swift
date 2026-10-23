@@ -59,6 +59,8 @@ struct DownloadControl: View {
     let isDisabled: Bool
     let identifier: String
     let savedIdentifier: String
+    var label = "Download photo"
+    var hint = "Saves this photo with its film look to your photo library"
     let action: () -> Void
 
     private var symbolName: String { didSave ? "checkmark" : "arrow.down.to.line" }
@@ -88,9 +90,9 @@ struct DownloadControl: View {
             .buttonStyle(.plain)
             .disabled(isDisabled)
             .opacity(isDisabled && !isSaving ? Constants.CameraUI.disabledControlOpacity : 1)
-            .accessibilityLabel("Download photo")
+            .accessibilityLabel(label)
             .accessibilityValue(didSave ? "Saved" : "")
-            .accessibilityHint("Saves this photo with its film look to your photo library")
+            .accessibilityHint(hint)
             .accessibilityIdentifier(identifier)
         }
         .frmrAnimation(.snap, value: didSave)

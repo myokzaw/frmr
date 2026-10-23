@@ -4,13 +4,14 @@ What changed in each version of frmr, in plain language. Technical detail, decis
 
 ## v5.2 — UI makeover (branch `v5.2-makeover`)
 
-**Status:** built and tested on the simulator (2026-10-22). The QA accessibility pass is next, and device checks are outstanding. Spec: `frmr-v5.2-spec.md`; research behind it: `research/v5.2-ui-makeover.md`.
+**Status:** built and tested on the simulator (2026-10-23): 332 unit tests and all UI tests pass. Device checks in progress; the QA accessibility pass is deferred. Spec: `frmr-v5.2-spec.md`; research behind it: `research/v5.2-ui-makeover.md`.
 
 - **Exposure in the editor.** A new first tool: −2 to +2 stops in ⅓-stop steps, applied before the film look. Bright areas roll off like overexposed film instead of clipping, and the setting is saved with the photo.
 - **Camera.**
   - On tall phones the dial and shutter sit below a 3:4 viewfinder, so nothing covers the image.
   - The dial shows a colour swatch for each stock.
   - White balance and exposure show their values when you change them, and a brief flash shows the new setting.
+  - The status bar is hidden over the viewfinder, like the system Camera. Other screens follow your Appearance setting, so the status bar stays readable in light mode.
 - **Film strip.** The four slots live in a small strip next to the shutter. Tap it for gallery, Roll, undo and Generate.
 - **Editor.**
   - Film and Print show small previews of your photo in each option.

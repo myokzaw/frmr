@@ -13,6 +13,7 @@ struct EntryEditorView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
+    @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
 
     let camera: CameraViewModel
     @State private var viewModel = DiaryViewModel()
@@ -43,6 +44,8 @@ struct EntryEditorView: View {
         .safeAreaInset(edge: .top, spacing: 0) { topBar }
         .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }
         .background(theme.bg.ignoresSafeArea())
+        // Presented from the dark camera: ask for paper's own scheme
+        .frmrPaperStatusBar(appearanceMode: appearanceMode)
         .foregroundStyle(theme.text)
         .tint(theme.tint)
         .appErrorAlert(errorState)

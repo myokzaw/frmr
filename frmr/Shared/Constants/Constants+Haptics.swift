@@ -25,7 +25,7 @@ nonisolated extension Constants.Camera {
     static let viewfinderAspectHeightOverWidth: CGFloat = 4.0 / 3.0
     /// Height the stock dial and the shutter stack need under the
     /// viewfinder for `.below` placement (dial row + gap + shutter + gap).
-    static let belowChromeStackHeight: CGFloat = 172
+    static let belowChromeStackHeight: CGFloat = 170
     /// Minimum breathing room above the viewfinder (status bar / chips),
     /// on top of the top safe area.
     static let belowChromeTopMargin: CGFloat = 8

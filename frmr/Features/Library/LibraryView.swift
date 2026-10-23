@@ -6,45 +6,10 @@ import SwiftUI
 // navigation bar's principal slot (no large title). Each tab owns its
 // trailing toolbar actions, hidden (not disabled) when they don't apply.
 struct LibraryView: View {
-    enum Section: CaseIterable {
-        case roll
-        case entries
-        case strips
-
-        var label: String {
-            switch self {
-            case .roll: return "Roll"
-            case .entries: return "Entries"
-            case .strips: return "Strips"
-            }
-        }
-    }
-
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
     @State private var viewModel = LibraryViewModel()
-
-    // CONTRACT: LibraryViewModel.Tab could carry these directly (label,
-    // CaseIterable); for now the two enums map one to one here
-    private var section: Binding<Section> {
-        Binding(
-            get: {
-                switch viewModel.tab {
-                case .roll: return .roll
-                case .entries: return .entries
-                case .strips: return .strips
-                }
-            },
-            set: { selected in
-                switch selected {
-                case .roll: viewModel.selectRollTab()
-                case .entries: viewModel.selectEntriesTab()
-                case .strips: viewModel.selectStripsTab()
-                }
-            }
-        )
-    }
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .paper, contrast: contrast) }
 
@@ -52,12 +17,12 @@ struct LibraryView: View {
         NavigationStack {
             content
                 .background(theme.bg.ignoresSafeArea())
-                .navigationTitle(section.wrappedValue.label)
+                .navigationTitle(viewModel.tab.label)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .principal) {
-                        Picker("Library", selection: section) {
-                            ForEach(Section.allCases, id: \.self) { section in
+                        Picker("Library", selection: $viewModel.tab) {
+                            ForEach(LibraryViewModel.Tab.allCases, id: \.self) { section in
                                 Text(section.label)
                                     .accessibilityIdentifier("library.tab.\(section.label.lowercased())")
                                     .tag(section)
@@ -77,7 +42,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch section.wrappedValue {
+        switch viewModel.tab {
         case .roll: RollView()
         case .entries: DiaryView()
         case .strips: StripsList(viewModel: viewModel)
@@ -98,10 +63,7 @@ private struct StripsList: View {
     @Bindable var viewModel: LibraryViewModel
 
     private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .paper, contrast: contrast) }
-    // CONTRACT: LibraryViewModel.hasEntriesToday(in:) would keep this out of the view
-    private var hasEntriesToday: Bool {
-        entries.contains { Calendar.current.isDateInToday($0.createdAt) }
-    }
+    private var hasEntriesToday: Bool { LibraryViewModel.hasEntriesToday(in: entries) }
 
     private let columns = Array(
         repeating: GridItem(.flexible(), spacing: Constants.LibraryUI.stripColumnSpacing, alignment: .top),

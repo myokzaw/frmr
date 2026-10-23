@@ -157,9 +157,27 @@ final class StripViewModel {
         }
     }
 
+    /// True for a moment after a successful Download, so the screen can
+    /// confirm (like the editor's `didSaveDownload`).
+    private(set) var didSaveToCameraRoll = false
+    @ObservationIgnored private var savedResetTask: Task<Void, Never>?
+
     func saveToCameraRoll() async {
+        await saveToCameraRoll { try await PHPhotoLibrary.saveToCameraRoll($0) }
+    }
+
+    /// The seam tests use in place of Photos.
+    func saveToCameraRoll(using save: ([UIImage]) async throws -> Void) async {
+        didSaveToCameraRoll = false
+        savedResetTask?.cancel()
         do {
-            try await PHPhotoLibrary.saveToCameraRoll(stripImages)
+            try await save(stripImages)
+            didSaveToCameraRoll = true
+            savedResetTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Constants.PhotoEdit.downloadSavedConfirmationDuration))
+                guard !Task.isCancelled else { return }
+                self?.didSaveToCameraRoll = false
+            }
         } catch let error as AppError {
             errorState?.raise(error)
         } catch {

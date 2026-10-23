@@ -60,20 +60,6 @@ struct V51TapTargetTests {
     }
 }
 
-struct V51WalkthroughCopyTests {
-    @Test func theCameraStepPointsAtContinueToDiary() {
-        #expect(CoachCopy.entries[.camera]?.body == "Shoot on film. Write about a photo with Continue to diary.")
-    }
-
-    @Test func everyStepHasCopyAndNoneMentionsTheRemovedDiaryMode() {
-        for step in CoachStep.allCases {
-            let copy = CoachCopy.entries[step]
-            #expect(copy != nil)
-            #expect(copy?.body.localizedCaseInsensitiveContains("diary mode") == false)
-        }
-    }
-}
-
 // v5.2 M0: every ThemePalette role pair, as a pure function over scheme,
 // surface and Increase Contrast. Semi-transparent roles are composited over
 // the background they sit on before measuring.
