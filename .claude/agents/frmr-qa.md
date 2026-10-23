@@ -69,3 +69,4 @@ Use `scripts/test.sh` with role `qa`; never call `xcodebuild` by hand (`docs/tes
 - Before handing back: `scripts/test.sh fast qa` — at round end: `scripts/test.sh all qa`.
 - Your simulator is `frmr-qa`; your DerivedData is `qa/DerivedData`. Don't use another role's simulator.
 - Any Swift warning fails the run.
+- **Screenshots:** only the screens your change touches (2–4 for a fix). The full light/dark/AX5 matrix is for QA's accessibility pass, once per version (docs/testing.md §0).

@@ -134,6 +134,13 @@ The full mapping from every §8 invariant to its guarding tests, including the i
 
 **Two agents at once:** frontend uses UI shards 1–3 and backend uses 4–6. Don't run `frmr-guard --all` or extra builds while UI shards are running; heavy load causes flaky UI timeouts.
 
+**Screenshots (user rule, 2026-10-22):** take only what the change needs.
+- **A fix:** the 2–4 screens it touches.
+- **The end of a release round:** a review set of 6–9 key screens, in light and dark.
+- **The QA accessibility pass:** the full light/dark/AX5 matrix, once per version.
+
+Screenshots live in `qa/screenshots/` and are never committed.
+
 **The script fails on:** a build error, any failing test, or any Swift warning. Logs go to `build/test-logs/`.
 
 **Creating the simulators** (once per machine): `xcrun simctl create frmr-backend "iPhone 17 Pro" com.apple.CoreSimulator.SimRuntime.iOS-26-4`, and the same for the other names in the table.

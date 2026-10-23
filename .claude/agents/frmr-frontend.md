@@ -80,3 +80,4 @@ Use `scripts/test.sh` with role `frontend`; never call `xcodebuild` by hand (`do
 - Before handing back: `scripts/test.sh fast frontend` plus `scripts/test.sh ui frontend <YourUIClasses>`.
 - Your simulator is `frmr-frontend`; your DerivedData is `build/frontend`. Don't use another role's simulator.
 - Any Swift warning fails the run.
+- **Screenshots:** only the screens your change touches (2–4 for a fix). The full light/dark/AX5 matrix is for QA's accessibility pass, once per version (docs/testing.md §0).
