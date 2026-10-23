@@ -1,54 +1,54 @@
 # frmr
 
-A minimalist film camera for iOS. Shoot on a film stock, fine-tune the look after every shot, and keep your photos in a re-editable roll. Any photo can become a **diary** entry with a reflective prompt, and the **Film strip** mode makes photobooth-style strips.
+**A film camera for your iPhone. Shoot on film stocks, fine-tune every frame, and keep a quiet photo diary.**
 
-The film look is built from how film actually works, not from filters: each stock has its own tone curve per colour layer, is printed onto a print stock, and picks up the physical artefacts of film (halation around highlights, grain that follows exposure, a soft bloom and the occasional light leak). Everything is rendered on the device.
+frmr makes your photos look like film because it works like film. Each stock has its own colour response and is printed onto real print paper, with the glow, grain and light leaks of a physical roll. Everything happens on your phone. There are no accounts, no internet and no AI.
 
-Everything is intentional and user-initiated:
+## Features
 
-- **Offline.** No network calls, no sync, no analytics.
-- **No AI.** Prompts come from a static list in the app.
-- **No automatic actions.** Saving to the camera roll, generating a strip and sharing each need an explicit tap.
-- **Custom camera.** `AVCaptureSession` + `AVCapturePhotoOutput` with RAW capture. No system image picker for capture.
-
-## What it does
-
-- **Camera (the main screen).** The app opens straight into Photo mode.
-  - **Stock dial:** swipe it to pick a stock (OFF, D200, P400, C500, S100, M400, M3.2K), each with a colour swatch. The viewfinder shows that stock's colour and tone live. On tall phones the dial and shutter sit below the viewfinder.
-  - **White balance:** presets, plus fine-tune Kelvin and tint sliders.
-  - **Exposure compensation:** in ⅓-stop steps, from a chip or by swiping on the viewfinder.
-  - Tap to focus and expose, pinch to zoom, front/back flip and back-lens selection.
-  - **Mode switch:** Photo (default) and Film strip. Both use the same camera controls.
-- **Edit after every shot.**
-  - **Exposure:** −2 to +2 stops, applied before the film look so highlights roll off like film.
-  - **Film and Print:** pick from small previews of your photo in each stock and print, or switch to black and white.
-  - **Effects:** a tool row with one scrubber (0–150%) for Halation, Haze, Light leak, Grain and Vignette, with reset.
-  - Hold the photo to compare with the original.
-  - **Download** saves the full-resolution film photo to Photos; **Save to roll** keeps it in the app; **Continue to diary** saves it and opens a reflective prompt.
-- **Roll.** Every photo you save keeps its original plus its look, so you can re-edit it any time.
-  - Export to Photos, delete, or pick up to four photos to make a strip.
-- **Film stocks.** Six looks plus Off:
+### Shoot on film
+- **Six film stocks, live in the viewfinder.** Swipe the stock dial and see the look before you take the shot.
   - **Daylight 200:** warm, everyday colour.
-  - **Portrait 400:** soft, low contrast, gentle skin tones.
-  - **Cine 500T:** cool tungsten cinema film with strong halation.
+  - **Portrait 400:** soft, gentle skin tones.
+  - **Cine 500T:** cool tungsten cinema film with a red glow around lights.
   - **Slide 100:** punchy, saturated, deep blacks.
   - **Mono 400:** classic black and white.
   - **Mono 3200:** hard contrast and heavy grain.
-- **How the film look is made:**
-  - **Characteristic curves.** Each stock's red, green and blue layers respond to light separately, with a soft toe in the shadows and a rolled-off shoulder in the highlights. Their differences give each stock its colour character.
-  - **Print stage.** The negative is printed on Lab print, Cinema print or Matte paper; slide film is projected. The look is the two curves combined, balanced so neutral grey stays neutral.
-  - **Halation.** A warm red-orange glow around bright highlights, as light bounces back through the film.
-  - **Grain.** Two sizes of grain, scaled to film speed and strongest where the film is densest. Colour stocks get slightly coloured grain.
-  - **Haze, light leaks and vignette.** A soft diffusion glow (Haze), warm leaks at the frame edge and corner darkening, each with its own strength slider.
-  - Effects are seeded per frame, so the same strip always renders identically.
-- **Diary.** From the editor, **Continue to diary** gives a photo a prompt and a short written response. The entry stays linked to the photo in your Roll.
-- **Film strips (mode).** Four frames compile into a photobooth-style strip: 4:5 frames close together in a thin border on warm off-white or near-black photo paper, a one-line caption under each frame, and the date.
-  - Choose a stock, a print, effect strengths and black and white on the strip screen. Frames can come from the camera, your phone's gallery or your Roll.
-  - Strips render each frame "As shot" in its own stock, or override all four with one.
-  - Strips live in a library and export to the camera roll on request.
-- **Settings.** Appearance, Edit after each shot, Film-advance haptics, a Default look page for strips, Clear diary, Clear roll, and Show tips again.
+- **A real camera.** It captures RAW photos. Tap to focus, pinch to zoom, swipe to change exposure, and set white balance with presets or Kelvin and tint.
+- **Built for one hand.** On tall iPhones the dial and shutter sit below the viewfinder, so nothing covers your shot. The controls turn upright as you rotate the phone, like the Camera app.
 
-On the camera screen the interface is locked to portrait. Controls keep their positions and rotate individually, in place, to stay upright as the phone turns, like the system Camera app.
+### Make every frame yours
+- **Edit right after the shot, or later.** Change the exposure (±2 stops), the stock, the print paper or black and white. Small previews show your own photo in each option.
+- **Physical film effects.** Halation, Haze, Light leak, Grain and Vignette, each from 0 to 150%.
+- **Compare.** Hold to see the original.
+- **Nothing is lost.** Your Roll keeps every original, so you can re-edit any photo at any time.
+
+### Keep a photo diary
+- **Continue to diary.** Answer a short, thoughtful prompt about the moment you just captured.
+- Each entry stays linked to its photo. If you re-edit the photo, the entry updates too.
+
+### Make photo strips
+- **Film strip mode.** Shoot or pick four frames for a photobooth-style strip on white or black photo paper, with captions and the date.
+- Use one stock for every frame, or keep each photo as you shot it.
+
+### Private by design
+- **Fully offline:** no accounts, no sync, no analytics, no network.
+- **No AI.** Your words and photos stay yours.
+- **Nothing happens without you.** Saving, sharing and exporting each need a tap.
+- **Made for everyone.** It supports Dynamic Type, VoiceOver, Increase Contrast, Reduce Motion and Reduce Transparency, with Liquid Glass on iOS 26.
+
+## How the film look works
+
+- **Characteristic curves.** The red, green and blue layers of each stock each respond to light separately. Each has a soft toe in the shadows and a rolled-off shoulder in the highlights.
+- **Print stage.** The negative is printed on Lab, Cinema or Matte paper, and slide film is projected. The print is balanced so neutral grey stays neutral.
+- **Exposure first.** Exposure is applied before the film curve, so bright areas roll off like overexposed film instead of clipping.
+- **Effects.**
+  - Halation: light bouncing back through the film.
+  - Grain: two sizes, following film speed and density.
+  - Haze, light leaks and vignette.
+  - Each effect is seeded per frame, so a strip renders the same every time.
+
+Full detail: [docs/film-simulation.md](docs/film-simulation.md).
 
 ## Requirements
 
@@ -80,7 +80,7 @@ Swift 5.9+, SwiftUI, `@Observable`, SwiftData, AVFoundation, CoreImage, PhotosUI
 ```
 frmr/
   App/            app entry, tab root
-  Features/       Camera, Diary, Strip, Photobooth, Library, Settings, Onboarding
+  Features/       Camera, PhotoEdit, Roll, Diary, Strip, Photobooth, Library, Settings
   Models/         SwiftData models
   Shared/         components, extensions, Constants.swift
 frmrTests/        unit and acceptance tests
@@ -107,13 +107,9 @@ qa/bugs/          QA bug reports
 
 ## Status
 
-- **v1–v3:** implemented.
-- **v4, film pipeline and film at capture:** released on `main`.
-- **v5.2, UI makeover:** built on branch `v5.2-makeover`. It adds Exposure, a shared design system and accessibility throughout (see CHANGELOG).
-- **v5 and v5.1, the photo camera as the main feature:** on branch `v5-photo-camera`. v5.1 adds the diary from the editor, one camera for Photo and Film strip, and a modern glass UI.
-  - Photo mode at launch, the stock dial, white balance and exposure controls, the editor after every shot, effect strength sliders everywhere, and the Roll.
-  - Tests were consolidated: 283 unit tests (151 parameterised cases) and 11 UI tests, with no coverage lost (`qa/test-consolidation/mapping.md`).
-- **Unverified on a physical device:** the live viewfinder, real capture → editor → Download, white balance and exposure on the real camera, the dial haptics, export to Photos, landscape layouts, and the film look on real captures. Checklists are in `frmr-v4-spec.md` and `frmr-v5-spec.md`.
+- **v5.2 (UI makeover) is on `main`.** It includes v4 (film pipeline), v5 (camera first, the Roll), v5.1 (diary from the editor, one camera for both modes) and v5.2 (Exposure, design system, accessibility).
+- **Tests:** 332 unit tests and all UI tests pass on the simulator.
+- **Physical device:** checks are in progress. The open checklists are in the v4, v5 and v5.2 specs.
 
 See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
