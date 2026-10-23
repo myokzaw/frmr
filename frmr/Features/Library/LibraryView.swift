@@ -2,9 +2,12 @@ import SwiftData
 import SwiftUI
 
 // Library (project.md §2, screen 5; v5 F6; v5.2 M6): Roll (the default),
-// Entries and Strips, switched by a system segmented control in the
-// navigation bar's principal slot (no large title). Each tab owns its
+// Entries and Strips, switched by a system segmented control pinned to the
+// navigation bar's leading edge (no large title). Each tab owns its
 // trailing toolbar actions, hidden (not disabled) when they don't apply.
+// Leading, not principal: a centered control was pushed aside by Roll's
+// Select and re-centered on Entries, so it jumped and reshaped on every
+// switch.
 struct LibraryView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
@@ -20,7 +23,12 @@ struct LibraryView: View {
                 .navigationTitle(viewModel.tab.label)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    // The switch already names the tab; keep the title for
+                    // VoiceOver but draw nothing in the middle
                     ToolbarItem(placement: .principal) {
+                        Color.clear.frame(width: 1, height: 1).accessibilityHidden(true)
+                    }
+                    ToolbarItem(placement: .topBarLeading) {
                         Picker("Library", selection: $viewModel.tab) {
                             ForEach(LibraryViewModel.Tab.allCases, id: \.self) { section in
                                 Text(section.label)

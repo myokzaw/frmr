@@ -175,6 +175,15 @@ User decision: Off / Thirds / Square / Golden. Default Off. No level.
 - **Strip hero:** the top bar is a `.safeAreaInset`, so the strip no longer scrolls under the status bar.
 - **Tests:** `EntryStripPickerTests`, `StripDeletionTests` and 3 UI tests. Lead: unit and all UI pass, guard clean.
 
+### BUG-521-05 / BUG-521-06 — Library switch jumps; thumbnails stutter (user, 2026-10-23) — **fixed**
+- **05 (the switch):**
+  - **Cause:** the segmented control sat in `.principal`. Roll's trailing Select pushed it left, and Entries (no trailing item) re-centred it, so it moved and its glass morphed on every switch.
+  - **Fix:** the control moves to `.topBarLeading`, with an empty principal so the title doesn't show. Roll's selection Cancel moves into Select's `primaryAction` slot.
+  - **Checked:** a probe captured the control at the same frame (20, 61, 198×47) on all three tabs.
+- **06 (thumbnails):**
+  - **Cause:** every thumbnail decoded the full original (12–48 MP) at once, with no limit.
+  - **Fix:** `ImageIOThumbnail` decodes at display size, upright, and `AsyncGate.display` allows 2 renders at a time, with cancelled waits dropped. Both are used by `FilmLookCache.displayImage`, for diary and Roll. Full-resolution export is unchanged. Tests: `DisplayThumbnailTests`.
+
 ### Round plan
 - One backend and one frontend agent (Sonnet), covering all four items.
 - Backend goes first: all three APIs are small. Frontend starts once backend hands back.

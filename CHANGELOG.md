@@ -20,6 +20,8 @@ What changed in each version of frmr, in plain language. Technical detail, decis
 - **Delete strips.** A trash button in the strip viewer deletes that strip, and Settings → Your Data → Clear strips deletes them all. Entries and photos stay.
 - **Fixed:** the strip no longer slides under the status bar and close button.
 - Strips made from entries keep each photo's full look.
+- **Fixed:** the Roll / Entries / Strips switch no longer jumps and reshapes when you change tabs. It now stays on the left, and while selecting photos, Cancel takes Select's place.
+- **Smoother Library.** Entry and Roll thumbnails load a small copy of each photo instead of the full camera file, and render two at a time.
 - **Faster diary prompt.** It shows a screen-sized copy of the photo, and the prompt no longer restarts its typing when you tap to write.
 
 ## v5.2 — UI makeover (branch `v5.2-makeover`)

@@ -129,11 +129,7 @@ final class DiaryViewModel {
         let seed = StripGenerator.photoLookSeed(for: entry.lookSeedDate)
         let url = FileManager.documentsURL(forRelativePath: entry.photoPath)
         let pixels = pixelSize(size, scale: scale)
-        return await Task.detached(priority: .userInitiated) {
-            FilmLookCache.shared.image(id: id, look: look, seed: seed, pixelSize: pixels) {
-                UIImage(contentsOfFile: url.path())
-            }
-        }.value
+        return await FilmLookCache.shared.displayImage(id: id, look: look, seed: seed, url: url, pixelSize: pixels)
     }
 
     /// The cached display image if one is ready, so a view can show it on

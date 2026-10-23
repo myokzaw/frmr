@@ -75,6 +75,25 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
         return rendered
     }
 
+    /// Display render for a file on disk: a hit returns at once; a miss
+    /// waits for one of the shared render slots (so a screenful of rows
+    /// doesn't saturate CPU and memory), decodes the file down to the
+    /// needed size with ImageIO, then renders. nil when cancelled while
+    /// waiting (nothing renders) or when the photo can't be loaded.
+    func displayImage(
+        id: UUID, look: FilmLook, seed: UInt64, url: URL, pixelSize: CGSize
+    ) async -> UIImage? {
+        if let cached = cachedImage(id: id, look: look, pixelSize: pixelSize) { return cached }
+        let rendered: UIImage?? = await AsyncGate.display.run {
+            await Task.detached(priority: .userInitiated) {
+                self.image(id: id, look: look, seed: seed, pixelSize: pixelSize) {
+                    ImageIOThumbnail.load(contentsOf: url, coveringPixelSize: pixelSize)
+                }
+            }.value
+        }
+        return rendered ?? nil
+    }
+
     func removeAll() {
         cache.removeAllObjects()
     }

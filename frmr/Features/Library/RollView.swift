@@ -68,14 +68,13 @@ struct RollView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            // Cancel takes Select's place (the leading edge holds the
+            // Library's tab switch)
+            ToolbarItem(placement: .primaryAction) {
                 if viewModel.isSelecting {
                     Button("Cancel", action: viewModel.endSelecting)
                         .accessibilityIdentifier("roll.cancelSelect")
-                }
-            }
-            ToolbarItem(placement: .primaryAction) {
-                if !viewModel.isSelecting && !photos.isEmpty {
+                } else if !photos.isEmpty {
                     Button("Select", action: beginSelecting)
                         .accessibilityIdentifier("roll.select")
                 }

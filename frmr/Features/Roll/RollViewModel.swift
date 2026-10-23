@@ -330,11 +330,7 @@ final class RollViewModel {
         let seed = StripGenerator.photoLookSeed(for: photo.lookSeedDate)
         let url = FileManager.documentsURL(forRelativePath: photo.photoPath)
         let pixels = DiaryViewModel.pixelSize(size, scale: scale)
-        return await Task.detached(priority: .userInitiated) {
-            FilmLookCache.shared.image(id: id, look: look, seed: seed, pixelSize: pixels) {
-                UIImage(contentsOfFile: url.path())
-            }
-        }.value
+        return await FilmLookCache.shared.displayImage(id: id, look: look, seed: seed, url: url, pixelSize: pixels)
     }
 
     static func cachedDisplayImage(for photo: RollPhoto, size: CGSize, scale: CGFloat) -> UIImage? {
