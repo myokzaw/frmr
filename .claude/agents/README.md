@@ -1,63 +1,27 @@
 # frmr agent team
 
-Three agents, split along real interface boundaries (see the `## Agent team` section of `CLAUDE.md` for the ownership map):
+Two agents per round (fewer merge conflicts), both on **Sonnet**:
+- `frmr-frontend`: views, components, `*UI` constants.
+- `frmr-backend`: ViewModels, engine, models, other constants.
+- `frmr-qa` runs after both, or on its own for the accessibility pass.
 
-- `frmr-frontend` — everything the user sees (SwiftUI views, components, chrome rotation, onboarding overlay, accessibility).
-- `frmr-backend` — everything below the view (capture, image pipeline, strips, SwiftData, ViewModel logic).
-- `frmr-qa` — black-box verifier. Reports bugs and writes regression tests; never fixes production code.
+Ownership is in each role file; together they cover every file. If a task spans both sides, split it into a backend part and a frontend part.
 
-Agents are loaded at session start. After creating or editing `.claude/agents/`, **restart Claude Code**.
+## Keeping usage low
+- The lead's prompt names the exact files and spec section. Agents read nothing else.
+- Agents make the smallest change that meets the task: no drive-by refactors, and each file read once.
+- Agents run tests by tier: `suite` while iterating, `fast` before handing back. The full `all` tier runs only at round end, by the lead or QA.
+- Screenshots only on request.
+- Reports are short (≤15–20 lines). The lead re-runs the tests rather than trusting long logs.
 
-## Default: parallel, low ceremony
-
-In a normal session, ask:
-
-> Run frmr-backend on `<task>` and frmr-frontend on `<task>` in parallel, then run frmr-qa on the result.
-
-- Subagents run in the background and share one folder. Parallel work is safe only because of the ownership map.
-- If a task needs files from both sides, split it into a backend part and a frontend part, or run the two sequentially.
-- QA runs after both have finished.
-- Builds use separate folders so they don't fight over one Xcode cache: `-derivedDataPath build/frontend`, `build/backend`, `qa/DerivedData`.
-
-## Optional: team mode (experimental)
-
-Set `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, then ask the lead to "spawn teammates using the frmr-frontend, frmr-backend and frmr-qa agent types". Teammates share a task list and can message each other, so a contract request can go straight from frontend to backend.
-
-Documented limits:
-
-- Teammates aren't restored on `/resume`.
-- An in-process teammate gets the definition's tools and body but **not its skills**. Tell each teammate in its spawn prompt to read `.claude/skills/ios-camera-orientation/SKILL.md`.
-
-## Every delegation uses the handoff template
+## Handoff template
 
 ```
-You are working on [FEATURE] in a minimalist iOS journaling app.
-
-Context files (required reading, in order):
-1. CLAUDE.md  — engineering rules and constraints
-2. project.md — full product specification
-
-Situation:
-  DONE:    [list]
-  DOING:   [current task or "nothing"]
-  BLOCKED: [open decisions blocking this work, or "none"]
-  NEXT:    [your specific task]
-
-Deliverable: [exactly what to produce — file, diff, test results, etc.]
-
-Do not add dependencies. Do not make network calls. Do not resolve OPEN: items by guessing — flag them and use the placeholder pattern.
+Task: <one sentence>. Spec: <file §section>.
+Files: <paths you expect to touch>.
+Acceptance: <bullets>.
+Test: <suite names>.
+Don't guess OPEN items: flag them.
 ```
 
-## First assignment (not yet run)
-
-Current state from `frmr-v3-spec.md`: v3 F1–F6 are implemented with a clean build. Tests are written but have never been run. The F1 root cause is still unknown. The v3-5 edge mapping, capture orientation and all v2 camera gestures are unverified on device.
-
-1. **frmr-qa first.** Run the guard script and the full suite. Produce the pass/fail table and bug list. Write the physical-device checklist for F1, F2, v3-5 and capture orientation, including the step that sets `Constants.CameraUI.chromeDebugOverlayEnabled = true` (DEBUG builds only) so the live `chromeLayout` and rotation angle can be photographed.
-2. **Then in parallel:**
-   - `frmr-backend` takes the backend-owned failures.
-   - `frmr-frontend` takes the frontend-owned failures. Specifically ask it to check the `UIDeviceOrientation` vs `UIInterfaceOrientation` landscape inversion against the v3-5 mapping **before any device session**.
-3. **frmr-qa again** once both have finished.
-
-## Film pipeline reference
-
-Any agent changing the film look (stocks, prints, effects, grain, cube, live preview) reads `docs/film-simulation.md` first and updates it in the same change.
+Film-look changes: read and update `docs/film-simulation.md` in the same change.

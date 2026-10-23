@@ -98,42 +98,7 @@ Never invent an answer to a TBD item. Make the placeholder obvious and move on.
 
 ## Working with other agents
 
-If you are handing off to another agent, or if you are a downstream agent receiving a handoff, use this protocol.
-
-**Always pass both files as context.** An agent without `project.md` and `CLAUDE.md` will make wrong decisions. Don't assume the downstream agent has read any prior conversation.
-
-**Decompose by context, not by role.** Don't split "writing" from "testing" the same feature — the test agent won't have the context it needs. Split by genuine context boundaries: independent features, separate components with clean interfaces, or verification tasks that only need the artifact and a success criterion (not the history of how it was built).
-
-**State the current situation explicitly.** Every handoff message must include:
-
-```
-DONE:    [specific files or flows that are complete and working]
-DOING:   [the exact task in flight, if any]
-BLOCKED: [any OPEN: items that must be resolved before proceeding]
-NEXT:    [the specific task for the receiving agent]
-```
-
-**Verification agents work best when the task is blackboxable.** If a verifier only needs to run tests and report results, it doesn't need implementation context. Give it the artifact and the success criteria, nothing more.
-
-### Handoff template
-
-```
-You are working on [FEATURE] in a minimalist iOS journaling app.
-
-Context files (required reading, in order):
-1. CLAUDE.md  — engineering rules and constraints
-2. project.md — full product specification
-
-Situation:
-  DONE:    [list]
-  DOING:   [current task or "nothing"]
-  BLOCKED: [open decisions blocking this work, or "none"]
-  NEXT:    [your specific task]
-
-Deliverable: [exactly what to produce — file, diff, test results, etc.]
-
-Do not add dependencies. Do not make network calls. Do not resolve OPEN: items by guessing — flag them and use the placeholder pattern.
-```
+A handoff names the task, the spec section, the files to touch, the acceptance bullets and the test suites. Template: `.claude/agents/README.md`. Agents read only what it names, not the whole of `project.md`. Verifiers get the artifact and the acceptance list, not the build history. Don't resolve `OPEN:` items by guessing.
 
 ## Current build status (2026-07-31)
 
@@ -191,25 +156,13 @@ A feature is shippable when:
 
 ## Agent team
 
-Three project agents live in `.claude/agents/` (run recipes in `.claude/agents/README.md`). They are split along interface boundaries, not job titles, and each implementer writes the unit tests for its own pure logic.
+Agents live in `.claude/agents/`; all run on **Sonnet**, two per round (frontend + backend), then QA. Recipes and the usage rules are in `.claude/agents/README.md`.
 
-- `frmr-frontend` — everything the user sees: views, components, chrome rotation, onboarding overlay, accessibility. Never touches AVFoundation, CoreImage or SwiftData.
-- `frmr-backend` — the on-device engine: capture, image pipeline, strips, persistence, models, ViewModel logic and pure mappings.
-- `frmr-qa` — black-box verifier: finds and reproduces bugs, writes acceptance/regression tests, audits constraints. Does not fix production code.
+| Area | Owner |
+|---|---|
+| `ContentView.swift`, `*View.swift`, `Shared/Components/*`, `Extensions/View+*`, `Color+Palette.swift`, `Constants+*UI.swift` | frontend |
+| `*ViewModel.swift`, `CaptureSession`, `ImageProcessor`, `FilmModel`, `StripGenerator`, `Models/*`, `Haptics`, `InterfaceOrientationLock`, `AppError`, `AppEntry`, other `Shared/Extensions`, non-UI `Constants+*.swift` | backend |
+| `frmrTests/*` | each implementer for its own logic; QA owns `*AcceptanceTests` / `*RegressionTests` |
+| `CLAUDE.md`, `project.md`, specs, docs | lead (others propose text) |
 
-**Ownership map (hard rule — agents share one folder).**
-
-| Area | Owner | Others |
-|---|---|---|
-| `ContentView.swift`, `*View.swift`, `Shared/Components/*`, `Extensions/View+*`, `Color+Palette.swift`, Coach views | frontend | read-only |
-| `CaptureSession`, `ImageProcessor`, `StripGenerator`, `Models/*`, `Haptics`, `InterfaceOrientationLock`, `AppError`, `PHPhotoLibrary+Save`, `PromptBank`, `AppEntry`, `Date+Formatting`, `FileManager+Documents`, `CoachCopy`, `CoachStep` | backend | read-only |
-| `*ViewModel.swift` | backend | frontend asks via contract request |
-| `Shared/Constants.swift` | frontend: `CameraUI`, `Onboarding`, `DetailUI`, layout; backend: `Camera`, `ImageProcessing`, `Strip`, `Diary` | own namespace only |
-| `frmrTests/*` | each implementer for its own logic; QA owns `*AcceptanceTests` / `*RegressionTests` | never delete another agent's test |
-| `CLAUDE.md`, `project.md`, `frmr-v*-spec.md` | lead only | propose text in report |
-
-**Contract request.** To get something outside your files, send the lead: `CONTRACT REQUEST — need <property/method/constant> on <type>, signature <...>, because <...>.` The lead relays it to the owner.
-
-**QA reports, owners fix.**
-
-`scripts/frmr-guard.sh` (`--all`, or `--hook` on every agent edit) enforces the hard constraints mechanically.
+Outside your files, send a contract request: `CONTRACT REQUEST — need <API> on <type>, because <why>`. QA reports; owners fix. `scripts/frmr-guard.sh` (`--all`, or `--hook` on every agent edit) enforces the hard constraints.

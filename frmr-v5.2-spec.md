@@ -84,6 +84,55 @@ See `research/v5.2-ui-makeover.md` §7. The order:
   - a dark-mode screenshot pass across all screens is still to do;
   - UI shards are balanced by test count, not time (`testStripScreenCyclesEveryStock` takes about 195 s).
 
+## v5.2.1 — fixes and additions (user request, 2026-10-23)
+
+### BUG-521-01 — White balance doesn't return to Auto
+**Cause:** `CameraViewModel.chooseWhiteBalancePreset(.auto)` sets the mode to Auto but leaves `whiteBalanceKelvin` and `whiteBalanceTint` at the previous preset's values, so the panel's Kelvin and tint readouts still show, for example, "3200K" after you pick Auto. (`resetWhiteBalanceAndExposure()` already resets them; the preset path doesn't.)
+- **Backend:**
+  - On `.auto`, reset Kelvin and tint to `whiteBalanceManualStart*`.
+  - Add `whiteBalanceKelvinText` and `whiteBalanceTintText` ("Auto" while on Auto and not custom; otherwise "5600K" and "+12").
+  - Unit test: Tungsten → Auto, and slider → Auto. Both end at the start values with readouts "Auto", `isWhiteBalanceAdjusted == false` and chip text "AUTO".
+- **Frontend:** `WhiteBalancePanel` shows the two new readout texts instead of formatting the numbers itself.
+- **Device check:** after Auto, the viewfinder visibly re-meters (continuous auto white balance).
+
+### F-PICK — Counter in Pick from Roll
+User decision: counter, numbered badges and tap to unpick.
+- **Backend:**
+  - `PhotoboothShot` gains `rollPhotoID: UUID?`, set by `add(rollPhoto:)`.
+  - `PhotoboothViewModel` gains:
+    - `slotNumber(forRollPhoto id: UUID) -> Int?` (1-based slot position);
+    - `toggle(rollPhoto:)`, which adds the photo, or removes it if it's already in a slot, with later slots moving up;
+    - `rollPickerTitle`, for example "2 of 4 picked". The count includes camera and gallery shots, since every slot counts.
+  - Unit tests: add/remove/re-number; a full strip still allows unpicking; the same photo can't be picked twice.
+- **Frontend:**
+  - `RollPickerSheet` takes the photobooth view model.
+  - Title: `rollPickerTitle`.
+  - Each picked photo shows a `SelectionBadge` with its slot number (reuse the Roll's badge).
+  - A tap toggles the photo; photos that aren't picked are disabled only when the strip is full.
+  - The sheet no longer closes itself on the fourth pick. Done closes it.
+  - VoiceOver: "Photo, picked, slot 2", with the hint "Removes it from the strip".
+  - Update `StripScreenUITests` for the counter and unpick.
+
+### F-GRID — Viewfinder grid in Settings
+User decision: Off / Thirds / Square / Golden. Default Off. No level.
+- **Backend:**
+  - New `CameraGrid` enum (`off`, `thirds`, `square`, `golden`) with `label`.
+  - A pure static `lineFractions(for:) -> [CGFloat]`: thirds `[1/3, 2/3]`, square `[1/4, 1/2, 3/4]`, golden `[0.382, 0.618]`, off `[]`. The same fractions apply on both axes.
+  - Key: `Constants.DefaultsKeys.cameraGrid`. Unit tests for the fractions and the stored-value round trip, where an unknown value reads as Off.
+- **Frontend:**
+  - Settings → Camera section: a "Grid" picker.
+  - `ViewfinderGridOverlay` sits inside the viewfinder frame only, in both Photo and Film strip modes, and is never shown in the editor.
+  - Hairlines are 0.5 pt at white 35% with a faint dark shadow, from `Constants.CameraUI`.
+  - The overlay doesn't block taps or pinches (`allowsHitTesting(false)`), is hidden from VoiceOver, and doesn't rotate, because the lines are symmetric.
+  - UI test: set Thirds in Settings, and the camera shows `camera.grid`.
+
+### Round plan
+- One backend and one frontend agent (Sonnet).
+- Backend goes first: all three APIs are small. Frontend starts once backend hands back.
+- The lead runs `fast`, the affected UI suites and the guard.
+- No screenshots. The user checks on their phone.
+- Docs: this section's status, CHANGELOG, README feature list (grid).
+
 ## Implementation status — v5.2
 
 | Step | Status |
