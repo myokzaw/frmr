@@ -95,6 +95,19 @@ See `research/v5.2-ui-makeover.md` §7. The order:
 - **Frontend:** `WhiteBalancePanel` shows the two new readout texts instead of formatting the numbers itself.
 - **Device check:** after Auto, the viewfinder visibly re-meters (continuous auto white balance).
 
+### BUG-521-02 — No "Continue to diary" when Edit after each shot is off
+**Cause:** with the toggle off, each shot goes straight to the Roll. You edit it later from the thumbnail or from Library → Roll, which opens the editor in re-edit mode. `PhotoEditViewModel.canContinueToDiary` is `rollPhoto == nil && …` (v5.1-2: fresh captures only), so turning the toggle off leaves no way to write an entry.
+
+Proposed default (the user can change it): offer Continue to diary on a Roll re-edit when the photo has **no linked entry yet**. A photo that already has one shows only Save, so it doesn't collect duplicate entries.
+- **Backend:**
+  - `canContinueToDiary` becomes true for a fresh capture, or for a re-edit whose linked-entry count is 0. That count is read once when the editor opens, from `linkedEntryCountIfKnown`, and a nil count hides the button.
+  - In re-edit, `continueToDiary` saves the look onto the existing `RollPhoto` (as Save does) instead of inserting a new one, then sets `diaryContinuation` with that photo's ID.
+  - Unit tests: fresh capture, re-edit with no entry, re-edit with an entry, unknown count.
+- **Frontend:**
+  - The camera-thumbnail editor already lives in the camera's cover (`EditorFlowView`), so the prompt opens there.
+  - `RollView` presents its editor in a sheet of its own, so it needs the same editor → prompt hand-off. Reuse `EntryEditorView` through the same `pendingDiary` path, or a small Roll flow view that wraps both.
+  - UI test: with Edit after each shot off, take a shot, open it from the thumbnail, check that Continue to diary is visible and that the prompt opens.
+
 ### F-PICK — Counter in Pick from Roll
 User decision: counter, numbered badges and tap to unpick.
 - **Backend:**
@@ -127,7 +140,7 @@ User decision: Off / Thirds / Square / Golden. Default Off. No level.
   - UI test: set Thirds in Settings, and the camera shows `camera.grid`.
 
 ### Round plan
-- One backend and one frontend agent (Sonnet).
+- One backend and one frontend agent (Sonnet), covering all four items.
 - Backend goes first: all three APIs are small. Frontend starts once backend hands back.
 - The lead runs `fast`, the affected UI suites and the guard.
 - No screenshots. The user checks on their phone.
