@@ -242,6 +242,83 @@ final class LibraryAndSettingsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["library.strip"].firstMatch.waitForExistence(timeout: timeout), "Close returns to the strips")
     }
 
+    // Make today's strip asks which entries first; unpicking one drops the
+    // counter, and Make strip opens the strip screen
+    @MainActor
+    func testMakeTodaysStripPicksEntriesFirst() throws {
+        let app = launchSeeded()
+        app.tabBars.buttons["Library"].tap()
+        let strips = app.segmentedControls.buttons["Strips"]
+        XCTAssertTrue(strips.waitForExistence(timeout: timeout))
+        strips.tap()
+        let plus = app.buttons["library.makeTodaysStrip"]
+        XCTAssertTrue(plus.waitForExistence(timeout: timeout), "Seeded entry today should offer the strip")
+        plus.tap()
+
+        let entry = app.buttons["library.entryPicker.entry"].firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: timeout), "Entry picker missing")
+        let counter = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH 'picked'")).firstMatch
+        XCTAssertTrue(counter.waitForExistence(timeout: timeout), "Counter title missing")
+        let before = counter.label
+        // Newest first, so the default picks are at the top of the grid
+        let picked = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Entry, picked'"))
+        XCTAssertGreaterThan(picked.count, 0, "Today's latest entries start picked")
+        // Tap the same tile twice by position: its label changes on unpick,
+        // and "first unpicked" can resolve to a tile scrolled off screen
+        // (a coordinate made from the query re-resolves at tap time, so fix
+        // the screen point from the frame once)
+        let frame = picked.firstMatch.frame
+        let tile = app.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.midX, dy: frame.midY))
+        tile.tap()
+        XCTAssertNotEqual(counter.label, before, "Counter drops")
+        tile.tap()
+        XCTAssertEqual(counter.label, before, "Picking again restores the counter")
+
+        app.buttons["library.entryPicker.make"].tap()
+        XCTAssertTrue(app.buttons["strip.keep"].waitForExistence(timeout: timeout), "Make strip opens the strip screen")
+    }
+
+    // Discard asks first; confirming deletes the strip and closes the viewer.
+    // The fixture reseeds a strip on the next launch.
+    @MainActor
+    func testDeletingAStripFromItsViewer() throws {
+        let app = launchSeeded()
+        app.tabBars.buttons["Library"].tap()
+        app.segmentedControls.buttons["Strips"].tap()
+        let strips = app.buttons.matching(identifier: "library.strip")
+        XCTAssertTrue(strips.firstMatch.waitForExistence(timeout: timeout), "Seeded strip missing")
+        let before = strips.count
+        strips.firstMatch.tap()
+        let delete = app.buttons["strip.detail.delete"]
+        XCTAssertTrue(delete.waitForExistence(timeout: timeout), "Discard missing")
+        delete.tap()
+        let confirm = app.buttons["strip.detail.delete.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: timeout), "Delete asks first")
+        confirm.tap()
+        XCTAssertTrue(app.buttons["detail.close"].waitForNonExistence(timeout: timeout), "Viewer closes")
+        XCTAssertTrue(app.segmentedControls.buttons["Strips"].waitForExistence(timeout: timeout))
+        XCTAssertEqual(app.buttons.matching(identifier: "library.strip").count, before - 1)
+    }
+
+    // Settings > Clear strips empties the Strips tab and keeps the entries
+    @MainActor
+    func testClearStripsEmptiesTheStripsTab() throws {
+        let app = launchSeeded()
+        app.tabBars.buttons["Settings"].tap()
+        let clear = app.buttons["settings.clearStrips"]
+        for _ in 0..<4 where !clear.isHittableNow { app.swipeUp() }
+        XCTAssertTrue(clear.waitForExistence(timeout: timeout), "Clear strips missing")
+        clear.tap()
+        let confirm = app.buttons["settings.clearStrips.confirm"].firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: timeout), "Clear strips asks first")
+        confirm.tap()
+        app.tabBars.buttons["Library"].tap()
+        app.segmentedControls.buttons["Strips"].tap()
+        XCTAssertTrue(app.staticTexts["No strips yet"].waitForExistence(timeout: timeout), "Strips tab shows its empty state")
+        XCTAssertEqual(app.buttons.matching(identifier: "library.strip").count, 0)
+    }
+
     // MARK: Steps
 
     @MainActor

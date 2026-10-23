@@ -49,10 +49,10 @@ struct StripView: View {
 
     var body: some View {
         VStack(spacing: UI.sheetSpacing) {
+            // The bar is a real top inset: at rest the hero starts below it
             stripPreviews
-                .safeAreaPadding(.top, UI.heroTopInset)
+                .safeAreaInset(edge: .top, spacing: 0) { topBar }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay(alignment: .top) { topBar }
             toolControl
                 .frame(minHeight: UI.toolPanelHeight, alignment: .top)
             ToolIconBar(

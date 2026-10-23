@@ -168,6 +168,13 @@ User decision: Off / Thirds / Square / Golden. Default Off. No level.
   - The overlay doesn't block taps or pinches (`allowsHitTesting(false)`), is hidden from VoiceOver, and doesn't rotate, because the lines are symmetric.
   - UI test: set Thirds in Settings, and the camera shows `camera.grid`.
 
+### F-ENTRYPICK and F-STRIPDEL (user request, 2026-10-23) — **done**
+- **Bug:** "+" (Make today's strip) used every one of today's entries (`todaysItems`). More than 4 spilled into a second strip, and you couldn't drop one.
+- **Entry picker:** "+" now opens `EntryStripPickerSheet` (`EntryStripPickerViewModel`). It defaults to the latest 4, lists entries newest first, uses chronological slot order, and has a counter, badges, unpick, and Cancel / Make strip. Strip items carry the entry's full look.
+- **Delete:** the strip viewer gains Discard (`strip.detail.delete`, confirmed), and Settings gains Clear strips (`settings.clearStrips`). The new `LibraryViewModel.deleteStrip` and `clearStrips` remove the files and records; entries and photos stay.
+- **Strip hero:** the top bar is a `.safeAreaInset`, so the strip no longer scrolls under the status bar.
+- **Tests:** `EntryStripPickerTests`, `StripDeletionTests` and 3 UI tests. Lead: unit and all UI pass, guard clean.
+
 ### Round plan
 - One backend and one frontend agent (Sonnet), covering all four items.
 - Backend goes first: all three APIs are small. Frontend starts once backend hands back.

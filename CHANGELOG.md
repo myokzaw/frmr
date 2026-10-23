@@ -16,6 +16,10 @@ What changed in each version of frmr, in plain language. Technical detail, decis
 - **Pick from Roll shows what you picked.** A "2 of 4 picked" counter, a slot number on each picked photo, and tap again to unpick.
 - **Grid.** Settings → Camera → Grid: Off, Thirds, Square or Golden lines in the viewfinder.
 - **Fixed:** white balance readouts go back to "Auto" after choosing Auto.
+- **Choose what goes on today's strip.** The + in Library → Strips first shows today's entries, newest first, with the latest four picked. Tap to add or remove an entry, then Make strip. Before, every entry from today went in, so extra entries spilled into a second strip.
+- **Delete strips.** A trash button in the strip viewer deletes that strip, and Settings → Your Data → Clear strips deletes them all. Entries and photos stay.
+- **Fixed:** the strip no longer slides under the status bar and close button.
+- Strips made from entries keep each photo's full look.
 - **Faster diary prompt.** It shows a screen-sized copy of the photo, and the prompt no longer restarts its typing when you tap to write.
 
 ## v5.2 — UI makeover (branch `v5.2-makeover`)

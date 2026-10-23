@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import Photos
+import SwiftData
 import UIKit
 
 @Observable
@@ -67,14 +68,51 @@ final class LibraryViewModel {
         entries
             .filter { Calendar.current.isDateInToday($0.createdAt) }
             .sorted { $0.createdAt < $1.createdAt }
-            .map { entry in
-                StripItem(
-                    image: DiaryViewModel.loadPhoto(for: entry),
-                    caption: entry.response,
-                    entryID: entry.id,
-                    filmStock: entry.filmStock
-                )
-            }
+            .map { EntryStripPickerViewModel.stripItem(for: $0) }
+    }
+
+    // MARK: Deleting strips
+
+    /// Removes a strip's image file (a missing file is fine) and its record,
+    /// then saves. Diary entries and Roll photos are untouched.
+    func deleteStrip(_ strip: DailyStrip, context: ModelContext) throws {
+        try Self.removeImageFile(for: strip)
+        context.delete(strip)
+        try Self.save(context)
+    }
+
+    /// Deletes every strip and its file.
+    func clearStrips(context: ModelContext) throws {
+        let strips: [DailyStrip]
+        do {
+            strips = try context.fetch(FetchDescriptor<DailyStrip>())
+        } catch {
+            throw AppError.persistenceFailed(reason: error.localizedDescription)
+        }
+        for strip in strips {
+            try Self.removeImageFile(for: strip)
+            context.delete(strip)
+        }
+        try Self.save(context)
+    }
+
+    private static func removeImageFile(for strip: DailyStrip) throws {
+        let url = FileManager.documentsURL(forRelativePath: strip.imageRelativePath)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
+            return
+        } catch {
+            throw AppError.persistenceFailed(reason: error.localizedDescription)
+        }
+    }
+
+    private static func save(_ context: ModelContext) throws {
+        do {
+            try context.save()
+        } catch {
+            throw AppError.persistenceFailed(reason: error.localizedDescription)
+        }
     }
 
     static func loadStripImage(for strip: DailyStrip) -> UIImage? {

@@ -43,6 +43,7 @@ struct SettingsView: View {
 
     @State private var isClearDiaryConfirmationPresented = false
     @State private var isClearRollConfirmationPresented = false
+    @State private var isClearStripsConfirmationPresented = false
     @State private var didRequestTips = false
     // v5.1-12: how many diary entries link to Roll photos, read when the
     // prompt opens; nil = the count couldn't be read, so ask both ways
@@ -222,6 +223,19 @@ struct SettingsView: View {
                 Button("Delete everything", role: .destructive, action: clearDiary)
                     .accessibilityIdentifier("settings.clearDiary.confirm")
             }
+            Button("Clear strips", role: .destructive) {
+                isClearStripsConfirmationPresented = true
+            }
+            .foregroundStyle(theme.destructive)
+            .accessibilityIdentifier("settings.clearStrips")
+            .confirmationDialog(
+                "Delete all strips? Your entries and photos stay.",
+                isPresented: $isClearStripsConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Delete strips", role: .destructive, action: clearStrips)
+                    .accessibilityIdentifier("settings.clearStrips.confirm")
+            }
             // v5 F6 (OPEN: v5-7): the Roll is cleared on its own
             Button("Clear roll", role: .destructive, action: askToClearRoll)
                 .foregroundStyle(theme.destructive)
@@ -239,6 +253,7 @@ struct SettingsView: View {
         .listRowBackground(theme.card)
         .sensoryFeedback(.warning, trigger: isClearRollConfirmationPresented) { _, shown in shown }
         .sensoryFeedback(.warning, trigger: isClearDiaryConfirmationPresented) { _, shown in shown }
+        .sensoryFeedback(.warning, trigger: isClearStripsConfirmationPresented) { _, shown in shown }
     }
 
     private var aboutSection: some View {
@@ -281,6 +296,16 @@ struct SettingsView: View {
     private func clearRoll(entries: RollViewModel.RollDeletion) {
         do {
             try RollViewModel.clearRoll(entries: entries, context: modelContext)
+        } catch let error as AppError {
+            errorState.raise(error)
+        } catch {
+            errorState.raise(.persistenceFailed(reason: error.localizedDescription))
+        }
+    }
+
+    private func clearStrips() {
+        do {
+            try LibraryViewModel().clearStrips(context: modelContext)
         } catch let error as AppError {
             errorState.raise(error)
         } catch {

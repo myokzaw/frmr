@@ -1,3 +1,4 @@
+import SwiftData
 import SwiftUI
 
 // Full-screen view of a saved strip, presented from the Library's Strips tab
@@ -8,7 +9,10 @@ struct StripDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
+    @Environment(\.modelContext) private var modelContext
+    @State private var isDeleteConfirmationPresented = false
 
+    let strip: DailyStrip
     let image: UIImage?
     let dateText: String
     let onSaveToCameraRoll: () -> Void
@@ -38,11 +42,39 @@ struct StripDetailView: View {
                         action: onSaveToCameraRoll
                     )
                     .accessibilityHint("Saves the strip to your photo library")
+                    GlassIconButton(
+                        systemImage: "trash",
+                        label: "Discard",
+                        identifier: "strip.detail.delete",
+                        rotates: false,
+                        action: { isDeleteConfirmationPresented = true }
+                    )
+                    .accessibilityHint("Deletes the strip from your library")
                 }
             }
             .background(theme.bg.ignoresSafeArea())
             .frmrDarkroomStatusBar()
             .appErrorAlert(errorState)
+            .confirmationDialog(
+                "Delete this strip? This can't be undone.",
+                isPresented: $isDeleteConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Delete strip", role: .destructive, action: deleteStrip)
+                    .accessibilityIdentifier("strip.detail.delete.confirm")
+            }
+            .sensoryFeedback(.warning, trigger: isDeleteConfirmationPresented) { _, shown in shown }
+    }
+
+    private func deleteStrip() {
+        do {
+            try LibraryViewModel().deleteStrip(strip, context: modelContext)
+            dismiss()
+        } catch let error as AppError {
+            errorState.raise(error)
+        } catch {
+            errorState.raise(.persistenceFailed(reason: error.localizedDescription))
+        }
     }
 }
 
@@ -71,6 +103,6 @@ private struct StripImage: View {
 }
 
 #Preview {
-    StripDetailView(image: nil, dateText: "Today", onSaveToCameraRoll: {})
+    StripDetailView(strip: DailyStrip(entryIDs: [], isPhotobooth: true), image: nil, dateText: "Today", onSaveToCameraRoll: {})
         .environment(ErrorState())
 }

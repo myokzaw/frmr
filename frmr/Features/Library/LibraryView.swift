@@ -59,6 +59,10 @@ private struct StripsList: View {
     @Query(sort: \DailyStrip.createdAt, order: .reverse) private var strips: [DailyStrip]
     @Query(sort: \DiaryEntry.createdAt, order: .reverse) private var entries: [DiaryEntry]
     @State private var selectedStrip: DailyStrip?
+    // Picked in the sheet, shown once the sheet has gone (never both at once)
+    @State private var pendingItems: [StripItem]?
+    @State private var stripItems: [StripItem] = []
+    @State private var isStripPresented = false
 
     @Bindable var viewModel: LibraryViewModel
 
@@ -114,20 +118,29 @@ private struct StripsList: View {
                     } label: {
                         Label("Make today's strip", systemImage: "plus")
                     }
-                    .accessibilityHint("Builds a strip from today's diary entries")
+                    .accessibilityHint("Choose today's entries for a strip")
                     .accessibilityIdentifier("library.makeTodaysStrip")
                 }
             }
         }
         .fullScreenCover(item: $selectedStrip) { strip in
             StripDetailView(
+                strip: strip,
                 image: LibraryViewModel.loadStripImage(for: strip),
                 dateText: strip.createdAt.librarySectionTitle,
                 onSaveToCameraRoll: { Task { await viewModel.saveStripToCameraRoll(strip) } }
             )
         }
-        .fullScreenCover(isPresented: $viewModel.isCompileStripPresented) {
-            StripView(items: LibraryViewModel.todaysItems(from: entries), isPhotobooth: false)
+        .sheet(isPresented: $viewModel.isCompileStripPresented, onDismiss: {
+            guard let items = pendingItems else { return }
+            pendingItems = nil
+            stripItems = items
+            isStripPresented = true
+        }) {
+            EntryStripPickerSheet(entries: entries) { pendingItems = $0 }
+        }
+        .fullScreenCover(isPresented: $isStripPresented) {
+            StripView(items: stripItems, isPhotobooth: false)
         }
     }
 }

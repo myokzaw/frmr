@@ -11,7 +11,6 @@ nonisolated extension Constants {
         static let previewShadowOpacity: CGFloat = 0.25
 
         // Hero strip: fitted under the top glass groups, above the controls
-        static let heroTopInset: CGFloat = 64
         static let previewHorizontalPadding: CGFloat = 40
         static let previewSpacing: CGFloat = 20
 
