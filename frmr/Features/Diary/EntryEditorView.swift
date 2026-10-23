@@ -40,6 +40,11 @@ struct EntryEditorView: View {
             .padding(.horizontal, Constants.DesignUI.gutter)
             .frmrAnimation(.panel, value: isWriting)
         }
+        // The writing box is short under the full-size photo; a tap anywhere
+        // on the empty paper below it starts writing too (BUG-521-03).
+        // Buttons and the text view keep their own taps.
+        .contentShape(Rectangle())
+        .onTapGesture { isWriting = true }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .top, spacing: 0) { topBar }
         .safeAreaInset(edge: .bottom, spacing: 0) { saveBar }

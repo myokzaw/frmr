@@ -108,6 +108,11 @@ Proposed default (the user can change it): offer Continue to diary on a Roll re-
   - `RollView` presents its editor in a sheet of its own, so it needs the same editor → prompt hand-off. Reuse `EntryEditorView` through the same `pendingDiary` path, or a small Roll flow view that wraps both.
   - UI test: with Edit after each shot off, take a shot, open it from the thumbnail, check that Continue to diary is visible and that the prompt opens.
 
+### BUG-521-03 — Keyboard doesn't come up on the prompt screen — **fixed (lead, 2026-10-23)**
+**Cause:** before you start writing, the text box is only 120 pt tall, under the full-size photo. A tap on the empty paper below it, where you'd naturally tap, hit nothing, so the keyboard never appeared.
+**Fix:** `EntryEditorView` makes the whole screen a tap target that focuses the text box. Buttons and the text view keep their own taps.
+**Test:** `PromptKeyboardRegressionUITests`. Before the fix, a tap 80 pt below the box left it unfocused; it now gets keyboard focus. The two `DiaryFlowUITests` tests pass, as does the fast unit tier. The guard is clean.
+
 ### F-PICK — Counter in Pick from Roll
 User decision: counter, numbered badges and tap to unpick.
 - **Backend:**

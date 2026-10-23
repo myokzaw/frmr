@@ -2,6 +2,10 @@
 
 What changed in each version of frmr, in plain language. Technical detail, decisions and test results live in the matching `frmr-v*-spec.md`.
 
+## v5.2.1 — fixes (in progress)
+
+- **Fixed:** on the diary prompt screen, tapping the empty space under the prompt now brings up the keyboard. Before, only the small text box itself responded.
+
 ## v5.2 — UI makeover (branch `v5.2-makeover`)
 
 **Status:** built and tested on the simulator (2026-10-23): 332 unit tests and all UI tests pass. Device checks in progress; the QA accessibility pass is deferred. Spec: `frmr-v5.2-spec.md`; research behind it: `research/v5.2-ui-makeover.md`.
