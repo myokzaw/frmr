@@ -5,6 +5,7 @@ What changed in each version of frmr, in plain language. Technical detail, decis
 ## v5.2.1 — fixes (in progress)
 
 - **Fixed:** on the diary prompt screen, tapping the empty space under the prompt now brings up the keyboard. Before, only the small text box itself responded.
+- **Fixed:** the app no longer freezes and quits when the keyboard opens on the diary prompt screen.
 
 ## v5.2 — UI makeover (branch `v5.2-makeover`)
 

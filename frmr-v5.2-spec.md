@@ -113,6 +113,13 @@ Proposed default (the user can change it): offer Continue to diary on a Roll re-
 **Fix:** `EntryEditorView` makes the whole screen a tap target that focuses the text box. Buttons and the text view keep their own taps.
 **Test:** `PromptKeyboardRegressionUITests`. Before the fix, a tap 80 pt below the box left it unfocused; it now gets keyboard focus. The two `DiaryFlowUITests` tests pass, as does the fast unit tier. The guard is clean.
 
+### BUG-521-04 — App freezes and is killed when the keyboard opens on the prompt — **fixed (lead, 2026-10-23)**
+**Evidence:** phone crash log `frmr-2026-10-22-205047.ips`: watchdog `0x8BADF00D`, with the main thread stuck in `CameraPreview.makeUIView` → `AVCaptureVideoPreviewLayer.setSession` → `AVCaptureSession commitConfiguration`.
+**Cause:** the camera stays alive under the editor/prompt cover. Its `GeometryReader` received the keyboard's safe-area inset, so `chromePlacement` flipped from `.below` to `.overlay`. That swaps the viewfinder into another branch, which rebuilds `CameraPreview` and re-attaches the running session on the main thread, and the app hangs. The simulator has no camera session, so it never reproduced there.
+**Fix:** `CameraView` applies `.ignoresSafeArea(.keyboard)`.
+**Test:** `PromptKeyboardRegressionUITests.testRealCaptureThenTypingDoesNotHang` (real camera; skips on the simulator). The fix still needs checking on a device.
+**Mac testing:** looked at and dropped. Xcode doesn't run UI tests on "Designed for iPhone" Macs, and unit tests there would need the Mac registered on the team. `test.sh` now also fails on `xcodebuild: error:`.
+
 ### F-PICK — Counter in Pick from Roll
 User decision: counter, numbered badges and tap to unpick.
 - **Backend:**

@@ -55,8 +55,10 @@ esac
 udid_for() {
   xcrun simctl list devices | grep " $1 (" | grep -oE "[0-9A-F]{8}-[0-9A-F-]{27}" | head -1
 }
+# (No Mac target: Xcode doesn't run UI tests on "Designed for iPhone" Macs.)
 SIM_ID="$(udid_for "$SIM")"
 [ -n "$SIM_ID" ] || die "simulator '$SIM' not found — see docs/testing.md (Workflow) to create it"
+DEST="platform=iOS Simulator,id=$SIM_ID"
 
 LOGS="build/test-logs"; mkdir -p "$LOGS"
 
@@ -75,7 +77,7 @@ check_log() {
   # Only real failures count: compiler/linker errors, xcodebuild's own
   # failure banner, and failing tests. Simulator log noise such as CoreData
   # "error:" lines from the app host is ignored.
-  if grep -qE "\.swift:[0-9]+:[0-9]+: error:|^ld: |error: (linker|cannot|no such|unable)|\*\* (TEST|BUILD) FAILED|Test run with .* failed|' failed \(|Testing failed:" "$log"; then ok=1; fi
+  if grep -qE "\.swift:[0-9]+:[0-9]+: error:|^ld: |error: (linker|cannot|no such|unable)|^xcodebuild: error:|\*\* (TEST|BUILD) FAILED|Test run with .* failed|' failed \(|Testing failed:" "$log"; then ok=1; fi
   if grep -qE "\.swift:[0-9]+:[0-9]+: warning" "$log"; then
     echo "  ✗ $label: Swift warnings (treated as failures)"; grep -E "\.swift:[0-9]+:[0-9]+: warning" "$log" | sort -u | head -5
     ok=1
@@ -90,7 +92,7 @@ build_for_testing() {
   local log="$LOGS/$ROLE-build-$STAMP.log"
   echo "→ build-for-testing ($ROLE, $DD)"
   xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
-    -destination "platform=iOS Simulator,id=$SIM_ID" -derivedDataPath "$DD" \
+    -destination "$DEST" -derivedDataPath "$DD" \
     build-for-testing >"$log" 2>&1
   check_log "$log" "build" || { echo "  log: $log"; exit 1; }
 }
@@ -100,7 +102,7 @@ run_unit() {
   local log="$LOGS/$ROLE-unit-$STAMP.log"
   echo "→ unit tests on $SIM"
   xcodebuild -project "$PROJECT" -scheme "$SCHEME" \
-    -destination "platform=iOS Simulator,id=$SIM_ID" -derivedDataPath "$DD" \
+    -destination "$DEST" -derivedDataPath "$DD" \
     -parallel-testing-enabled NO "$@" test-without-building >"$log" 2>&1
   check_log "$log" "unit"; local rc=$?
   echo "  log: $log"; return $rc

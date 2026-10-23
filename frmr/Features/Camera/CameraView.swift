@@ -50,6 +50,12 @@ struct CameraView: View {
                 chromeDebugOverlay
             }
         }
+        // BUG-521-04: the camera stays alive under the prompt's cover, and the
+        // keyboard's inset reached this proxy. It flipped the placement from
+        // .below to .overlay, which rebuilt CameraPreview; re-attaching the
+        // running session on the main thread hung the app until the watchdog
+        // killed it (0x8BADF00D). The camera never makes room for a keyboard.
+        .ignoresSafeArea(.keyboard)
         .environment(\.deviceRotation, viewModel.uiRotationAngle)
         .task {
             viewModel.errorState = errorState
