@@ -180,6 +180,7 @@ User decision: Off / Thirds / Square / Golden. Default Off. No level.
   - **Cause:** the segmented control sat in `.principal`. Roll's trailing Select pushed it left, and Entries (no trailing item) re-centred it, so it moved and its glass morphed on every switch.
   - **Fix:** the control moves to `.topBarLeading`, with an empty principal so the title doesn't show. Roll's selection Cancel moves into Select's `primaryAction` slot.
   - **Checked:** a probe captured the control at the same frame (20, 61, 198×47) on all three tabs.
+  - **Follow-up (user screenshot, dark mode):** iOS 26 wrapped the item in the bar's own glass bubble around the control's glass, giving a doubled outline, a clipped selection and a touch-reactive "sticky" shell. `ToolbarContent.frmrWithoutSharedBackground()` applies `sharedBackgroundVisibility(.hidden)` on iOS 26. A dark-mode probe shows a single outline.
 - **06 (thumbnails):**
   - **Cause:** every thumbnail decoded the full original (12–48 MP) at once, with no limit.
   - **Fix:** `ImageIOThumbnail` decodes at display size, upright, and `AsyncGate.display` allows 2 renders at a time, with cancelled waits dropped. Both are used by `FilmLookCache.displayImage`, for diary and Roll. Full-resolution export is unchanged. Tests: `DisplayThumbnailTests`.

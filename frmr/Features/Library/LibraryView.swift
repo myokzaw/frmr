@@ -40,6 +40,7 @@ struct LibraryView: View {
                         .fixedSize()
                         .accessibilityIdentifier("library.tabs")
                     }
+                    .frmrWithoutSharedBackground()
                 }
                 .tint(theme.tint)
         }
