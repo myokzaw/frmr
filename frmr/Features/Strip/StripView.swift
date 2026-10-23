@@ -4,22 +4,21 @@ import SwiftUI
 // Strip preview + customisation (project.md §2, screen 4; v5.1 F10; v5.2
 // S3). The strip is the hero on the darkroom, fitted above the controls so
 // nothing sits on it. Two glass groups float at the top: Close on the left,
-// [Share, Download] on the right. The controls are a system sheet (glass on
-// iOS 26) that stays up and lets the strip behind it be touched: a tool bar
-// (Paper, Film, Print, B&W, the five effects), the selected tool's control
+// [Share, Download] on the right. Under the strip sit the photo editor's
+// controls (no sheet): a tool bar
+// (Paper, Film, Print, the five effects), the selected tool's control
 // and the one primary, "Keep strip" (v5.2-7: Save and Archive merged; it
 // keeps the strip in the Library). Presented after Film strip mode or from
 // the Library.
 struct StripView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.modelContext) private var modelContext
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(ErrorState.self) private var errorState
 
     @State private var viewModel: StripViewModel
     @State private var tool: StripTool = .paper
-    @State private var isControlsPresented = true
-    @State private var isClosing = false
     @State private var isDownloading = false
     private let onDone: () -> Void
 
@@ -36,12 +35,10 @@ struct StripView: View {
         viewModel.stripImages.map { Image(uiImage: $0) }
     }
 
-    // A tool can disappear under the selection (Off hides Print and the
-    // effects); Paper is always there to fall back on
+    // A tool can disappear under the selection (Off hides the effects);
+    // Paper is always there to fall back on
     private var availableTools: [StripTool] {
-        var tools: [StripTool] = [.paper, .film]
-        if viewModel.isPrintPickerVisible { tools.append(.print) }
-        tools.append(.blackAndWhite)
+        var tools: [StripTool] = [.paper, .film, .print]
         if viewModel.areEffectsVisible { tools += FilmLook.Effect.allCases.map(StripTool.effect) }
         return tools
     }
@@ -51,25 +48,48 @@ struct StripView: View {
     }
 
     var body: some View {
-        stripPreviews
-            .safeAreaPadding(.top, UI.heroTopInset)
-            .safeAreaPadding(.bottom, UI.sheetSmallDetent)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .top) { topBar }
-            .background(theme.bg.ignoresSafeArea())
-            .environment(\.colorScheme, .dark)
-            .frmrDarkroomStatusBar()
-            .appErrorAlert(errorState)
-            .task {
-                viewModel.errorState = errorState
-                await viewModel.renderStrips()
+        VStack(spacing: UI.sheetSpacing) {
+            stripPreviews
+                .safeAreaPadding(.top, UI.heroTopInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .top) { topBar }
+            toolControl
+                .frame(minHeight: UI.toolPanelHeight, alignment: .top)
+            ToolIconBar(
+                items: availableTools.map { $0.item(strengths: viewModel.customization.strengths, effectsOn: viewModel.areEffectsVisible) },
+                selectedID: activeTool.id,
+                identifierPrefix: "strip.tool",
+                selectedColor: theme.accentFill,
+                idleColor: theme.text,
+                onSelect: { tool = StripTool(id: $0) }
+            )
+            Button(action: keepStrip) {
+                Text("Keep strip")
+                    .frame(maxWidth: .infinity)
             }
-            .onChange(of: viewModel.customization) {
-                Task { await viewModel.renderStrips() }
-            }
-            .sheet(isPresented: $isControlsPresented, onDismiss: finishClosing) {
-                controlSheet
-            }
+            .frmrPrimaryButtonStyle()
+            .disabled(viewModel.areActionsDisabled)
+            .accessibilityHint("Keeps the strip in your library")
+            .accessibilityIdentifier("strip.keep")
+            .padding(.horizontal, UI.sheetPadding)
+        }
+        .padding(.bottom, Constants.DesignUI.Space.s)
+        .foregroundStyle(theme.text)
+        .tint(theme.accentFill)
+        // Chrome text stops growing at the first accessibility size so
+        // Keep strip never leaves the screen
+        .frmrChromeTypeSize()
+        .background(theme.bg.ignoresSafeArea())
+        .environment(\.colorScheme, .dark)
+        .frmrDarkroomStatusBar()
+        .appErrorAlert(errorState)
+        .task {
+            viewModel.errorState = errorState
+            await viewModel.renderStrips()
+        }
+        .onChange(of: viewModel.customization) {
+            Task { await viewModel.renderStrips() }
+        }
     }
 
     // MARK: Top glass groups
@@ -110,7 +130,7 @@ struct StripView: View {
             .opacity(viewModel.areActionsDisabled ? Constants.CameraUI.disabledControlOpacity : 1)
         }
         .padding(.horizontal, Constants.DesignUI.gutter)
-        .padding(.top, Constants.DesignUI.Space.s)
+        .padding(.top, UI.topBarPadding)
     }
 
     // MARK: Hero
@@ -143,126 +163,88 @@ struct StripView: View {
         }
     }
 
-    // MARK: Controls sheet
-
-    private var controlSheet: some View {
-        VStack(spacing: UI.sheetSpacing) {
-            toolControl
-                .frame(minHeight: UI.toolPanelHeight, alignment: .top)
-            ToolIconBar(
-                items: availableTools.map { $0.item(strengths: viewModel.customization.strengths, effectsOn: viewModel.areEffectsVisible) },
-                selectedID: activeTool.id,
-                identifierPrefix: "strip.tool",
-                selectedColor: theme.accentFill,
-                idleColor: theme.text,
-                onSelect: { tool = StripTool(id: $0) }
-            )
-            Button(action: keepStrip) {
-                Text("Keep strip")
-                    .frame(maxWidth: .infinity)
-            }
-            .frmrPrimaryButtonStyle()
-            .disabled(viewModel.areActionsDisabled)
-            .accessibilityHint("Keeps the strip in your library")
-            .accessibilityIdentifier("strip.keep")
-            .padding(.horizontal, UI.sheetPadding)
-        }
-        .padding(.top, UI.sheetPadding)
-        .foregroundStyle(theme.text)
-        .tint(theme.accentFill)
-        // Chrome text stops growing at the first accessibility size so the
-        // sheet never pushes Keep strip off the screen
-        .frmrChromeTypeSize()
-        .frmrAnimation(.snap, value: viewModel.customization.filmStock)
-        .presentationDetents([.height(UI.sheetSmallDetent), .medium])
-        .presentationBackgroundInteraction(.enabled(upThrough: .height(UI.sheetSmallDetent)))
-        .presentationDragIndicator(.visible)
-        .interactiveDismissDisabled()
-        .frmrSheetBackground()
-        // Inherits the dark presenter; a preferred scheme here outlived the
-        // sheet and left light status text over the paper tabs
-        .environment(\.colorScheme, .dark)
-    }
+    // MARK: Tool control
 
     @ViewBuilder private var toolControl: some View {
         switch activeTool {
         case .paper: paperControl
-        case .film: filmChips
-        case .print: printChips
-        case .blackAndWhite: blackAndWhiteControl
+        case .film: filmPreviews
+        case .print: printControls
         case .effect(let effect): effectScrubber(for: effect)
         }
     }
 
     // v4 F8: white and black only, each labelled
     private var paperControl: some View {
-        HStack(spacing: UI.swatchSpacing) {
+        HStack(spacing: UI.paperSpacing) {
             ForEach(StripCustomization.StripBackground.allCases, id: \.settingsName) { option in
-                SwatchButton(
+                PaperThumb(
                     color: option.color,
                     label: option.label,
                     identifier: "strip.background.\(option.settingsName)",
                     isSelected: option == viewModel.customization.background,
-                    borderColor: theme.accentFill,
+                    ringColor: theme.accentFill,
                     rimColor: theme.cardBorder,
+                    textColor: theme.text,
                     action: { viewModel.customization.background = option }
                 )
             }
         }
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, UI.sheetPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // nil = As shot: every frame keeps the stock it was taken on
-    private var filmChips: some View {
-        ChipRow {
-            ForEach(StripCustomization.stockChoices, id: \.self) { choice in
-                chip(
-                    label: StripCustomization.label(forStockChoice: choice),
-                    accessibilityLabel: "Film: \(StripCustomization.label(forStockChoice: choice))",
-                    identifier: "strip.stock.\(choice?.rawValue ?? "asShot")",
-                    isSelected: choice == viewModel.customization.filmStock,
-                    action: { viewModel.customization.filmStock = choice }
-                )
-            }
-        }
-    }
-
-    private var printChips: some View {
-        ChipRow {
-            ForEach(viewModel.availablePrints) { printStock in
-                chip(
-                    label: printStock.label,
-                    accessibilityLabel: "Print: \(printStock.label)",
-                    identifier: "strip.print.\(printStock.rawValue)",
-                    isSelected: printStock == viewModel.selectedPrint,
-                    action: { viewModel.selectedPrint = printStock }
-                )
-            }
-        }
-    }
-
-    private func chip(label: String, accessibilityLabel: String, identifier: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        ChoiceChip(
-            label: label,
-            accessibilityLabel: accessibilityLabel,
-            identifier: identifier,
-            isSelected: isSelected,
-            selectedColor: theme.accentFill,
-            selectedForeground: theme.onAccent,
-            idleForeground: theme.text,
-            idleBackground: theme.surface,
-            action: action
+    private var filmPreviews: some View {
+        PreviewRow(
+            choices: StripCustomization.stockChoices,
+            selected: .some(viewModel.customization.filmStock),
+            image: { $0.map { viewModel.stockPreviews[$0] } ?? viewModel.asShotPreview },
+            code: { $0?.shortCode ?? UI.asShotCode },
+            label: { "Film: \(StripCustomization.label(forStockChoice: $0))" },
+            identifier: { "strip.stock.\($0?.rawValue ?? "asShot")" },
+            ringColor: theme.accentFill,
+            textColor: theme.text,
+            onSelect: { viewModel.customization.filmStock = $0 }
         )
+        .task(id: viewModel.customization) { requestPreviews() }
     }
 
-    private var blackAndWhiteControl: some View {
-        Toggle("Black & white", isOn: $viewModel.blackAndWhiteToggle)
-            .font(.frmrLabel)
-            .disabled(viewModel.isBlackAndWhiteLocked)
-            .frame(minHeight: Constants.DesignUI.targetMin)
-            .padding(.horizontal, UI.sheetPadding)
-            .accessibilityHint("Renders the strip in black and white. Mono stocks are always black and white.")
-            .accessibilityIdentifier("strip.blackAndWhite")
+    private var printControls: some View {
+        VStack(alignment: .leading, spacing: Constants.DesignUI.Space.s) {
+            if viewModel.isPrintPickerVisible {
+            PreviewRow(
+                choices: viewModel.availablePrints,
+                selected: viewModel.selectedPrint,
+                image: { viewModel.printPreviews[$0] },
+                code: { $0.label },
+                label: { "Print: \($0.label)" },
+                identifier: { "strip.print.\($0.rawValue)" },
+                ringColor: theme.accentFill,
+                textColor: theme.text,
+                onSelect: { viewModel.selectedPrint = $0 }
+            )
+            .task(id: viewModel.customization) { requestPreviews() }
+            } else {
+                Text("This film has no print to choose.")
+                    .font(.frmrMeta)
+                    .foregroundStyle(theme.textMuted)
+                    .frame(minHeight: Constants.DesignUI.targetMin)
+                    .padding(.horizontal, UI.sheetPadding)
+            }
+            Toggle("Black & white", isOn: $viewModel.blackAndWhiteToggle)
+                .disabled(viewModel.isBlackAndWhiteLocked)
+                .font(.frmrLabel)
+                .foregroundStyle(theme.text)
+                .tint(theme.accentFill)
+                .accessibilityHint("Renders the strip in black and white. Mono stocks are always black and white.")
+                .accessibilityIdentifier("strip.blackAndWhite")
+                .padding(.horizontal, UI.sheetPadding)
+        }
+    }
+
+    private func requestPreviews() {
+        viewModel.requestPreviews(size: CGSize(width: UI.previewThumbWidth, height: UI.previewThumbHeight), scale: displayScale)
     }
 
     // v5 F5: strength replaces the v4 on/off toggles. 100% is the v4
@@ -302,34 +284,9 @@ struct StripView: View {
         }
     }
 
-    // The sheet goes first; the cover follows once it has
     private func close() {
-        isClosing = true
-        isControlsPresented = false
-    }
-
-    private func finishClosing() {
-        guard isClosing else {
-            // The sheet can't be swiped away, but if the system drops it,
-            // bring it back rather than strand the strip without controls
-            isControlsPresented = true
-            return
-        }
         onDone()
         dismiss()
-    }
-}
-
-/// Chips in a horizontal row inset by content margins, so the first and
-/// last chip never clip at the sheet edge.
-private struct ChipRow<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: Constants.DesignUI.Space.s) { content }
-        }
-        .contentMargins(.horizontal, Constants.StripUI.sheetPadding, for: .scrollContent)
     }
 }
 
@@ -339,7 +296,6 @@ private enum StripTool: Hashable {
     case paper
     case film
     case print
-    case blackAndWhite
     case effect(FilmLook.Effect)
 
     init(id: String) {
@@ -347,7 +303,6 @@ private enum StripTool: Hashable {
         case "paper": self = .paper
         case "film": self = .film
         case "print": self = .print
-        case "bw": self = .blackAndWhite
         default: self = FilmLook.Effect(rawValue: id).map(StripTool.effect) ?? .paper
         }
     }
@@ -357,7 +312,6 @@ private enum StripTool: Hashable {
         case .paper: return "paper"
         case .film: return "film"
         case .print: return "print"
-        case .blackAndWhite: return "bw"
         case .effect(let effect): return effect.rawValue
         }
     }
@@ -370,8 +324,6 @@ private enum StripTool: Hashable {
             return ToolIconItem(id: id, title: "Film", systemImage: "film", hint: "Choose the film the strip is rendered on")
         case .print:
             return ToolIconItem(id: id, title: "Print", systemImage: "printer", hint: "Choose the paper the film is printed on")
-        case .blackAndWhite:
-            return ToolIconItem(id: id, title: "B&W", systemImage: "circle.lefthalf.filled", hint: "Render the strip in black and white")
         case .effect(let effect):
             let strength = strengths[effect]
             return ToolIconItem(
@@ -383,31 +335,35 @@ private enum StripTool: Hashable {
     }
 }
 
-private struct SwatchButton: View {
+/// A paper colour as one of the editor's rounded preview thumbs.
+private struct PaperThumb: View {
     let color: Color
     let label: String
     let identifier: String
     let isSelected: Bool
-    let borderColor: Color
+    let ringColor: Color
     let rimColor: Color
+    let textColor: Color
     let action: () -> Void
+
+    private typealias UI = Constants.StripUI
+    private typealias EditUI = Constants.PhotoEditUI
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb) }
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: Constants.DesignUI.Space.xs) {
-                Circle()
-                    .fill(color)
+            VStack(spacing: EditUI.previewLabelSpacing) {
+                color
+                    .frame(width: UI.previewThumbWidth, height: UI.previewThumbHeight)
+                    .clipShape(shape)
                     // A hairline rim keeps the swatch that matches the page visible
-                    .overlay(Circle().strokeBorder(rimColor, lineWidth: Constants.StripUI.swatchRimWidth))
-                    .overlay(
-                        Circle().strokeBorder(isSelected ? borderColor : .clear, lineWidth: Constants.StripUI.swatchBorderWidth)
-                            .padding(-Constants.StripUI.swatchBorderWidth * 2)
-                    )
-                    .frame(width: Constants.StripUI.swatchDiameter, height: Constants.StripUI.swatchDiameter)
+                    .overlay { shape.strokeBorder(rimColor, lineWidth: UI.swatchRimWidth) }
+                    .overlay { shape.strokeBorder(isSelected ? ringColor : .clear, lineWidth: EditUI.previewRingWidth) }
                 Text(label)
-                    .font(.frmrMeta)
+                    .frmrCodeStyle()
+                    .foregroundStyle(isSelected ? ringColor : textColor)
             }
-            .frame(minWidth: Constants.StripUI.swatchTapTarget, minHeight: Constants.StripUI.swatchTapTarget)
+            .frame(minWidth: UI.swatchTapTarget, minHeight: UI.swatchTapTarget)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

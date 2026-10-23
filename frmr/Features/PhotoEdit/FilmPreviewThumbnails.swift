@@ -46,6 +46,11 @@ nonisolated enum FilmPreviewThumbnails {
         return result
     }
 
+    /// `source` rendered in exactly `look`; nil if the render fails.
+    static func lookPreview(of source: UIImage, look: FilmLook, seed: UInt64) -> UIImage? {
+        render(source, look: look, seed: seed)
+    }
+
     private static func render(_ source: UIImage, look: FilmLook, seed: UInt64) -> UIImage? {
         do {
             return try ImageProcessor.renderFullLook(of: source, look: look, seed: seed)

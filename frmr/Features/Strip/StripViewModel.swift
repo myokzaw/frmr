@@ -103,6 +103,130 @@ final class StripViewModel {
         }
     }
 
+    // MARK: Previews (photo previews for the Film and Print choices)
+
+    /// The strip's first photo in every stock (incl. Off); filled by
+    /// `requestPreviews`. Empty until the first request lands.
+    private(set) var stockPreviews: [StripCustomization.FilmStock: UIImage] = [:]
+    /// The first photo in its own look (the As shot choice).
+    private(set) var asShotPreview: UIImage?
+    /// The first photo on each print the current stock offers.
+    private(set) var printPreviews: [StripCustomization.PrintStock: UIImage] = [:]
+    /// Preview batches rendered (cache misses); for tests.
+    @ObservationIgnored private(set) var previewRenderCount = 0
+    @ObservationIgnored private var previewCache: [PreviewKey: PreviewSet] = [:]
+    @ObservationIgnored private var previewTask: Task<Void, Never>?
+
+    private nonisolated struct PreviewSet: Sendable {
+        var stocks: [StripCustomization.FilmStock: UIImage]?
+        var asShot: UIImage?
+        var prints: [StripCustomization.PrintStock: UIImage]?
+    }
+
+    /// What each preview dimension depends on: the look with the previewed
+    /// dimension factored out, and the size.
+    private struct PreviewKey: Hashable {
+        enum Kind { case stocks, asShot, prints }
+        let kind: Kind
+        let look: FilmLook
+        let width: Int
+        let height: Int
+    }
+
+    /// The first item's own look: its Roll look, else its stock's defaults
+    /// with the strip's strengths and B&W.
+    private var firstItemLook: FilmLook? {
+        guard let first = items.first else { return nil }
+        return first.look ?? FilmLook(
+            stock: first.filmStock,
+            blackAndWhite: customization.blackAndWhite,
+            strengths: customization.strengths
+        )
+    }
+
+    /// Renders small thumbnails of the first item in every stock, as shot,
+    /// and on each print the current stock offers, at `size` points x
+    /// `scale`. Off the main thread, last request wins, cached per look
+    /// (previewed dimension factored out) and size. No items: empty.
+    func requestPreviews(size: CGSize, scale: CGFloat) {
+        let pixels = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
+        guard pixels.width >= 1, pixels.height >= 1 else { return }
+        previewTask?.cancel()
+        previewTask = nil
+
+        guard let image = items.first?.image, let ownLook = firstItemLook else {
+            stockPreviews = [:]
+            asShotPreview = nil
+            printPreviews = [:]
+            return
+        }
+
+        let width = Int(pixels.width), height = Int(pixels.height)
+        // The other choices keep the strip's print, B&W and strengths and the photo's exposure
+        var base = FilmLook(
+            stock: .none,
+            printStock: customization.printStock,
+            blackAndWhite: customization.blackAndWhite,
+            strengths: customization.strengths,
+            exposure: ownLook.exposure
+        )
+        let stocksKey = PreviewKey(kind: .stocks, look: base, width: width, height: height)
+        let asShotKey = PreviewKey(kind: .asShot, look: ownLook, width: width, height: height)
+        base = base.with(stock: customization.filmStock ?? .none)
+        base.printStock = nil
+        let printsKey = PreviewKey(kind: .prints, look: base, width: width, height: height)
+        let printsLook = base
+
+        let cachedStocks = previewCache[stocksKey]?.stocks
+        let cachedAsShot = previewCache[asShotKey]?.asShot
+        let cachedPrints = previewCache[printsKey]?.prints
+        if let cachedStocks { stockPreviews = cachedStocks }
+        if let cachedAsShot { asShotPreview = cachedAsShot }
+        if let cachedPrints { printPreviews = cachedPrints }
+        guard cachedStocks == nil || cachedAsShot == nil || cachedPrints == nil else { return }
+
+        let stocksLook = stocksKey.look
+        let seed = StripGenerator.photoLookSeed(for: date)
+        previewTask = Task { [weak self] in
+            let rendered = await Task.detached(priority: .utility) { () -> PreviewSet? in
+                let source = FilmPreviewThumbnails.source(from: image, coveringPixelSize: pixels)
+                if Task.isCancelled { return nil }
+                var set = PreviewSet()
+                if cachedStocks == nil {
+                    set.stocks = FilmPreviewThumbnails.stockPreviews(of: source, look: stocksLook, seed: seed)
+                }
+                if Task.isCancelled { return nil }
+                if cachedAsShot == nil {
+                    set.asShot = FilmPreviewThumbnails.lookPreview(of: source, look: ownLook, seed: seed)
+                }
+                if Task.isCancelled { return nil }
+                if cachedPrints == nil {
+                    set.prints = FilmPreviewThumbnails.printPreviews(of: source, look: printsLook, seed: seed)
+                }
+                return set
+            }.value
+            guard let self, !Task.isCancelled, let rendered else { return }
+            self.previewRenderCount += 1
+            if let stocks = rendered.stocks {
+                self.previewCache[stocksKey, default: PreviewSet()].stocks = stocks
+                self.stockPreviews = stocks
+            }
+            if let asShot = rendered.asShot {
+                self.previewCache[asShotKey, default: PreviewSet()].asShot = asShot
+                self.asShotPreview = asShot
+            }
+            if let prints = rendered.prints {
+                self.previewCache[printsKey, default: PreviewSet()].prints = prints
+                self.printPreviews = prints
+            }
+        }
+    }
+
+    /// Waits for the newest `requestPreviews` render, for tests.
+    func previewsSettled() async {
+        await previewTask?.value
+    }
+
     // Every toggle in the strip screen starts a render. Without cancelling
     // the previous one they queued up and the strip lagged several taps
     // behind (v4 F1). The generation counter decides which call owns

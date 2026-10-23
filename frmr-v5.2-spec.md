@@ -120,6 +120,16 @@ Proposed default (the user can change it): offer Continue to diary on a Roll re-
 **Test:** `PromptKeyboardRegressionUITests.testRealCaptureThenTypingDoesNotHang` (real camera; skips on the simulator). The fix still needs checking on a device.
 **Mac testing:** looked at and dropped. Xcode doesn't run UI tests on "Designed for iPhone" Macs, and unit tests there would need the Mac registered on the team. `test.sh` now also fails on `xcodebuild: error:`.
 
+### F-STRIPUI — Strip screen uses the editor's layout (user request, 2026-10-23) — **done**
+- **Change:** the controls sheet is gone. The screen is one column: the strip hero, the tool panel, `ToolIconBar` and Keep strip.
+- **Tools:**
+  - Film and Print are `PreviewRow` thumbs (now shared in `Shared/Components/PreviewRow.swift` and used by the editor too).
+  - Paper is two swatches.
+  - B&W sits under Print. The Print tool shows for every film, with "This film has no print to choose." where that applies, so B&W stays reachable.
+- **Previews:** backend added `StripViewModel.stockPreviews`, `asShotPreview`, `printPreviews` and `requestPreviews(size:scale:)`. They render from the first frame, off the main thread, and are cached.
+- **Tests:** `StripPreviewTests` (4). Lead check: fast unit pass, all UI pass, guard clean.
+- **Device:** the swatch rim on the dark background; thumbs fill in; Keep strip stays on screen at large text.
+
 ### F-PICK — Counter in Pick from Roll
 User decision: counter, numbered badges and tap to unpick.
 - **Backend:**

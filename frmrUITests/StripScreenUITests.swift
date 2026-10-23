@@ -21,7 +21,6 @@ final class StripScreenUITests: XCTestCase {
     private let asShot = "asShot"
     private let stocks = ["none", "daylight200", "portrait400", "cine500T", "slide100", "mono400", "mono3200"]
     private var stockChoices: [String] { [asShot] + stocks }
-    private let stocksWithoutPrint: Set<String> = ["none", "slide100"]
     private let monoStocks: Set<String> = ["mono400", "mono3200"]
     private let effectIDs = ["halation", "haze", "lightLeak", "grain", "vignette"]
 
@@ -248,21 +247,18 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertTrue(waitUntilSelected(chip), "\(stock): chip did not select")
     }
 
-    // As shot shows no print tool. Gallery picks take the camera's stock
+    // The Print tool always shows (B&W lives under it). Gallery picks take the camera's stock
     // (default Off, OPEN v4-10/v4-12), so under As shot every frame is Off
     // and the effect tools are hidden too (F12: hidden only when every
     // effective stock is Off). B&W is locked on for mono stocks.
     private func assertTools(for stock: String, app: XCUIApplication) {
-        XCTAssertTrue(app.buttons["strip.tool.bw"].waitForExistence(timeout: timeout), "\(stock): B&W tool missing")
         let print = app.buttons["strip.tool.print"]
-        // Let the row settle before checking absence
-        _ = print.waitForNonExistence(timeout: stocksWithoutPrint.contains(stock) || stock == asShot ? 1 : 0.1)
+        XCTAssertTrue(print.waitForExistence(timeout: timeout), "\(stock): Print tool missing")
         let effectsExpected = stock != "none" && stock != asShot
-        XCTAssertEqual(print.exists, !stocksWithoutPrint.contains(stock) && stock != asShot, "\(stock): print tool visibility")
         for effect in effectIDs {
             XCTAssertEqual(app.buttons["strip.tool.\(effect)"].exists, effectsExpected, "\(stock): \(effect) tool visibility")
         }
-        app.buttons["strip.tool.bw"].tap()
+        print.tap()
         let blackAndWhite = app.switches["strip.blackAndWhite"]
         XCTAssertTrue(blackAndWhite.waitForExistence(timeout: timeout), "\(stock): B&W toggle missing")
         XCTAssertEqual(blackAndWhite.isEnabled, !monoStocks.contains(stock), "\(stock): B&W lock")
