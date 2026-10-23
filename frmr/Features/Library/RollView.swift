@@ -98,7 +98,7 @@ struct RollView: View {
             deletePromptButtons
         }
         .fullScreenCover(item: $edit) { session in
-            PhotoEditView(edit: session)
+            ReEditFlowView(session: session) { edit = nil }
         }
         .fullScreenCover(item: $stripSource) { source in
             StripView(items: source.items, isPhotobooth: false, onDone: viewModel.endSelecting)
@@ -193,7 +193,6 @@ struct RollView: View {
             errorState.raise(.persistenceFailed(reason: "This photo's file couldn't be read."))
             return
         }
-        session.onFinish = { _ in edit = nil }
         edit = session
     }
 
@@ -348,7 +347,7 @@ private struct DiaryBadge: View {
     }
 }
 
-private struct SelectionBadge: View {
+struct SelectionBadge: View {
     let isVisible: Bool
     let number: Int?
     let tint: Color

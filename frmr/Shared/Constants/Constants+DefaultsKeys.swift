@@ -33,5 +33,7 @@ nonisolated extension Constants {
         // v5.2 S7: the Core Haptics film-advance pattern on the shutter
         // (true, default); off = a single heavy impact
         static let filmAdvanceHaptics = "filmAdvanceHaptics"
+        // v5.2.1 F-GRID: the viewfinder grid (raw CameraGrid value; missing = off)
+        static let cameraGrid = "cameraGrid"
     }
 }

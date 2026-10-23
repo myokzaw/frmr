@@ -15,6 +15,7 @@ frmr makes your photos look like film because it works like film. Each stock has
   - **Mono 400:** classic black and white.
   - **Mono 3200:** hard contrast and heavy grain.
 - **A real camera.** It captures RAW photos. Tap to focus, pinch to zoom, swipe to change exposure, and set white balance with presets or Kelvin and tint.
+- **Composition grid.** Thirds, square or golden-ratio lines, set in Settings.
 - **Built for one hand.** On tall iPhones the dial and shutter sit below the viewfinder, so nothing covers your shot. The controls turn upright as you rotate the phone, like the Camera app.
 
 ### Make every frame yours
@@ -24,7 +25,7 @@ frmr makes your photos look like film because it works like film. Each stock has
 - **Nothing is lost.** Your Roll keeps every original, so you can re-edit any photo at any time.
 
 ### Keep a photo diary
-- **Continue to diary.** Answer a short, thoughtful prompt about the moment you just captured.
+- **Continue to diary.** Answer a short, thoughtful prompt about a photo, right after you take it or later from your Roll.
 - Each entry stays linked to its photo. If you re-edit the photo, the entry updates too.
 
 ### Make photo strips

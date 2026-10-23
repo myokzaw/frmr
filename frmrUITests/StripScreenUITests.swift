@@ -183,6 +183,32 @@ final class StripScreenUITests: XCTestCase {
         XCTAssertTrue(miniStrip.label.contains("0 of 4"), "Closing the strip clears the slots: \(miniStrip.label)")
     }
 
+    // F-PICK: the picker's title counts the picks; tapping a picked photo unpicks it
+    @MainActor
+    func testRollPickerCounterAndUnpick() throws {
+        let app = launch(arguments: ["-UITestSeedRoll"])
+        let strip = app.buttons["camera.mode.filmstrip"]
+        XCTAssertTrue(strip.waitForExistence(timeout: timeout))
+        strip.tap()
+        let miniStrip = app.buttons["strip.miniStrip"]
+        XCTAssertTrue(miniStrip.waitForExistence(timeout: timeout))
+        miniStrip.tap()
+        app.buttons["strip.pickRoll"].tap()
+        let cells = app.buttons.matching(identifier: "strip.rollPicker.photo")
+        XCTAssertTrue(cells.firstMatch.waitForExistence(timeout: timeout))
+        let title = { (text: String) in app.navigationBars.staticTexts[text] }
+        cells.element(boundBy: 0).tap()
+        cells.element(boundBy: 1).tap()
+        XCTAssertTrue(title("2 of 4 picked").waitForExistence(timeout: timeout), "Title should count two picks")
+        cells.element(boundBy: 1).tap()
+        XCTAssertTrue(title("1 of 4 picked").waitForExistence(timeout: timeout), "Tapping a picked photo unpicks it")
+        app.buttons["strip.rollPicker.done"].tap()
+        // The picked photo shows in slot 1 (an empty slot is labelled "empty")
+        let filled = app.descendants(matching: .any).matching(identifier: "strip.slot")
+            .matching(NSPredicate(format: "label == %@", "Frame 1")).firstMatch
+        XCTAssertTrue(filled.waitForExistence(timeout: timeout), "A picked photo should fill its slot")
+    }
+
     // MARK: Steps
 
     @MainActor

@@ -77,6 +77,12 @@ nonisolated extension Constants {
         static let kelvinSliderStep: Double = 50
         static let tintSliderStep: Double = 1
 
+        // v5.2.1 F-GRID: viewfinder grid hairlines
+        static let gridLineWidth: CGFloat = 0.5
+        static let gridLineOpacity: CGFloat = 0.35
+        static let gridShadowOpacity: CGFloat = 0.25
+        static let gridShadowRadius: CGFloat = 0.5
+
         // v5: last Roll photo beside the shutter
         static let lastPhotoSize: CGFloat = D.targetMin
         static let lastPhotoBorderWidth: CGFloat = 1

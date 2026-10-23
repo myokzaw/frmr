@@ -460,12 +460,28 @@ final class PhotoEditViewModel: Identifiable {
         return true
     }
 
-    /// Continue to diary is offered only right after a capture (v5.1-2).
-    var canContinueToDiary: Bool { rollPhoto == nil && outcome == nil && !isSavingToRoll }
+    /// The linked-entry count of the photo being re-edited, read once by
+    /// `loadLinkedEntryCount`. nil = not read yet or unreadable.
+    private(set) var loadedLinkedEntryCount: Int?
 
-    /// Saves to the Roll exactly like Save to roll, then exposes
-    /// `diaryContinuation` and finishes with `.continuedToDiary`. Returns
-    /// false (and changes nothing) in re-edit or on failure.
+    /// Reads the re-edited photo's linked-entry count (BUG-521-02). Call once
+    /// when the editor opens; a fresh capture has nothing to read.
+    func loadLinkedEntryCount(context: ModelContext) {
+        guard let rollPhoto else { return }
+        loadedLinkedEntryCount = RollViewModel.linkedEntryCountIfKnown(for: rollPhoto, in: context)
+    }
+
+    /// Continue to diary: a fresh capture, or (BUG-521-02) a re-edit whose
+    /// photo has no linked entry yet. An unknown count hides it.
+    var canContinueToDiary: Bool {
+        guard outcome == nil, !isSavingToRoll else { return false }
+        return rollPhoto == nil || loadedLinkedEntryCount == 0
+    }
+
+    /// Saves to the Roll exactly like Save to roll (a re-edit updates the
+    /// existing photo's look), then exposes `diaryContinuation` and finishes
+    /// with `.continuedToDiary`. Returns false (and changes nothing) when not
+    /// offered or on failure.
     @discardableResult
     func continueToDiary(context: ModelContext) async -> Bool {
         guard canContinueToDiary else { return false }
@@ -475,7 +491,12 @@ final class PhotoEditViewModel: Identifiable {
         let developed = await developedPhoto()
         let saved: RollPhoto
         do {
-            saved = try RollViewModel.insert(original: developed, look: look, capturedAt: captureDate, context: context)
+            if let rollPhoto {
+                try RollViewModel.update(rollPhoto, look: look, context: context)
+                saved = rollPhoto
+            } else {
+                saved = try RollViewModel.insert(original: developed, look: look, capturedAt: captureDate, context: context)
+            }
         } catch let error as AppError {
             errorState?.raise(error)
             return false

@@ -31,6 +31,7 @@ struct SettingsView: View {
 
     @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
     @AppStorage(Constants.DefaultsKeys.editAfterEachShot) private var editAfterEachShot = true
+    @AppStorage(Constants.DefaultsKeys.cameraGrid) private var cameraGrid = CameraGrid.off.rawValue
     @AppStorage(Constants.DefaultsKeys.filmAdvanceHaptics) private var filmAdvanceHaptics = true
     @AppStorage(Constants.DefaultsKeys.stripBackground) private var stripBackground = StripCustomization.StripBackground.white.settingsName
     // v4 F12: stored as a String so As shot can be a sentinel; read and
@@ -128,6 +129,12 @@ struct SettingsView: View {
             Toggle("Edit after each shot", isOn: $editAfterEachShot)
                 .accessibilityHint("When off, photos go straight to your roll and you edit them later")
                 .accessibilityIdentifier("settings.editAfterEachShot")
+            Picker("Grid", selection: $cameraGrid) {
+                ForEach(CameraGrid.allCases) { grid in
+                    Text(grid.label).tag(grid.rawValue)
+                }
+            }
+            .accessibilityIdentifier("settings.grid")
             Toggle("Film-advance haptics", isOn: $filmAdvanceHaptics)
                 .accessibilityHint("The shutter plays a film-winding pattern. When off, a single tap.")
                 .accessibilityIdentifier("settings.filmAdvanceHaptics")

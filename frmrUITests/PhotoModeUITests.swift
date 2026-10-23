@@ -374,12 +374,13 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertEqual(afterSave, before + 1, "Save to roll adds one photo (a discarded one adds none)")
         saveScreenshot(named: "library-roll-grid")
 
-        // Re-edit: Delete (not Retake), Save (not Save to roll), no Continue to
-        // diary (v5.1-2); Discard leaves it unchanged
+        // Re-edit: Delete (not Retake), Save (not Save to roll), Continue to
+        // diary only without an entry (v5.2.1); Discard leaves it unchanged
         relaunched.buttons["roll.photo"].firstMatch.tap()
         XCTAssertTrue(relaunched.buttons["edit.delete"].waitForExistence(timeout: timeout), "Re-edit offers Delete")
         XCTAssertFalse(relaunched.buttons["edit.retake"].exists)
-        XCTAssertFalse(relaunched.buttons["edit.continueDiary"].exists, "Continue to diary is only right after a capture")
+        // v5.2.1: a photo with no entry yet still offers Continue to diary
+        XCTAssertTrue(relaunched.buttons["edit.continueDiary"].waitForExistence(timeout: timeout), "A photo with no entry offers Continue to diary")
         XCTAssertEqual(relaunched.buttons["edit.save"].label, "Save")
         saveScreenshot(named: "edit-reedit")
         tapTool("vignette", in: relaunched)

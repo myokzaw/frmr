@@ -25,5 +25,9 @@ nonisolated extension Constants {
         // v4 F11 display cache. OPEN: v4-11 — rendered copies are kept in
         // memory only (never written to disk); this caps that memory.
         static let displayCacheCostLimitBytes = 96 * 1024 * 1024
+
+        // v5.2.1: the prompt screen shows a copy of the photo no larger than
+        // this on its long side (the saved original is unchanged)
+        static let promptDisplayMaxPixels = 1600
     }
 }

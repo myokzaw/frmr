@@ -174,6 +174,8 @@ struct CameraControlSheet: View {
                     kelvin: viewModel.whiteBalanceKelvin,
                     tint: viewModel.whiteBalanceTint,
                     valueText: viewModel.whiteBalanceChipText,
+                    kelvinText: viewModel.whiteBalanceKelvinText,
+                    tintText: viewModel.whiteBalanceTintText,
                     onPreset: viewModel.chooseWhiteBalancePreset,
                     onKelvin: viewModel.setWhiteBalanceKelvin,
                     onTint: viewModel.setWhiteBalanceTint
@@ -330,7 +332,7 @@ struct LastPhotoButton: View {
         }
         .frmrAnimation(.snap, value: newest.first?.id)
         .fullScreenCover(item: $edit) { session in
-            PhotoEditView(edit: session)
+            ReEditFlowView(session: session) { edit = nil }
         }
     }
 
@@ -339,7 +341,6 @@ struct LastPhotoButton: View {
             errorState.raise(.persistenceFailed(reason: "This photo's file couldn't be read."))
             return
         }
-        session.onFinish = { _ in edit = nil }
         edit = session
     }
 }
@@ -406,8 +407,8 @@ struct EditorFlowView: View {
 
     var body: some View {
         ZStack {
-            if camera.isEditorPresented {
-                EntryEditorView(camera: camera)
+            if camera.isEditorPresented, let continuation = camera.pendingDiary {
+                EntryEditorView(continuation: continuation, onFinish: camera.endDiaryPrompt)
                     .transition(.opacity)
             } else if let edit = camera.photoEdit {
                 PhotoEditView(edit: edit)
@@ -415,5 +416,37 @@ struct EditorFlowView: View {
             }
         }
         .frmrAnimation(.panel, value: camera.isEditorPresented)
+    }
+}
+
+// Re-edit of a Roll photo (camera thumbnail, Library > Roll): the editor,
+// then, after Continue to diary, the prompt in the same cover, like
+// `EditorFlowView`. `onClose` dismisses the cover.
+struct ReEditFlowView: View {
+    let session: PhotoEditViewModel
+    let onClose: () -> Void
+
+    @State private var continuation: PhotoEditViewModel.DiaryContinuation?
+
+    var body: some View {
+        ZStack {
+            if let continuation {
+                EntryEditorView(continuation: continuation, onFinish: onClose)
+                    .transition(.opacity)
+            } else {
+                PhotoEditView(edit: session)
+                    .transition(.opacity)
+            }
+        }
+        .frmrAnimation(.panel, value: continuation != nil)
+        .task {
+            session.onFinish = { outcome in
+                if outcome == .continuedToDiary, let next = session.diaryContinuation {
+                    continuation = next
+                } else {
+                    onClose()
+                }
+            }
+        }
     }
 }

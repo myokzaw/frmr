@@ -60,20 +60,11 @@ struct WhiteBalancePanel: View {
     let kelvin: Float
     let tint: Float
     let valueText: String
+    let kelvinText: String
+    let tintText: String
     let onPreset: (WBMode) -> Void
     let onKelvin: (Float) -> Void
     let onTint: (Float) -> Void
-
-    /// "5600K"
-    nonisolated static func kelvinText(_ kelvin: Float) -> String {
-        "\(Int(kelvin.rounded()))K"
-    }
-
-    /// "+12", "-8", "0"
-    nonisolated static func tintText(_ tint: Float) -> String {
-        let value = Int(tint.rounded())
-        return value == 0 ? "0" : String(format: "%+d", value)
-    }
 
     var body: some View {
         VStack(spacing: Constants.CameraUI.panelSpacing) {
@@ -92,7 +83,7 @@ struct WhiteBalancePanel: View {
             PanelSliderRow(
                 title: "Kelvin",
                 showsTitle: true,
-                valueText: Self.kelvinText(kelvin),
+                valueText: kelvinText,
                 value: Binding(get: { Double(kelvin) }, set: { onKelvin(Float($0)) }),
                 range: Double(Constants.Camera.whiteBalanceKelvinRange.lowerBound)...Double(Constants.Camera.whiteBalanceKelvinRange.upperBound),
                 step: Constants.CameraUI.kelvinSliderStep,
@@ -101,7 +92,7 @@ struct WhiteBalancePanel: View {
             PanelSliderRow(
                 title: "Tint",
                 showsTitle: true,
-                valueText: Self.tintText(tint),
+                valueText: tintText,
                 value: Binding(get: { Double(tint) }, set: { onTint(Float($0)) }),
                 range: Double(Constants.Camera.whiteBalanceTintRange.lowerBound)...Double(Constants.Camera.whiteBalanceTintRange.upperBound),
                 step: Constants.CameraUI.tintSliderStep,

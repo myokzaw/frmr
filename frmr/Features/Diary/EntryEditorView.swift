@@ -15,7 +15,10 @@ struct EntryEditorView: View {
     @Environment(ErrorState.self) private var errorState
     @AppStorage(Constants.DefaultsKeys.appearanceMode) private var appearanceMode = AppearanceMode.system.rawValue
 
-    let camera: CameraViewModel
+    /// What the prompt shows and links to; both flows (camera cover, Roll
+    /// cover) hand it over here, and `onFinish` closes their cover.
+    let continuation: PhotoEditViewModel.DiaryContinuation
+    let onFinish: () -> Void
     @State private var viewModel = DiaryViewModel()
     @FocusState private var isWriting: Bool
 
@@ -80,23 +83,16 @@ struct EntryEditorView: View {
         .background(theme.bg)
     }
 
-    // The photo above the prompt; a thumbnail beside it while typing
-    @ViewBuilder private var header: some View {
-        if isWriting {
-            HStack(alignment: .top, spacing: Constants.DesignUI.Space.m) {
-                EntryHeaderPhoto(image: camera.pendingDiaryDisplayImage)
-                    .frame(width: UI.thumbnailSize, height: UI.thumbnailSize / Constants.CameraUI.stripFrameAspect)
-                    .clipShape(RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.thumb))
-                PromptCard(prompt: viewModel.prompt, textColor: theme.text)
-            }
-        } else {
-            EntryHeaderPhoto(image: camera.pendingDiaryDisplayImage)
-                .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
-                .frame(maxWidth: .infinity, maxHeight: UI.photoMaxHeight)
-                .clipShape(RoundedRectangle(cornerRadius: Constants.DesignUI.Radius.media))
-                .frame(maxWidth: .infinity)
-            PromptCard(prompt: viewModel.prompt, textColor: theme.text)
-        }
+    // One header whose views keep their identity when writing starts: only
+    // the photo's size and the stack axis change, so the prompt's typewriter
+    // is not rebuilt. It reads no text-field state, so keystrokes skip it.
+    private var header: some View {
+        EntryPromptHeader(
+            image: continuation.displayImage ?? continuation.photo,
+            prompt: viewModel.prompt,
+            textColor: theme.text,
+            isWriting: isWriting
+        )
     }
 
     private var writingSurface: some View {
@@ -143,22 +139,51 @@ struct EntryEditorView: View {
 
     private func save(includeText: Bool) {
         if viewModel.saveEntry(
-            image: camera.pendingDiaryImage,
-            filmStock: camera.pendingDiaryStock,
-            look: camera.pendingDiaryLook,
-            capturedAt: camera.pendingDiaryCaptureDate,
-            rollPhotoID: camera.pendingDiaryRollPhotoID,
+            image: continuation.photo,
+            filmStock: continuation.look.stock,
+            look: continuation.look,
+            capturedAt: continuation.capturedAt,
+            rollPhotoID: continuation.rollPhotoID,
             includeText: includeText,
             context: modelContext
         ) {
             Haptics.play(.saved)
-            camera.endDiaryPrompt()
+            onFinish()
         }
     }
 }
 
-private struct EntryHeaderPhoto: View {
+private struct EntryPromptHeader: View {
+    let image: UIImage
+    let prompt: String
+    let textColor: Color
+    let isWriting: Bool
+
+    private typealias UI = Constants.EditorUI
+
+    var body: some View {
+        let layout = isWriting
+            ? AnyLayout(HStackLayout(alignment: .top, spacing: Constants.DesignUI.Space.m))
+            : AnyLayout(VStackLayout(alignment: .leading, spacing: UI.formSpacing))
+        layout {
+            EntryHeaderPhoto(image: image)
+                .equatable()
+                .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
+                .frame(
+                    maxWidth: isWriting ? UI.thumbnailSize : .infinity,
+                    maxHeight: isWriting ? UI.thumbnailSize / Constants.CameraUI.stripFrameAspect : UI.photoMaxHeight
+                )
+                .clipShape(RoundedRectangle(cornerRadius: isWriting ? Constants.DesignUI.Radius.thumb : Constants.DesignUI.Radius.media))
+            PromptCard(prompt: prompt, textColor: textColor)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct EntryHeaderPhoto: View, Equatable {
     let image: UIImage?
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.image === rhs.image }
 
     var body: some View {
         if let image {

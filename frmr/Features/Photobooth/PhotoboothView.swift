@@ -143,7 +143,7 @@ struct StripSlotsSheet: View {
             Task { await viewModel.loadPickerSelection() }
         }
         .sheet(isPresented: $isRollPickerPresented) {
-            RollPickerSheet(remainingSlots: viewModel.remainingSlots, onPick: viewModel.add(rollPhoto:))
+            RollPickerSheet(viewModel: viewModel)
         }
         .presentationDetents([.height(UI.slotsSheetHeight)])
         .presentationDragIndicator(.visible)
@@ -181,14 +181,18 @@ private struct SlotView: View {
     }
 }
 
-// Pick from Roll: the Roll's photos in their looks; tap to add one to the
-// strip, Done when finished. Closes itself once every slot is filled.
+// Pick from Roll: the Roll's photos in their looks. Picked photos carry a
+// numbered badge (their slot); tap toggles, so a second tap unpicks. The
+// title counts every filled slot. Done closes (F-PICK).
 struct RollPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var contrast
     @Query(sort: \RollPhoto.capturedAt, order: .reverse) private var photos: [RollPhoto]
 
-    let remainingSlots: Int
-    let onPick: (RollPhoto) -> Void
+    let viewModel: PhotoboothViewModel
+
+    private var theme: ThemePalette { ThemePalette.resolve(for: colorScheme, surface: .darkroom, contrast: contrast) }
 
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: Constants.DesignUI.contactSheetGutter), count: Constants.CameraUI.rollPickerColumns)
@@ -199,17 +203,7 @@ struct RollPickerSheet: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: Constants.DesignUI.contactSheetGutter) {
                     ForEach(photos) { photo in
-                        Button { pick(photo) } label: {
-                            Color.clear
-                                .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
-                                .overlay { RollLookImage(photo: photo, contentMode: .fill) { Color.clear } }
-                                .clipped()
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(remainingSlots == 0)
-                        .accessibilityLabel("Roll photo")
-                        .accessibilityHint("Adds this photo to the strip")
-                        .accessibilityIdentifier("strip.rollPicker.photo")
+                        cell(photo)
                     }
                 }
                 .padding(.horizontal, Constants.DesignUI.gutter)
@@ -224,7 +218,7 @@ struct RollPickerSheet: View {
                     .accessibilityIdentifier("strip.rollPicker.empty")
                 }
             }
-            .navigationTitle("Pick from Roll")
+            .navigationTitle(viewModel.rollPickerTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -237,9 +231,23 @@ struct RollPickerSheet: View {
         .frmrSheetBackground()
     }
 
-    private func pick(_ photo: RollPhoto) {
-        onPick(photo)
-        if remainingSlots <= 1 { dismiss() }
+    private func cell(_ photo: RollPhoto) -> some View {
+        let slot = viewModel.slotNumber(forRollPhoto: photo.id)
+        return Button { viewModel.toggle(rollPhoto: photo) } label: {
+            Color.clear
+                .aspectRatio(Constants.CameraUI.stripFrameAspect, contentMode: .fit)
+                .overlay { RollLookImage(photo: photo, contentMode: .fill) { Color.clear } }
+                .clipped()
+                .overlay(alignment: .topTrailing) {
+                    SelectionBadge(isVisible: slot != nil, number: slot, tint: theme.tint)
+                        .padding(Constants.DesignUI.Space.xs)
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(slot == nil && viewModel.isFull)
+        .accessibilityLabel(slot.map { "Photo, picked, slot \($0)" } ?? "Photo")
+        .accessibilityHint(slot == nil ? "Adds this photo to the strip" : "Removes it from the strip")
+        .accessibilityIdentifier("strip.rollPicker.photo")
     }
 }
 

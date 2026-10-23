@@ -236,8 +236,8 @@ struct RollStoreTests {
         second.add(rollPhoto: row)
         #expect(second.stripItems.first?.look == edited)
 
-        for _ in 0..<5 { booth.add(rollPhoto: row) }
-        #expect(booth.shots.count == booth.slotCount, "a full strip ignores further picks")
+        booth.add(rollPhoto: row)
+        #expect(booth.shots.count == 1, "the same photo can't take two slots")
     }
 
     @Test func exportSavesFullResolutionHEICInEachPhotosLook() async throws {

@@ -183,6 +183,38 @@ final class LibraryAndSettingsUITests: XCTestCase {
         saveScreenshot(named: "settings-default-look")
     }
 
+    // BUG-521-02: with Edit after each shot off, a Roll photo without an
+    // entry still offers Continue to diary, and the prompt opens in place
+    @MainActor
+    func testRollReEditContinuesToDiary() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-UITestFast", "-UITestSeedRoll", "-UITestSeedLibrary", "-editAfterEachShot", "NO"]
+        app.launch()
+        dismissInAppOverlays(app)
+        openRoll(app)
+        let plain = app.buttons.matching(identifier: "roll.photo")
+            .matching(NSPredicate(format: "NOT (label CONTAINS %@)", linkedMarker)).firstMatch
+        XCTAssertTrue(plain.waitForExistence(timeout: timeout))
+        plain.tap()
+        let diary = app.buttons["edit.continueDiary"]
+        XCTAssertTrue(diary.waitForExistence(timeout: timeout), "Re-edit of a photo with no entry offers Continue to diary")
+        diary.tap()
+        XCTAssertTrue(app.buttons["entry.save"].waitForExistence(timeout: timeout), "The prompt opens in the same cover")
+    }
+
+    // F-GRID: Settings > Grid > Thirds shows the overlay on the camera
+    @MainActor
+    func testGridSettingShowsOverlayOnCamera() throws {
+        let app = launchSeeded()
+        app.tabBars.buttons["Settings"].tap()
+        let grid = app.buttons["settings.grid"]
+        XCTAssertTrue(grid.waitForExistence(timeout: timeout), "Grid picker missing")
+        grid.tap()
+        app.buttons["Thirds"].tap()
+        app.tabBars.buttons["Camera"].tap()
+        XCTAssertTrue(app.descendants(matching: .any)["camera.grid"].waitForExistence(timeout: timeout), "Grid overlay missing")
+    }
+
     // MARK: Viewers
 
     @MainActor

@@ -179,7 +179,7 @@ struct WhiteBalanceControlTests {
 
         camera.chooseWhiteBalancePreset(.auto)
         #expect(camera.whiteBalanceChipText == "AUTO")
-        #expect(camera.whiteBalanceKelvin == 3200, "Auto leaves the sliders where they were")
+        #expect(camera.whiteBalanceKelvin == Constants.Camera.whiteBalanceManualStartKelvin, "BUG-521-01: Auto resets the sliders")
     }
 
     @Test func everyPresetStaysInsideTheSliderRange() {

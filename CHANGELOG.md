@@ -12,6 +12,11 @@ What changed in each version of frmr, in plain language. Technical detail, decis
   - Paper is two swatches.
   - Black & white lives under Print.
   - Keep strip is the one big button at the bottom.
+- **Write about any Roll photo.** Continue to diary now also appears when you open a photo from the camera thumbnail or Library → Roll, as long as it has no entry yet. So it works with Edit after each shot turned off.
+- **Pick from Roll shows what you picked.** A "2 of 4 picked" counter, a slot number on each picked photo, and tap again to unpick.
+- **Grid.** Settings → Camera → Grid: Off, Thirds, Square or Golden lines in the viewfinder.
+- **Fixed:** white balance readouts go back to "Auto" after choosing Auto.
+- **Faster diary prompt.** It shows a screen-sized copy of the photo, and the prompt no longer restarts its typing when you tap to write.
 
 ## v5.2 — UI makeover (branch `v5.2-makeover`)
 

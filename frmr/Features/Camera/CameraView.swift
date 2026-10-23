@@ -12,6 +12,7 @@ import TipKit
 // for the mini-strip.
 struct CameraView: View {
     @Environment(ErrorState.self) private var errorState
+    @AppStorage(Constants.DefaultsKeys.cameraGrid) private var cameraGrid = CameraGrid.off.rawValue
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = CameraViewModel()
     @State private var photobooth = PhotoboothViewModel()
@@ -347,6 +348,9 @@ struct CameraView: View {
             .accessibilityLabel("Viewfinder")
             .accessibilityHint("Tap to focus. Swipe up or down to change exposure.")
             .accessibilityIdentifier("camera.viewfinder")
+            // F-GRID: inside the frame, after the viewfinder's single
+            // accessibility element so the lines stay out of VoiceOver
+            .overlay(ViewfinderGridOverlay(grid: CameraGrid(rawValue: cameraGrid) ?? .off))
     }
 
     private var exposureDrag: some Gesture {

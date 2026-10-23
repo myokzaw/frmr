@@ -10,8 +10,11 @@ struct PhotoboothShot {
     /// A Roll photo's full look (stock, print, B&W, strengths), v5-8; nil for
     /// camera and gallery shots, which carry only their stock.
     let look: FilmLook?
+    /// The Roll photo this slot was picked from (F-PICK); nil for camera and gallery shots.
+    let rollPhotoID: UUID?
 
-    init(image: UIImage, filmStock: StripCustomization.FilmStock, look: FilmLook? = nil) {
+    init(image: UIImage, filmStock: StripCustomization.FilmStock, look: FilmLook? = nil, rollPhotoID: UUID? = nil) {
+        self.rollPhotoID = rollPhotoID
         self.image = image
         self.filmStock = look?.stock ?? filmStock
         self.look = look
@@ -74,8 +77,41 @@ final class PhotoboothViewModel {
     /// `RollViewModel.stripItems(from:)`. Does nothing when the strip is full
     /// or the file can't be read.
     func add(rollPhoto: RollPhoto) {
-        guard !isFull, let image = RollViewModel.loadPhoto(for: rollPhoto) else { return }
-        add(PhotoboothShot(image: image, filmStock: rollPhoto.look.stock, look: rollPhoto.look))
+        guard !isFull, slotNumber(forRollPhoto: rollPhoto.id) == nil,
+              let loaded = RollViewModel.loadPhoto(for: rollPhoto) else { return }
+        add(PhotoboothShot(
+            image: Self.upright(loaded), filmStock: rollPhoto.look.stock,
+            look: rollPhoto.look, rollPhotoID: rollPhoto.id
+        ))
+    }
+
+    /// F-PICK: adds the photo, or removes it (later slots move up) when it
+    /// is already in a slot. A full strip still allows unpicking.
+    func toggle(rollPhoto: RollPhoto) {
+        if let number = slotNumber(forRollPhoto: rollPhoto.id) {
+            shots.remove(at: number - 1)
+        } else {
+            add(rollPhoto: rollPhoto)
+        }
+    }
+
+    /// The 1-based slot a Roll photo occupies, nil if it isn't picked.
+    func slotNumber(forRollPhoto id: UUID) -> Int? {
+        shots.firstIndex { $0.rollPhotoID == id }.map { $0 + 1 }
+    }
+
+    /// "2 of 4 picked": every slot counts, camera and gallery shots included.
+    var rollPickerTitle: String { "\(shots.count) of \(slotCount) picked" }
+
+    /// The file's pixels with any orientation tag applied, so the slot
+    /// thumbnail and the strip never show it sideways.
+    private static func upright(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }
     }
 
     func removeLastShot() {

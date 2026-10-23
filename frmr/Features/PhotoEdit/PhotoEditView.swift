@@ -49,7 +49,10 @@ struct PhotoEditView: View {
         .environment(\.colorScheme, .dark)
         .frmrDarkroomStatusBar()
         .appErrorAlert(errorState)
-        .task { edit.errorState = errorState }
+        .task {
+            edit.errorState = errorState
+            edit.loadLinkedEntryCount(context: modelContext)
+        }
         .sensoryFeedback(.warning, trigger: isDeleteConfirmationPresented) { _, shown in shown }
         .confirmationDialog(
             RollPromptText.deleteTitle(photoCount: 1, linkedEntries: linkedEntryCount),

@@ -86,6 +86,13 @@ See `research/v5.2-ui-makeover.md` §7. The order:
 
 ## v5.2.1 — fixes and additions (user request, 2026-10-23)
 
+**Status (2026-10-23):** built (backend and frontend, both Sonnet).
+- BUG-01, BUG-02, F-PICK and F-GRID are done, plus the prompt-lag fix (1600 px display copy, and one `PromptCard` that keeps its identity through `AnyLayout`).
+- Re-edit → prompt goes through the new `ReEditFlowView` (camera thumbnail and Roll).
+- "Picked photos don't show" couldn't be reproduced in the model. The picker now shows a counter, badges and unpick, and the UI test checks the slot fills.
+- Lead check: all unit and UI tests pass, the guard is clean, and the grid has the accessibility label "Grid: <style>".
+- Device checks are pending.
+
 ### BUG-521-01 — White balance doesn't return to Auto
 **Cause:** `CameraViewModel.chooseWhiteBalancePreset(.auto)` sets the mode to Auto but leaves `whiteBalanceKelvin` and `whiteBalanceTint` at the previous preset's values, so the panel's Kelvin and tint readouts still show, for example, "3200K" after you pick Auto. (`resetWhiteBalanceAndExposure()` already resets them; the preset path doesn't.)
 - **Backend:**

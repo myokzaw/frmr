@@ -90,6 +90,26 @@ final class CameraViewModel {
         Self.whiteBalanceChipText(mode: whiteBalance, isCustom: isWhiteBalanceCustom, kelvin: whiteBalanceKelvin)
     }
 
+    /// The panel's Kelvin readout: "Auto" until a preset or slider sets one.
+    var whiteBalanceKelvinText: String {
+        Self.whiteBalanceReadoutIsAuto(mode: whiteBalance, isCustom: isWhiteBalanceCustom)
+            ? "Auto" : "\(Int(CaptureSession.clampedKelvin(whiteBalanceKelvin).rounded()))K"
+    }
+    /// The panel's tint readout: "Auto", or "+12" / "0" / "-5".
+    var whiteBalanceTintText: String {
+        Self.whiteBalanceReadoutIsAuto(mode: whiteBalance, isCustom: isWhiteBalanceCustom)
+            ? "Auto" : Self.tintReadoutText(for: whiteBalanceTint)
+    }
+
+    static func whiteBalanceReadoutIsAuto(mode: WBMode, isCustom: Bool) -> Bool {
+        !isCustom && mode == .auto
+    }
+
+    static func tintReadoutText(for tint: Float) -> String {
+        let rounded = Int(CaptureSession.clampedTint(tint).rounded())
+        return rounded == 0 ? "0" : String(format: "%+d", rounded)
+    }
+
     // MARK: Film stock (v4 F9)
 
     /// The stock the next capture is stored with, in both modes. Persisted
@@ -173,7 +193,28 @@ final class CameraViewModel {
     /// The Roll photo the entry links to (v5.1-3); pass to `saveEntry(rollPhotoID:)`.
     var pendingDiaryRollPhotoID: UUID? { pendingDiary?.rollPhotoID }
     /// The photo in its edited look, for the prompt screen's header.
-    var pendingDiaryDisplayImage: UIImage? { pendingDiary?.displayImage ?? pendingDiary?.photo }
+    /// Display-sized (long side <= `Constants.Diary.promptDisplayMaxPixels`),
+    /// made once off the main thread when the continuation is set. Until it
+    /// lands the prompt shows the editor's own display render.
+    var pendingDiaryDisplayImage: UIImage? {
+        pendingPromptImage ?? pendingDiary?.displayImage ?? pendingDiary?.photo
+    }
+    private(set) var pendingPromptImage: UIImage?
+    @ObservationIgnored private var promptImageTask: Task<Void, Never>?
+
+    /// Waits for the display copy, for tests.
+    func promptImageSettled() async { await promptImageTask?.value }
+
+    /// Long side capped at `maxPixels`, never enlarged, upright.
+    nonisolated static func promptDisplayImage(from image: UIImage, maxPixels: CGFloat = CGFloat(Constants.Diary.promptDisplayMaxPixels)) -> UIImage {
+        let width = image.size.width * image.scale, height = image.size.height * image.scale
+        let longSide = max(width, height)
+        guard longSide > 0 else { return image }
+        let factor = min(1, maxPixels / longSide)
+        return FilmPreviewThumbnails.source(
+            from: image, coveringPixelSize: CGSize(width: width * factor, height: height * factor)
+        )
+    }
 
     var session: AVCaptureSession { captureSession.session }
 
@@ -399,6 +440,10 @@ final class CameraViewModel {
         if let preset = mode.temperatureAndTint {
             whiteBalanceKelvin = CaptureSession.clampedKelvin(preset.temperature)
             whiteBalanceTint = CaptureSession.clampedTint(preset.tint)
+        } else {
+            // Auto: the readouts return to the manual starting point (BUG-521-01)
+            whiteBalanceKelvin = Constants.Camera.whiteBalanceManualStartKelvin
+            whiteBalanceTint = Constants.Camera.whiteBalanceManualStartTint
         }
         captureSession.apply(whiteBalance: mode)
     }
@@ -630,6 +675,14 @@ final class CameraViewModel {
     private func photoEditFinished(_ outcome: PhotoEditViewModel.Outcome, edit: PhotoEditViewModel) {
         if outcome == .continuedToDiary, let continuation = edit.diaryContinuation {
             pendingDiary = continuation
+            pendingPromptImage = nil
+            promptImageTask?.cancel()
+            let source = continuation.displayImage ?? continuation.photo
+            promptImageTask = Task { [weak self] in
+                let display = await Task.detached(priority: .userInitiated) { Self.promptDisplayImage(from: source) }.value
+                guard !Task.isCancelled, let self, self.pendingDiary?.rollPhotoID == continuation.rollPhotoID else { return }
+                self.pendingPromptImage = display
+            }
             endPhotoEdit()
             isEditorPresented = true
         } else {
@@ -641,6 +694,8 @@ final class CameraViewModel {
     /// back to the camera. The Roll photo stays.
     func endDiaryPrompt() {
         pendingDiary = nil
+        pendingPromptImage = nil
+        promptImageTask?.cancel()
         isEditorPresented = false
     }
 

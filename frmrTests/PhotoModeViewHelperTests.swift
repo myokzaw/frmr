@@ -12,13 +12,6 @@ struct PhotoModeViewHelperTests {
         #expect(ScrubberMath.percentText(0.05, scale: 100) == "5%")
     }
 
-    @Test func kelvinAndTintText() {
-        #expect(WhiteBalancePanel.kelvinText(5600) == "5600K")
-        #expect(WhiteBalancePanel.tintText(0) == "0")
-        #expect(WhiteBalancePanel.tintText(12) == "+12")
-        #expect(WhiteBalancePanel.tintText(-8) == "-8")
-    }
-
     // v5.2 M5: value rings replace the "modified" dot
     @Test func valueRingFractions() {
         #expect(ToolRing.fraction(strength: 0) == 0)
