@@ -88,6 +88,14 @@ nonisolated extension Constants {
         static let lastPhotoBorderWidth: CGFloat = 1
         static let lastPhotoBorderOpacity: CGFloat = 0.6
 
+        // BUG-122-02 flip transition: blurred last frame, half-turn about the
+        // vertical axis, fade back to live on the first new frame
+        static let flipDuration: TimeInterval = 0.45
+        static let flipFadeOutDuration: TimeInterval = 0.25
+        static let flipBlurRadius: CGFloat = 24
+        static let flipHalfTurnDegrees: Double = 180
+        static let flipPerspective: CGFloat = 0.45
+
         // v5.2 S2 Film strip: a paper mini-strip of four 4:5 frames in the
         // thumbnail's place, and a sheet with the slots and actions
         static let miniStripWidth: CGFloat = D.targetMin

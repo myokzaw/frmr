@@ -23,6 +23,8 @@ nonisolated final class FilmPreviewFrameSink: NSObject, AVCaptureVideoDataOutput
     private let lock = NSLock()
     private var latest: CVPixelBuffer?
     private var sequence: UInt64 = 0
+    // BUG-122-02: callers waiting for the next frame after a camera switch
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func captureOutput(
         _ output: AVCaptureOutput,
@@ -30,10 +32,40 @@ nonisolated final class FilmPreviewFrameSink: NSObject, AVCaptureVideoDataOutput
         from connection: AVCaptureConnection
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        lock.withLock {
+        let toResume: [CheckedContinuation<Void, Never>] = lock.withLock {
             latest = pixelBuffer
             sequence &+= 1
+            defer { waiters = [] }
+            return waiters
         }
+        toResume.forEach { $0.resume() }
+    }
+
+    /// Forgets the newest frame, so a frame from the old camera never draws
+    /// after a switch (BUG-122-01). Sequence keeps counting, so the renderer
+    /// still sees the next frame as new.
+    func reset() {
+        lock.withLock { latest = nil }
+    }
+
+    /// Returns when a frame arrives after this call, or when `cancelWaiting()`
+    /// is called. Clears the old frame in the same step, so none slips between.
+    func nextFrame() async {
+        await withCheckedContinuation { continuation in
+            lock.withLock {
+                latest = nil
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    /// Releases everyone in `nextFrame()` without a frame (timeout, failed switch).
+    func cancelWaiting() {
+        let toResume: [CheckedContinuation<Void, Never>] = lock.withLock {
+            defer { waiters = [] }
+            return waiters
+        }
+        toResume.forEach { $0.resume() }
     }
 
     /// The newest frame and its sequence number, nil before the first.
@@ -151,6 +183,16 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
             image = filter.outputImage ?? image
         }
         return image.cropped(to: CGRect(origin: .zero, size: drawableSize))
+    }
+
+    /// The newest frame through the current stock as an upright image, for the
+    /// flip transition (BUG-122-02). nil before the first frame or without Metal.
+    func snapshot(size: CGSize, scale: CGFloat) -> UIImage? {
+        guard let context, let frame = frameSink.newestFrame(), size.width > 0, size.height > 0 else { return nil }
+        let pixelSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let image = Self.previewImage(CIImage(cvPixelBuffer: frame.buffer), cube: cube, drawableSize: pixelSize)
+        guard let cgImage = context.createCGImage(image, from: CGRect(origin: .zero, size: pixelSize)) else { return nil }
+        return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
     }
 
     /// Renders `image` into `texture` with `y` running down, as a screen

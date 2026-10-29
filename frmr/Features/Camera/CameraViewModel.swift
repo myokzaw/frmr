@@ -136,6 +136,10 @@ final class CameraViewModel {
         self.filmStock = Self.storedFilmStock(in: defaults)
         filmPreviewRenderer.setStock(filmStock)
         captureSession.setVideoFrameDelegate(filmPreviewRenderer.frameSink)
+        let session = captureSession, sink = filmPreviewRenderer.frameSink
+        switchOperation = { position, lens in await session.switchCamera(to: position, lens: lens) }
+        awaitNewFrame = { await sink.nextFrame() }
+        cancelFrameWait = { sink.cancelWaiting() }
     }
     private(set) var cameraPosition: CameraPosition = .back
     private(set) var selectedLens: CameraLens = .wide
@@ -228,23 +232,111 @@ final class CameraViewModel {
     func selectPhotoMode() { mode = .photo }
     func selectPhotoboothMode() { mode = .photobooth }
 
+    // MARK: Camera switch (BUG-122-01, BUG-122-02)
+
+    /// What the flip transition shows over the viewfinder. `id` restarts the
+    /// flip for each switch; `snapshot` is the last frame (nil if none).
+    struct FlipTransition: Equatable {
+        let id: Int
+        let snapshot: UIImage?
+    }
+
+    /// True from a switch request until the first frame from the new camera
+    /// (or failure, or the timeout). Flip and lens taps are ignored meanwhile.
+    private(set) var isSwitchingCamera = false
+    /// Non-nil while a flip (not a lens change) covers the viewfinder.
+    private(set) var flipTransition: FlipTransition?
+
+    // Seams: the real session, frame sink and timeout by default; tests swap them
+    @ObservationIgnored var switchOperation: (CameraPosition, CameraLens) async -> Bool = { _, _ in false }
+    @ObservationIgnored var awaitNewFrame: () async -> Void = {}
+    @ObservationIgnored var cancelFrameWait: () -> Void = {}
+    @ObservationIgnored var switchTimeout: Duration = .seconds(Constants.Camera.cameraSwitchTimeout)
+    @ObservationIgnored private var switchGeneration = 0
+    @ObservationIgnored private var switchTask: Task<Void, Never>?
+    @ObservationIgnored private var switchTimeoutTask: Task<Void, Never>?
+
     func flipCamera() {
-        cameraPosition = cameraPosition == .back ? .front : .back
-        applyCameraSelection()
+        guard !isSwitchingCamera else { return }
+        startSwitch(position: cameraPosition == .back ? .front : .back, lens: selectedLens, showsTransition: true)
     }
 
     func selectLens(_ lens: CameraLens) {
-        selectedLens = lens
-        applyCameraSelection()
+        guard !isSwitchingCamera else { return }
+        startSwitch(position: cameraPosition, lens: lens, showsTransition: false)
     }
 
-    private func applyCameraSelection() {
-        captureSession.switchCamera(to: cameraPosition, lens: selectedLens)
-        // The WB lock lives on the device, so re-apply it to the new camera
-        captureSession.apply(whiteBalance: whiteBalance)
-        // Focus, exposure and zoom are all per-device: start the new camera clean
-        resetManualControls()
-        Task { zoomRange = await captureSession.zoomRange() }
+    /// Waits for a pending switch to finish, for tests.
+    func switchSettled() async { await switchTask?.value }
+
+    private func startSwitch(position: CameraPosition, lens: CameraLens, showsTransition: Bool) {
+        let previous = (position: cameraPosition, lens: selectedLens)
+        switchGeneration += 1
+        let generation = switchGeneration
+        // Snapshot before the session moves, so it is the old camera's last frame
+        if showsTransition {
+            flipTransition = FlipTransition(id: generation, snapshot: makeFlipSnapshot())
+        }
+        // An old-camera frame must never draw after the switch
+        filmPreviewRenderer.frameSink.reset()
+        cameraPosition = position
+        selectedLens = lens
+        isSwitchingCamera = true
+
+        switchTimeoutTask?.cancel()
+        switchTimeoutTask = Task { [weak self, timeout = switchTimeout] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            self?.finishSwitch(generation: generation)
+        }
+        switchTask = Task { [weak self] in
+            guard let self else { return }
+            let attached = await self.switchOperation(position, lens)
+            guard generation == self.switchGeneration else { return }
+            guard attached else {
+                self.cameraPosition = previous.position
+                self.selectedLens = previous.lens
+                self.errorState?.raise(.captureFailed(reason: "Couldn't switch cameras."))
+                self.finishSwitch(generation: generation)
+                return
+            }
+            self.captureSession.setVideoFramesEnabled(true)
+            // The lock and the manual state live on the device, so the new camera starts clean
+            self.captureSession.apply(whiteBalance: self.whiteBalance)
+            self.resetManualControls()
+            Task { self.zoomRange = await self.captureSession.zoomRange() }
+            await self.awaitNewFrame()
+            self.finishSwitch(generation: generation)
+        }
+    }
+
+    /// Always clears the transition; a stale generation (a later switch has
+    /// started) leaves the newer one alone.
+    private func finishSwitch(generation: Int) {
+        guard generation == switchGeneration, isSwitchingCamera else { return }
+        isSwitchingCamera = false
+        flipTransition = nil
+        switchTimeoutTask?.cancel()
+        // Releases a waiter the timeout beat to it
+        cancelFrameWait()
+        captureSession.setVideoFramesEnabled(showsFilmPreview)
+    }
+
+    private func makeFlipSnapshot() -> UIImage? {
+        guard let layer = previewLayer else { return nil }
+        let size = layer.bounds.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let scale = UITraitCollection.current.displayScale
+        if showsFilmPreview {
+            return filmPreviewRenderer.snapshot(size: size, scale: scale)
+        }
+        // Off shows the plain layer, which has no frame of its own to copy
+        guard let view = layer.delegate as? UIView else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = scale
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            view.drawHierarchy(in: CGRect(origin: .zero, size: size), afterScreenUpdates: false)
+        }
     }
 
     // MARK: Manual controls (v2 F1–F3)

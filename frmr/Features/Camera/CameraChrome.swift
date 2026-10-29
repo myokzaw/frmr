@@ -364,6 +364,56 @@ struct FlipCameraButton: View {
     }
 }
 
+// BUG-122-02: covers the viewfinder while the camera switches. The last
+// frame, blurred, turns half-way about the vertical axis (Reduce Motion: no
+// turn, just the blur and a cross-fade) and fades out when the view model
+// clears it on the first frame from the new camera.
+struct FlipTransitionOverlay: View {
+    let transition: CameraViewModel.FlipTransition?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if let transition {
+                FlipTransitionFrame(snapshot: transition.snapshot, reduceMotion: reduceMotion)
+                    .id(transition.id)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: Constants.CameraUI.flipFadeOutDuration), value: transition?.id)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct FlipTransitionFrame: View {
+    let snapshot: UIImage?
+    let reduceMotion: Bool
+
+    @State private var progress = 0.0
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let snapshot {
+                Image(uiImage: snapshot)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: Constants.CameraUI.flipBlurRadius * progress)
+            }
+        }
+        .clipped()
+        .rotation3DEffect(
+            .degrees(reduceMotion ? 0 : Constants.CameraUI.flipHalfTurnDegrees * progress),
+            axis: (x: 0, y: 1, z: 0),
+            perspective: Constants.CameraUI.flipPerspective
+        )
+        .onAppear {
+            withAnimation(.easeInOut(duration: Constants.CameraUI.flipDuration)) { progress = 1 }
+        }
+    }
+}
+
 // v5.2 §5.11: camera access off, on the darkroom, with one way out
 struct PermissionDeniedOverlay: View {
     let isVisible: Bool

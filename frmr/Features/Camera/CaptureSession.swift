@@ -96,40 +96,59 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) != nil
     }
 
-    func switchCamera(to position: CameraPosition, lens: CameraLens) {
-        sessionQueue.async {
-            let deviceType: AVCaptureDevice.DeviceType =
-                position == .front ? .builtInWideAngleCamera : lens.deviceType
-            guard
-                let device = AVCaptureDevice.default(deviceType, for: .video, position: position.avPosition),
-                let input = try? AVCaptureDeviceInput(device: device)
-            else {
-                // Safe to continue: the requested camera doesn't exist on this
-                // device, the current one stays active and visible in the viewfinder
-                print("[CaptureSession] Requested camera unavailable: \(position)/\(lens)")
-                return
+    /// Swaps the camera. True when the new one is attached; false leaves the
+    /// previous camera running (BUG-122-02).
+    func switchCamera(to position: CameraPosition, lens: CameraLens) async -> Bool {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                continuation.resume(returning: self.performSwitch(to: position, lens: lens))
             }
-
-            let previousInputs = self.session.inputs
-            self.session.beginConfiguration()
-            previousInputs.forEach { self.session.removeInput($0) }
-            if self.session.canAddInput(input) {
-                self.session.addInput(input)
-                self.camera = device
-                self.cameraPosition = position
-                self.makeRotationCoordinator(for: device)
-            } else {
-                // Restore the previous camera so capture keeps working
-                previousInputs
-                    .filter { self.session.canAddInput($0) }
-                    .forEach { self.session.addInput($0) }
-                print("[CaptureSession] Could not attach \(position)/\(lens); keeping previous camera")
-            }
-            self.session.commitConfiguration()
-            // A new input means a new video connection: give it the portrait
-            // angle and mirroring once
-            self.configureVideoConnection()
         }
+    }
+
+    private func performSwitch(to position: CameraPosition, lens: CameraLens) -> Bool {
+        let deviceType: AVCaptureDevice.DeviceType =
+            position == .front ? .builtInWideAngleCamera : lens.deviceType
+        guard
+            let device = AVCaptureDevice.default(deviceType, for: .video, position: position.avPosition),
+            let input = try? AVCaptureDeviceInput(device: device)
+        else {
+            // The requested camera doesn't exist; the current one stays active
+            print("[CaptureSession] Requested camera unavailable: \(position)/\(lens)")
+            return false
+        }
+
+        let previousInputs = session.inputs
+        let previousPosition = cameraPosition
+        session.beginConfiguration()
+        previousInputs.forEach { session.removeInput($0) }
+        var attached = false
+        var configuredBeforeCommit = false
+        if session.canAddInput(input) {
+            session.addInput(input)
+            camera = device
+            cameraPosition = position
+            makeRotationCoordinator(for: device)
+            // BUG-122-01: the new input made a new video connection that starts
+            // in sensor orientation. Angle and mirroring go in before the commit
+            // so the first frame it delivers is already upright.
+            configuredBeforeCommit = configureVideoConnection()
+            attached = true
+        } else {
+            // Restore the previous camera so capture keeps working
+            previousInputs
+                .filter { session.canAddInput($0) }
+                .forEach { session.addInput($0) }
+            cameraPosition = previousPosition
+            configuredBeforeCommit = configureVideoConnection()
+            print("[CaptureSession] Could not attach \(position)/\(lens); keeping previous camera")
+        }
+        session.commitConfiguration()
+        if !configuredBeforeCommit {
+            // The connection only appeared at commit on this device
+            configureVideoConnection()
+        }
+        return attached
     }
 
     // MARK: Live film preview (v4 F9)
@@ -155,8 +174,9 @@ nonisolated final class CaptureSession: @unchecked Sendable {
     /// the horizon (ios-camera-orientation: the interface is portrait-locked
     /// and the preview must not shift under the user). The front camera is
     /// mirrored to match AVCaptureVideoPreviewLayer's default.
-    private func configureVideoConnection() {
-        guard let connection = videoOutput.connection(with: .video) else { return }
+    @discardableResult
+    private func configureVideoConnection() -> Bool {
+        guard let connection = videoOutput.connection(with: .video) else { return false }
         let angle = Constants.Camera.portraitPreviewRotationAngle
         // Unsupported angles raise an Objective-C exception Swift can't catch
         if connection.isVideoRotationAngleSupported(angle) {
@@ -168,6 +188,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = cameraPosition == .front
         }
+        return true
     }
 
     func start() {

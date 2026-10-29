@@ -318,6 +318,7 @@ struct CameraView: View {
                         .allowsHitTesting(false)
                 }
             }
+            .overlay { FlipTransitionOverlay(transition: viewModel.flipTransition) }
             .overlay(GrainOverlayView())
             .overlay(alignment: .topLeading) {
                 if let point = viewModel.focusPoint {

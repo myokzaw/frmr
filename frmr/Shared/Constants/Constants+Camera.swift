@@ -7,6 +7,10 @@ nonisolated extension Constants {
         // Delay before the single retry of a failed portrait-lock request
         static let orientationLockRetryDelay: TimeInterval = 0.3
 
+        // BUG-122-02: the longest a camera switch may hold the flip
+        // transition before the live preview comes back regardless
+        static let cameraSwitchTimeout: TimeInterval = 1.5
+
         // Tap-to-focus indicator (F1)
         static let focusIndicatorSize: CGFloat = 72
         static let focusIndicatorStroke: CGFloat = 1.5
