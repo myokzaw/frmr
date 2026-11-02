@@ -390,27 +390,50 @@ nonisolated extension Constants {
                 )
             }
 
-            // MARK: Model version 2 (F-122-B)
-            // THE place to change version-2 numbers (v1.2.2 step 3). For now
-            // every value is the version-1 value, so v2 renders exactly like
-            // v1. Replace a reference below with a new profile to change v2
-            // only; never edit `Negative`, `Print` or `shadowToeExponent`.
+            // MARK: Model version 2 (F-122-B, F-122-A)
+            // THE place to change version-2 numbers. Never edit `Negative`,
+            // `Print` or `shadowToeExponent` (version 1, pinned by
+            // FilmModelV1PinnedTests). Version 2 = "open shadows, real
+            // blacks": the same curves as v1, every print's black lifted a
+            // little (order kept), and a per-stock `shadowLift` (an sRGB
+            // bump inside the shadow toe, see ShadowToe) that opens the
+            // shadows by the stock's character. Mid grey and up are
+            // untouched by the lift. docs/film-simulation.md §4.5/§2a.
             enum ModelV2 {
+                // Unchanged from v1: the openness comes from `shadowLift`
                 static let shadowToeExponent: Double = Film.shadowToeExponent
-                enum Negative {
-                    static let daylight200 = Film.Negative.daylight200
-                    static let portrait400 = Film.Negative.portrait400
-                    static let cine500T = Film.Negative.cine500T
-                    static let slide100 = Film.Negative.slide100
-                    static let mono400 = Film.Negative.mono400
-                    static let mono3200 = Film.Negative.mono3200
+                // Largest deepest-black (sRGB/255) any non-Matte print may
+                // land on for a stock's default print: the anti-milky guard
+                static let blackCeiling: Double = 18
+                // sRGB-unit shadow lift per stock (peak of the bump, a
+                // third of the way to mid grey). Ranking, deepest first:
+                // Slide < Mono 3200 < Cine 500T < Mono 400 < Daylight 200 < Portrait 400
+                enum ShadowLift {
+                    static let portrait400 = 0.080
+                    static let daylight200 = 0.056
+                    static let mono400 = 0.050
+                    static let cine500T = 0.032
+                    static let mono3200 = 0.028
+                    static let slide100 = 0.012
                 }
-                // Each profile carries its own black target
+                enum Negative {
+                    static let daylight200 = Film.Negative.daylight200.withShadowLift(ShadowLift.daylight200)
+                    static let portrait400 = Film.Negative.portrait400.withShadowLift(ShadowLift.portrait400)
+                    static let cine500T = Film.Negative.cine500T.withShadowLift(ShadowLift.cine500T)
+                    static let slide100 = Film.Negative.slide100.withShadowLift(ShadowLift.slide100)
+                    static let mono400 = Film.Negative.mono400.withShadowLift(ShadowLift.mono400)
+                    static let mono3200 = Film.Negative.mono3200.withShadowLift(ShadowLift.mono3200)
+                }
+                // Each profile carries its own black target (sRGB/255):
+                // Projection 10, Cinema 12, Lab 14, Matte 34 (v1: 3, 4, 6, 28)
                 enum Print {
-                    static let lab = Film.Print.lab
-                    static let cinema = Film.Print.cinema
-                    static let matte = Film.Print.matte
-                    static let projection = Film.Print.projection
+                    static let lab = lifted(Film.Print.lab, black: 14)
+                    static let cinema = lifted(Film.Print.cinema, black: 12)
+                    static let matte = lifted(Film.Print.matte, black: 34)
+                    static let projection = lifted(Film.Print.projection, black: 10)
+                    private static func lifted(_ print: PrintProfile, black: Double) -> PrintProfile {
+                        PrintProfile(r: print.r, g: print.g, b: print.b, blackTarget: black / 255)
+                    }
                 }
             }
         }

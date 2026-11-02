@@ -11,7 +11,8 @@ Plan: `frmr-v1.2.2-spec.md`.
 - Extra taps on the flip button during a flip are ignored. If the other camera can't start, the current one stays on and you see an error.
 - **Your photos keep their look.** Each photo now remembers which version of the film look it was made with. Photos taken before this update look exactly as they did, even after future changes to the film stocks. Opening an older photo in the editor moves it to the newest look; Save keeps it, and Discard leaves the photo as it was.
 - The app's name is now written **Frmrr** in Settings and in the camera and photo-library permission prompts. The photo-library prompt used to show an old name, "Filum".
-- Still to come in 1.2.2: lighter shadows on the film stocks, Shadows and Highlights tools, a crop tool, and importing photos from your gallery.
+- **Lighter, more open shadows.** Every film stock shows more detail in dark areas, and the deepest blacks stay black with only a slight lift. Each stock keeps its character: Portrait is the most open, Slide and Cine 500T the deepest. Every print's blacks are a little lighter, with Matte still the most faded and Projection the deepest. Photos taken before this update keep their old look.
+- Still to come in 1.2.2: Shadows and Highlights tools, a crop tool, and importing photos from your gallery.
 
 ## v5.2.1 — fixes (in progress)
 

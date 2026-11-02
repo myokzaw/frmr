@@ -52,6 +52,21 @@ nonisolated struct NegativeProfile: Sendable, Hashable {
     /// crosstalk, applied to linear light before the curves. Rows sum to
     /// one, so a neutral is untouched and the balanced mid grey survives.
     var colour: ColourMatrix = .identity
+    /// Extra shadow openness (v1.2.2 F-122-A), in sRGB units (0…1): a smooth
+    /// bump added inside the shadow toe that is zero at black and at the
+    /// toe's pivot, peaking a third of the way up, so the deepest black and
+    /// everything from mid grey up stay put. 0 (every v1 profile) changes
+    /// nothing. See `ShadowToe`.
+    var shadowLift: Double = 0
+
+    /// The same profile with another shadow lift (how version 2 opens the
+    /// shadows without touching the v1 curves).
+    func withShadowLift(_ lift: Double) -> NegativeProfile {
+        NegativeProfile(
+            r: r, g: g, b: b, isMonochrome: isMonochrome, monoWeights: monoWeights,
+            colour: colour, shadowLift: lift
+        )
+    }
 }
 
 /// A 3×3 linear-light colour matrix whose rows each sum to one (v4 F14).
@@ -181,15 +196,18 @@ nonisolated struct ShadowToe: Sendable {
     private let startSlope: Double
     private let endSlope: Double
     private let exponent: Double
+    private let lift: Double
 
     /// - Parameters:
     ///   - channel: the channel's normalised response, linear in and out.
     ///   - black: where input 0 lands, linear.
     ///   - toeExponent: the model version's `shadowToeExponent`.
+    ///   - lift: the stock's `shadowLift`, sRGB units; 0 is the v1 toe.
     init(
         channel: (Double) -> Double,
         black linearBlack: Double,
-        toeExponent: Double = Constants.ImageProcessing.Film.shadowToeExponent
+        toeExponent: Double = Constants.ImageProcessing.Film.shadowToeExponent,
+        lift: Double = 0
     ) {
         typealias F = Constants.ImageProcessing.Film
         let pivot = FilmModel.sRGB(fromLinear: F.shadowToePivot)
@@ -215,6 +233,7 @@ nonisolated struct ShadowToe: Sendable {
         startSlope = a
         endSlope = filmSlope
         exponent = n
+        self.lift = lift
     }
 
     /// Whether `linear` input is in the toe (below the pivot).
@@ -226,8 +245,13 @@ nonisolated struct ShadowToe: Sendable {
     func apply(input linear: Double) -> Double {
         let x = FilmModel.sRGB(fromLinear: linear)
         let t = x / pivotInput
-        let encoded = black + startSlope * x
+        var encoded = black + startSlope * x
             + (endSlope - startSlope) * pivotInput / (exponent + 1) * pow(t, exponent + 1)
+        if lift != 0 {
+            // 27/4 · t(1−t)² peaks at 1 (t = 1/3) and is 0 at both ends with
+            // zero slope at the pivot, so value and slope still meet the film
+            encoded += lift * 6.75 * t * (1 - t) * (1 - t)
+        }
         return FilmModel.linear(fromExtendedSRGB: encoded)
     }
 }
@@ -320,7 +344,7 @@ nonisolated struct FilmChain: Sendable {
         self.exposureGain = exposureGain
         let isMono = monochrome || negative.isMonochrome
         let used = isMono
-            ? NegativeProfile(r: negative.r, g: negative.r, b: negative.r, isMonochrome: true, monoWeights: negative.monoWeights, colour: .identity)
+            ? NegativeProfile(r: negative.r, g: negative.r, b: negative.r, isMonochrome: true, monoWeights: negative.monoWeights, colour: .identity, shadowLift: negative.shadowLift)
             : negative
         // A monochrome render takes luminance, so the colour matrix has
         // nothing to act on there
@@ -351,9 +375,9 @@ nonisolated struct FilmChain: Sendable {
             neutralBlack > 0 ? targetBlack * channel(0) / neutralBlack : targetBlack
         }
         toes = (
-            ShadowToe(channel: filmR, black: black(filmR), toeExponent: toeExponent),
-            ShadowToe(channel: filmG, black: black(filmG), toeExponent: toeExponent),
-            ShadowToe(channel: filmB, black: black(filmB), toeExponent: toeExponent)
+            ShadowToe(channel: filmR, black: black(filmR), toeExponent: toeExponent, lift: used.shadowLift),
+            ShadowToe(channel: filmG, black: black(filmG), toeExponent: toeExponent, lift: used.shadowLift),
+            ShadowToe(channel: filmB, black: black(filmB), toeExponent: toeExponent, lift: used.shadowLift)
         )
     }
 

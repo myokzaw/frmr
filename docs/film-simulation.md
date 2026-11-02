@@ -42,7 +42,7 @@ The tone and colour part (steps 1 and 2) is pure maths in Swift. It is baked int
 A `FilmLook` stores `modelVersion` (Int). A look without the key decodes as **1**; every new look is `Constants.ImageProcessing.Film.currentModelVersion` (**2**).
 
 - **`FilmModelParameters`** (`FilmModel.swift`) is the per-version set: each stock's `NegativeProfile`, each print's `PrintProfile` (with its black target) and `shadowToeExponent`. `FilmModelParameters.forVersion(_:)` returns v1 for 1 and below, v2 otherwise; `.current` is the version new looks use.
-- **Where the numbers live:** the plain `Film.Negative`, `Film.Print` and `Film.shadowToeExponent` are the **v1 set and must not change**. The v2 set is `Film.ModelV2` (Negative, Print, shadowToeExponent). **Right now every v2 value is a reference to the v1 value, so v2 renders exactly like v1.** To change the film look, replace entries in `ModelV2` only.
+- **Where the numbers live:** the plain `Film.Negative`, `Film.Print` and `Film.shadowToeExponent` are the **v1 set and must not change**. The v2 set is `Film.ModelV2` (Negative, Print, shadowToeExponent). **v2 (F-122-A, candidate, awaiting user approval of the before/after sheets)** keeps the v1 curves and exponent, lifts every print's black and gives each stock a `shadowLift` (§4.5a). To change the film look, edit `ModelV2` only.
 - **Plumbing:** `FilmLook.customization` and `StripCustomization.modelVersion` carry the version; `ImageProcessor.filmLook` reads the set from it; `FilmChain(toeExponent:)` and `FilmLUT.cube/cachedCube(parameters:)` take it. The cube cache key is the profiles plus `modelVersion` and the toe exponent, so two versions never share a cube.
 - **Who uses which version:** the live viewfinder, fresh captures and `FilmSwatch` use `.current`. Roll, viewer, entries, export and strips render the version stored in the look (a strip frame uses its own photo's version, also under a stock override). A diary entry with no stored look reads as v1.
 - **Editor:** opening a v1 Roll photo sets the working look to the current version (not counted as an edit); Save stores it, Discard leaves the stored look at v1.
@@ -144,7 +144,22 @@ One affine map in linear light, shared by all three channels:
 ### 4.5 Shadow toe: `ShadowToe`
 Below the mid-grey pivot (0.18 linear), each channel's response is replaced by a smooth curve. It starts at that channel's black and meets the film curve at the pivot, with the same value and slope, so there is no kink. The steep part sits just under mid grey (`shadowToeExponent` 8), so deep shadows keep the separation of the untouched photo.
 
-**Why:** real low-key photos (IMG_3530 in the calibration set) turned into flat grey. Changing x0 or gamma would also have changed midtones and highlights. **Nothing at or above mid grey is affected.**
+### 4.5a Model v2: open shadows, real blacks (F-122-A)
+v1 landed deep shadows barely above the untouched photo and its blacks at 3-6/255, so everything read too dark. v2 changes only `Film.ModelV2`:
+
+| Print | Black v1 | Black v2 |
+|---|---|---|
+| Projection | 3 | 10 |
+| Cinema | 4 | 12 |
+| Lab | 6 | 14 |
+| Matte | 28 | 34 |
+
+- **Toe:** `shadowToeExponent` stays 8 and the pivot 0.18. Instead `NegativeProfile.shadowLift` (sRGB units; 0 for every v1 profile) adds `lift * 27/4 * t(1-t)^2` to the toe's encoded output (`t` = x / pivot). It is 0 at black and at the pivot with zero slope there, so value and slope still meet the film and nothing from mid grey up moves except through the print's black target (under 1/255). Monotonic as long as the lift stays small.
+- **Per-stock lift:** Portrait 0.080, Daylight 0.056, Mono 400 0.050, Cine 0.032, Mono 3200 0.028, Slide 0.012. Ranking at linear 0.02-0.05, deepest first: Slide, Mono 3200, Cine, Mono 400, Daylight, Portrait.
+- **Anti-milky guard:** each stock's black on its default print stays at or below `ModelV2.blackCeiling` (18/255); Matte is exempt.
+- Tests: `FilmModelV2ShadowTests`. The sheets come from `FilmStockSampleSheetTests` (env-gated).
+
+**Why (v1):** real low-key photos (IMG_3530 in the calibration set) turned into flat grey. Changing x0 or gamma would also have changed midtones and highlights. **Nothing at or above mid grey is affected.**
 
 ### 4.6 One render: `FilmChain`
 `FilmChain(negative:print:monochrome:)` pre-computes the offsets, the normalisation and the three toes. `render(r:g:b:)` then does one of two things:
@@ -297,6 +312,7 @@ The test writes one labelled contact sheet per photo, with all stocks side by si
 | v4 F2/F3 | Negative → print chain, solved offsets | Character from curves, without print casts |
 | v4 tone follow-up | Output normalisation | Whites at 223/255 looked grey |
 | v4 shadow fix | `ShadowToe`, per-print black targets | Real DNGs showed grey blacks and crushed shadows |
+| v1.2.2 F-122-A | Model v2: lifted print blacks, per-stock `shadowLift` | v4 overshot: shadows and blacks too dark on every stock |
 | v4 F14 | Colour matrices, grain profiles | Calibrated against real-film reference scans |
 | v4 | Grain scaled to the frame in `renderFullLook` | Download must match the review |
 | v5 F5 | `FilmLook` strengths, vignette, Haze = bloom | Sliders everywhere; 0 = off |
