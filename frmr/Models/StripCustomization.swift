@@ -21,6 +21,10 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     /// Exposure compensation in EV (v5.2 F-EXP). Per photo only: it comes
     /// from a Roll photo's `FilmLook`, never from the strip-wide settings.
     var exposure: Double = 0
+    /// The film-model version this customization renders with (F-122-B). Comes
+    /// from a Roll photo's `FilmLook`; strip-level customizations and fresh
+    /// captures use the current version.
+    var modelVersion: Int = Constants.ImageProcessing.Film.currentModelVersion
     /// The linear-light gain 2^EV.
     var exposureGain: Double { exposure == 0 ? 1 : pow(2, exposure) }
 
@@ -66,7 +70,12 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     /// that look; an override stock, or a frame with no look, behaves as
     /// `effective(forFrameStock:)`.
     func effective(forFrameStock frameStock: FilmStock, look: FilmLook?) -> StripCustomization {
-        guard filmStock == nil, let look else { return effective(forFrameStock: frameStock) }
+        guard filmStock == nil, let look else {
+            var frame = effective(forFrameStock: frameStock)
+            // A stored photo keeps its own model version under an override too
+            if let look { frame.modelVersion = look.modelVersion }
+            return frame
+        }
         var frame = look.customization
         frame.background = background
         return frame
@@ -160,7 +169,8 @@ nonisolated struct StripCustomization: Equatable, Sendable {
             }
         }
 
-        var isMonochrome: Bool { negative?.isMonochrome ?? false }
+        // Monochrome-ness is the same in every model version
+        var isMonochrome: Bool { self == .mono400 || self == .mono3200 }
 
         /// Halation strength when the Halation effect is on (v4 F4); 0 for Off.
         var halationStrength: Double {
@@ -179,18 +189,10 @@ nonisolated struct StripCustomization: Equatable, Sendable {
         /// Reversal film is viewed directly, so it has no print choice.
         var isSlide: Bool { self == .slide100 }
 
-        /// The negative's curves (v4 F2); nil for Off, the untouched fast path.
-        var negative: NegativeProfile? {
-            typealias N = Constants.ImageProcessing.Film.Negative
-            switch self {
-            case .none: return nil
-            case .daylight200: return N.daylight200
-            case .portrait400: return N.portrait400
-            case .cine500T: return N.cine500T
-            case .slide100: return N.slide100
-            case .mono400: return N.mono400
-            case .mono3200: return N.mono3200
-            }
+        /// The negative's curves (v4 F2) in the given film-model version
+        /// (F-122-B); nil for Off, the untouched fast path.
+        func negative(version: Int) -> NegativeProfile? {
+            FilmModelParameters.forVersion(version).negative(for: self)
         }
 
         /// The print this stock is printed on unless the user picks another (v4 F3).
@@ -281,14 +283,9 @@ nonisolated struct StripCustomization: Equatable, Sendable {
             }
         }
 
-        var profile: PrintProfile {
-            typealias P = Constants.ImageProcessing.Film.Print
-            switch self {
-            case .lab: return P.lab
-            case .cinema: return P.cinema
-            case .matte: return P.matte
-            case .projection: return P.projection
-            }
+        /// This print in the given film-model version (F-122-B).
+        func profile(version: Int) -> PrintProfile {
+            FilmModelParameters.forVersion(version).print(for: self)
         }
     }
 

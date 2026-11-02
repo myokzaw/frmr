@@ -22,14 +22,20 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     /// Exposure compensation in EV (v5.2 F-EXP), applied to linear light
     /// before halation and the film cube. 0 changes nothing.
     var exposure: Double
+    /// The film-model version the look renders with (F-122-B). New looks are
+    /// at `currentModelVersion`; a stored look without the key is 1, so photos
+    /// taken before 1.2.2 keep their look until the editor upgrades them.
+    var modelVersion: Int
 
     init(
         stock: StripCustomization.FilmStock,
         printStock: StripCustomization.PrintStock? = nil,
         blackAndWhite: Bool = false,
         strengths: Strengths? = nil,
-        exposure: Double = 0
+        exposure: Double = 0,
+        modelVersion: Int = Constants.ImageProcessing.Film.currentModelVersion
     ) {
+        self.modelVersion = modelVersion
         self.exposure = FilmLook.snappedExposure(exposure)
         self.stock = stock
         self.printStock = printStock
@@ -47,8 +53,16 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     static let original = FilmLook(stock: .none)
 
     /// True while this look equals the stock's defaults (the Reset action's
-    /// enabled state).
-    var isStockDefault: Bool { self == .stockDefaults(for: stock) }
+    /// enabled state). Compared at the look's own model version: the version
+    /// is not something the user edited.
+    var isStockDefault: Bool { self == FilmLook(stock: stock, modelVersion: modelVersion) }
+
+    /// This look on the given model version, everything else unchanged.
+    func with(modelVersion version: Int) -> FilmLook {
+        var look = self
+        look.modelVersion = version
+        return look
+    }
 
     /// Whether anything would change the photo: Off with no B&W is the
     /// untouched original.
@@ -219,7 +233,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     // MARK: Stored form
 
     private enum CodingKeys: String, CodingKey {
-        case stock, printStock, blackAndWhite, strengths, exposure
+        case stock, printStock, blackAndWhite, strengths, exposure, modelVersion
         case effects  // the v4 FilmEffects key, read but never written
     }
 
@@ -235,6 +249,9 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         self.strengths = try container.decodeIfPresent(Strengths.self, forKey: key) ?? .defaults(for: stock)
         // Looks stored before v5.2 have no exposure: 0 EV
         self.exposure = FilmLook.snappedExposure((try? container.decodeIfPresent(Double.self, forKey: .exposure)) ?? 0)
+        // Looks stored before 1.2.2 have no version: model 1
+        self.modelVersion = (try? container.decodeIfPresent(Int.self, forKey: .modelVersion))
+            ?? Constants.ImageProcessing.Film.legacyModelVersion
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -244,6 +261,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         try container.encode(blackAndWhite, forKey: .blackAndWhite)
         try container.encode(strengths, forKey: .strengths)
         try container.encode(exposure, forKey: .exposure)
+        try container.encode(modelVersion, forKey: .modelVersion)
     }
 
     // MARK: Pipeline bridge
@@ -257,6 +275,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         customization.strengths = strengths.clamped
         customization.blackAndWhite = blackAndWhite
         customization.exposure = exposure
+        customization.modelVersion = modelVersion
         return customization
     }
 

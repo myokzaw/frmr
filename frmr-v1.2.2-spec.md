@@ -1,7 +1,7 @@
 # frmr — 1.2.2 plan (draft)
 
 **Date:** 2026-10-27
-**Status:** In progress (2026-10-27). Step 1 (camera fixes) is done and confirmed on device; step 2 started.
+**Status:** In progress (2026-10-27). Steps 1–2 done; step 3 (film look v2) started.
 **Version:** app version (`MARKETING_VERSION`) 1.2.1 → **1.2.2**. The home-screen name stays **Frmrr**.
 **Branch:** `v1.2.2`, made from `main` @ `90795e0` when work starts.
 **Agent rule:** **one Sonnet agent** for this release, working one step at a time (the user asked for this on 2026-10-27, instead of the usual two per round). The lead checks each step, runs the `all` test tier and writes the docs.
@@ -298,6 +298,7 @@ Each handoff uses the template in `.claude/agents/README.md`. The agent runs the
 | Step | Status |
 |---|---|
 | 1 — BUG-122-01, BUG-122-02 | **Done; user confirmed on device (2026-10-28).** Unit tests: 367/367 pass, including the new `CameraSwitchTests` (6). The camera input swap now sets up the video connection before commit, and the frame sink drops the old camera's frame. A `CameraViewModel` state machine (`isSwitchingCamera`, `flipTransition`, 1.5 s timeout, generation counter) drives `FlipTransitionOverlay`. Device-only checks: 20 flips per stock, the first photo after a flip, the stock-Off snapshot (`drawHierarchy` may come out black), Reduce Motion. The "configured before commit" test needs a real camera and isn't automated. |
-| 2–7 | Not started |
+| 2 — F-122-B, F-122-D | **Done; user OK'd (2026-11-02).** Unit tests: 379/379 pass, including the slow suites. `FilmLook.modelVersion` (missing key → 1, new looks → 2) and `FilmModelParameters` (`.v1`, `.v2`, `.current`, `.forVersion`) are threaded through `FilmModel`, `ImageProcessor`, the preview cube, `FilmSwatch`, `StripCustomization`, strips and `DiaryEntry`. The cube cache keys on the version. The editor opens a v1 photo as v2; Discard keeps v1. Step 3 changes only `Constants.ImageProcessing.Film.ModelV2`, which is a copy of v1 for now; `printWhiteTarget` and the toe pivot are still shared by both versions. `FilmModelV1PinnedTests` pins SHA-256 fingerprints of all 48 stock × print × B&W v1 cubes, taken from the 1.2.1 code (0ae0e38), so v1 provably renders as 1.2.1. Renamed: the two Settings lines and both permission prompts ("Filum" was among them). No other visible "frmr" was found. |
+| 3–7 | Not started |
 
 **Environment note (2026-10-27):** Xcode now has only the iOS 27.0 simulator runtime, so the iOS 26.x role simulators are unavailable. `frmr-lead` was recreated on iOS 27.0. The other roles (`frmr-backend`, the `frmr-ui-*` shards and the rest) still need recreating before agents can run tests or the UI tier can run.

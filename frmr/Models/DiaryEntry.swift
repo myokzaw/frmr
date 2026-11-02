@@ -56,9 +56,17 @@ final class DiaryEntry {
         self.lookData = Self.storedLookData(for: look)
     }
 
-    /// The stored form of `look`: nil when it is the stock's own defaults.
+    /// The entry look when nothing is stored: the stock's defaults on model 1,
+    /// because every row without look data predates 1.2.2 (F-122-B).
+    private static func legacyDefaults(for stock: StripCustomization.FilmStock) -> FilmLook {
+        FilmLook(stock: stock, modelVersion: Constants.ImageProcessing.Film.legacyModelVersion)
+    }
+
+    /// The stored form of `look`: nil when it is the stock's own defaults on
+    /// model 1, which is what a row without data reads back as. A model-2
+    /// look is always stored so it never reads back as model 1.
     static func storedLookData(for look: FilmLook?) -> Data? {
-        guard let look, look != .stockDefaults(for: look.stock) else { return nil }
+        guard let look, look != legacyDefaults(for: look.stock) else { return nil }
         return FilmLook.encoded(look)
     }
 
@@ -66,7 +74,7 @@ final class DiaryEntry {
     /// the stock's defaults (every entry saved before v5).
     var look: FilmLook {
         get {
-            guard let lookData else { return .stockDefaults(for: filmStock) }
+            guard let lookData else { return Self.legacyDefaults(for: filmStock) }
             return FilmLook.decoded(from: lookData)
         }
         set {

@@ -54,6 +54,14 @@ nonisolated extension Constants {
         // as scene exposure): shadows below ~20% sRGB compress, and before the
         // output normalisation stage a diffuse white printed at ~220–235/255.
         enum Film {
+            // MARK: Model versions (v1.2.2 F-122-B)
+            // A look stores the film-model version it was made with, so old
+            // photos keep their look. The plain `Negative`, `Print` and
+            // `shadowToeExponent` below are the version-1 set and must not
+            // change; version 2 lives in `ModelV2` at the end of this enum.
+            static let legacyModelVersion = 1
+            static let currentModelVersion = 2
+
             // OPEN: v4-5 — sRGB-encoded value input white prints at, after
             // the print stage (OutputNormalisation). Input black prints at
             // each print's own `blackTarget` (Print below).
@@ -68,6 +76,7 @@ nonisolated extension Constants {
             // photo and moves the stock's extra contrast up toward mid grey.
             // 8 keeps every stock on its default print within 25% of Off's
             // separation for input 0.02–0.20.
+            // (version-1 value; see ModelV2.shadowToeExponent)
             static let shadowToeExponent: Double = 8
             // The film's slope at the pivot is measured over pivot/this
             static let shadowToeSlopeSamples = 256
@@ -379,6 +388,30 @@ nonisolated extension Constants {
                     b: printCurve(dMin: 0.0, dMax: 2.4, gamma: 1.3),
                     blackTarget: 3.0 / 255
                 )
+            }
+
+            // MARK: Model version 2 (F-122-B)
+            // THE place to change version-2 numbers (v1.2.2 step 3). For now
+            // every value is the version-1 value, so v2 renders exactly like
+            // v1. Replace a reference below with a new profile to change v2
+            // only; never edit `Negative`, `Print` or `shadowToeExponent`.
+            enum ModelV2 {
+                static let shadowToeExponent: Double = Film.shadowToeExponent
+                enum Negative {
+                    static let daylight200 = Film.Negative.daylight200
+                    static let portrait400 = Film.Negative.portrait400
+                    static let cine500T = Film.Negative.cine500T
+                    static let slide100 = Film.Negative.slide100
+                    static let mono400 = Film.Negative.mono400
+                    static let mono3200 = Film.Negative.mono3200
+                }
+                // Each profile carries its own black target
+                enum Print {
+                    static let lab = Film.Print.lab
+                    static let cinema = Film.Print.cinema
+                    static let matte = Film.Print.matte
+                    static let projection = Film.Print.projection
+                }
             }
         }
     }

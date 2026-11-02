@@ -401,8 +401,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Frmrr;
-				INFOPLIST_KEY_NSCameraUsageDescription = "frmr uses the camera to capture photos for your journal entries and film strips.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Filum saves finished film strips to your photo library when you ask it to.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Frmrr uses the camera to capture photos for your journal entries and film strips.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Frmrr saves finished film strips to your photo library when you ask it to.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -436,8 +436,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Frmrr;
-				INFOPLIST_KEY_NSCameraUsageDescription = "frmr uses the camera to capture photos for your journal entries and film strips.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Filum saves finished film strips to your photo library when you ask it to.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Frmrr uses the camera to capture photos for your journal entries and film strips.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Frmrr saves finished film strips to your photo library when you ask it to.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

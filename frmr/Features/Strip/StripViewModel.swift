@@ -168,7 +168,8 @@ final class StripViewModel {
             printStock: customization.printStock,
             blackAndWhite: customization.blackAndWhite,
             strengths: customization.strengths,
-            exposure: ownLook.exposure
+            exposure: ownLook.exposure,
+            modelVersion: ownLook.modelVersion
         )
         let stocksKey = PreviewKey(kind: .stocks, look: base, width: width, height: height)
         let asShotKey = PreviewKey(kind: .asShot, look: ownLook, width: width, height: height)

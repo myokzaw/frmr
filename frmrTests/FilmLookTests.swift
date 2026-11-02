@@ -154,7 +154,7 @@ struct FilmLookModelTests {
     @Test func entriesRoundTripAWholeLookAndOldRowsKeepTheirStockDefaults() {
         let old = DiaryEntry(photoPath: "p", prompt: "", response: "", filmStock: .mono400)
         #expect(old.lookData == nil)
-        #expect(old.look == .stockDefaults(for: .mono400))
+        #expect(old.look == FilmLook(stock: .mono400, modelVersion: 1), "rows without data predate 1.2.2: model 1")
 
         var look = FilmLook.stockDefaults(for: .portrait400)
         look.strengths.vignette = 0.6
@@ -162,8 +162,16 @@ struct FilmLookModelTests {
         #expect(edited.filmStock == .portrait400)
         #expect(edited.look == look)
 
-        let untouched = DiaryEntry(photoPath: "p", prompt: "", response: "", look: .stockDefaults(for: .slide100))
-        #expect(untouched.lookData == nil, "stock defaults are not stored")
+        let untouched = DiaryEntry(
+            photoPath: "p", prompt: "", response: "",
+            look: FilmLook(stock: .slide100, modelVersion: Constants.ImageProcessing.Film.legacyModelVersion)
+        )
+        #expect(untouched.lookData == nil, "model-1 stock defaults are not stored")
+
+        // A model-2 default must be stored, or it would read back as model 1
+        let current = DiaryEntry(photoPath: "p", prompt: "", response: "", look: .stockDefaults(for: .slide100))
+        #expect(current.lookData != nil)
+        #expect(current.look.modelVersion == Constants.ImageProcessing.Film.currentModelVersion)
     }
 }
 
@@ -436,8 +444,9 @@ struct ExposurePipelineTests {
 
     @Test(arguments: StripCustomization.FilmStock.allCases.filter { $0 != .none })
     func highlightsRollOffThroughTheShoulderInsteadOfClipping(stock: StripCustomization.FilmStock) throws {
-        let negative = try #require(stock.negative)
-        let print = try #require(stock.defaultPrint?.profile)
+        let parameters = FilmModelParameters.current
+        let negative = try #require(parameters.negative(for: stock))
+        let print = parameters.print(for: try #require(stock.defaultPrint))
         let chain = FilmChain(negative: negative, print: print, monochrome: stock.isMonochrome, exposureGain: 4)
         let inputs = [0.25, 0.5, 0.75, 0.9, 1.0]
         let outputs = inputs.map { chain.render(r: $0, g: $0, b: $0).g }

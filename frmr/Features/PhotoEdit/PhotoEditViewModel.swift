@@ -170,7 +170,10 @@ final class PhotoEditViewModel: Identifiable {
         savePhotoData: @escaping @Sendable (Data) async throws -> Void = { try await PHPhotoLibrary.saveToCameraRoll(photoData: $0) }
     ) {
         guard let original = RollViewModel.loadPhoto(for: rollPhoto) else { return nil }
-        let startLook = rollPhoto.look
+        // F-122-B: the editor shows the current model. The stored look stays
+        // at its old version until Save; Discard never touches it. The upgrade
+        // is not a user edit, so it is also the baseline for `isModified`.
+        let startLook = rollPhoto.look.with(modelVersion: Constants.ImageProcessing.Film.currentModelVersion)
         self.rollPhoto = rollPhoto
         self.photo = original
         self.look = startLook
@@ -284,7 +287,7 @@ final class PhotoEditViewModel: Identifiable {
     /// Back to the current stock on its default print and effects (OPEN: v5-5,
     /// the Effects tab header).
     func resetToStockDefaults() {
-        apply(.stockDefaults(for: look.stock))
+        apply(FilmLook(stock: look.stock, modelVersion: look.modelVersion))
     }
 
     private func apply(_ next: FilmLook) {

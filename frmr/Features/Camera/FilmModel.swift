@@ -185,7 +185,12 @@ nonisolated struct ShadowToe: Sendable {
     /// - Parameters:
     ///   - channel: the channel's normalised response, linear in and out.
     ///   - black: where input 0 lands, linear.
-    init(channel: (Double) -> Double, black linearBlack: Double) {
+    ///   - toeExponent: the model version's `shadowToeExponent`.
+    init(
+        channel: (Double) -> Double,
+        black linearBlack: Double,
+        toeExponent: Double = Constants.ImageProcessing.Film.shadowToeExponent
+    ) {
         typealias F = Constants.ImageProcessing.Film
         let pivot = FilmModel.sRGB(fromLinear: F.shadowToePivot)
         // One-sided slope of the film arriving at the pivot, in sRGB terms
@@ -196,7 +201,7 @@ nonisolated struct ShadowToe: Sendable {
         let blackEncoded = FilmModel.extendedSRGB(fromLinear: linearBlack)
         let secant = max((atPivot - blackEncoded) / pivot, 0)
 
-        var n = max(F.shadowToeExponent, 1)
+        var n = max(toeExponent, 1)
         // ∫₀ᵖ S' = secant · pivot  ⇒  a = (secant·(n+1) − m₁) / n
         var a = (secant * (n + 1) - filmSlope) / n
         if a < 0 {
@@ -227,6 +232,69 @@ nonisolated struct ShadowToe: Sendable {
     }
 }
 
+/// Everything the film model needs that differs between model versions
+/// (F-122-B): each stock's negative, each print (with its black target) and
+/// the shadow toe. A look carries its `modelVersion`; the pipeline asks for
+/// `FilmModelParameters.forVersion(_:)`. The numbers live in
+/// `Constants.ImageProcessing.Film` (v1) and `.ModelV2`.
+nonisolated struct FilmModelParameters: Sendable {
+    let version: Int
+    let shadowToeExponent: Double
+    private let negatives: [StripCustomization.FilmStock: NegativeProfile]
+    private let lab: PrintProfile
+    private let cinema: PrintProfile
+    private let matte: PrintProfile
+    private let projection: PrintProfile
+
+    /// nil for Off, the untouched fast path.
+    func negative(for stock: StripCustomization.FilmStock) -> NegativeProfile? { negatives[stock] }
+
+    func print(for printStock: StripCustomization.PrintStock) -> PrintProfile {
+        switch printStock {
+        case .lab: return lab
+        case .cinema: return cinema
+        case .matte: return matte
+        case .projection: return projection
+        }
+    }
+
+    static let v1: FilmModelParameters = {
+        typealias N = Constants.ImageProcessing.Film.Negative
+        typealias P = Constants.ImageProcessing.Film.Print
+        return FilmModelParameters(
+            version: Constants.ImageProcessing.Film.legacyModelVersion,
+            shadowToeExponent: Constants.ImageProcessing.Film.shadowToeExponent,
+            negatives: [
+                .daylight200: N.daylight200, .portrait400: N.portrait400, .cine500T: N.cine500T,
+                .slide100: N.slide100, .mono400: N.mono400, .mono3200: N.mono3200,
+            ],
+            lab: P.lab, cinema: P.cinema, matte: P.matte, projection: P.projection
+        )
+    }()
+
+    static let v2: FilmModelParameters = {
+        typealias M = Constants.ImageProcessing.Film.ModelV2
+        return FilmModelParameters(
+            version: Constants.ImageProcessing.Film.currentModelVersion,
+            shadowToeExponent: M.shadowToeExponent,
+            negatives: [
+                .daylight200: M.Negative.daylight200, .portrait400: M.Negative.portrait400,
+                .cine500T: M.Negative.cine500T, .slide100: M.Negative.slide100,
+                .mono400: M.Negative.mono400, .mono3200: M.Negative.mono3200,
+            ],
+            lab: M.Print.lab, cinema: M.Print.cinema, matte: M.Print.matte, projection: M.Print.projection
+        )
+    }()
+
+    static var current: FilmModelParameters { forVersion(Constants.ImageProcessing.Film.currentModelVersion) }
+
+    /// 1 and below read as the v1 set; anything else as the current set
+    /// (a version from a newer build still renders).
+    static func forVersion(_ version: Int) -> FilmModelParameters {
+        version <= Constants.ImageProcessing.Film.legacyModelVersion ? v1 : v2
+    }
+}
+
 /// The three curve pairs a render actually uses. A monochrome render runs
 /// every channel through the red pair.
 nonisolated struct FilmChain: Sendable {
@@ -242,7 +310,13 @@ nonisolated struct FilmChain: Sendable {
     /// at an exposure of 0.
     let exposureGain: Double
 
-    init(negative: NegativeProfile, print: PrintProfile, monochrome: Bool, exposureGain: Double = 1) {
+    init(
+        negative: NegativeProfile,
+        print: PrintProfile,
+        monochrome: Bool,
+        exposureGain: Double = 1,
+        toeExponent: Double = Constants.ImageProcessing.Film.shadowToeExponent
+    ) {
         self.exposureGain = exposureGain
         let isMono = monochrome || negative.isMonochrome
         let used = isMono
@@ -277,9 +351,9 @@ nonisolated struct FilmChain: Sendable {
             neutralBlack > 0 ? targetBlack * channel(0) / neutralBlack : targetBlack
         }
         toes = (
-            ShadowToe(channel: filmR, black: black(filmR)),
-            ShadowToe(channel: filmG, black: black(filmG)),
-            ShadowToe(channel: filmB, black: black(filmB))
+            ShadowToe(channel: filmR, black: black(filmR), toeExponent: toeExponent),
+            ShadowToe(channel: filmG, black: black(filmG), toeExponent: toeExponent),
+            ShadowToe(channel: filmB, black: black(filmB), toeExponent: toeExponent)
         )
     }
 
@@ -447,10 +521,14 @@ nonisolated enum FilmLUT {
         print: PrintProfile,
         monochrome: Bool,
         exposureGain: Double = 1,
+        parameters: FilmModelParameters = .current,
         dimension: Int = Constants.ImageProcessing.Film.lutDimension
     ) -> Data {
         guard dimension >= 2 else { return Data() }
-        let chain = FilmChain(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain)
+        let chain = FilmChain(
+            negative: negative, print: print, monochrome: monochrome,
+            exposureGain: exposureGain, toeExponent: parameters.shadowToeExponent
+        )
 
         let step = 1 / Double(dimension - 1)
         let linearAxis = (0..<dimension).map { FilmModel.linear(fromSRGB: Double($0) * step) }
@@ -498,6 +576,10 @@ nonisolated enum FilmLUT {
         let print: PrintProfile
         let monochrome: Bool
         let exposureGain: Double
+        /// Stock + print + B&W + model version (F-122-B): the version and its
+        /// toe both key the cube, so two versions never share one.
+        let modelVersion: Int
+        let toeExponent: Double
         let dimension: Int
     }
 
@@ -509,15 +591,22 @@ nonisolated enum FilmLUT {
         print: PrintProfile,
         monochrome: Bool,
         exposureGain: Double = 1,
+        parameters: FilmModelParameters = .current,
         dimension: Int = Constants.ImageProcessing.Film.lutDimension
     ) -> Data {
-        let key = Key(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension)
+        let key = Key(
+            negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain,
+            modelVersion: parameters.version, toeExponent: parameters.shadowToeExponent, dimension: dimension
+        )
         if let cached = cache.value(for: key) {
             return cached
         }
         // Built outside the lock: two threads racing on the same key both
         // build an identical cube, which is cheaper than serialising renders
-        let built = cube(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension)
+        let built = cube(
+            negative: negative, print: print, monochrome: monochrome,
+            exposureGain: exposureGain, parameters: parameters, dimension: dimension
+        )
         cache.insert(built, for: key)
         return built
     }

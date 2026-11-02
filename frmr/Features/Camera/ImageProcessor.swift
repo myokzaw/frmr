@@ -282,7 +282,9 @@ nonisolated enum ImageProcessor {
         if stock == .none, exposureGain != 1 {
             output = applyLinearGain(to: output, gain: exposureGain)
         }
-        if let negative = stock.negative, let printProfile = customization.resolvedPrint?.profile {
+        let parameters = FilmModelParameters.forVersion(customization.modelVersion)
+        if let negative = parameters.negative(for: stock), let printStock = customization.resolvedPrint {
+            let printProfile = parameters.print(for: printStock)
             let monochrome = customization.rendersInBlackAndWhite
             if monochrome {
                 output = luminance(of: output, weights: negative.monoWeights)
@@ -294,7 +296,8 @@ nonisolated enum ImageProcessor {
                 )
             }
             output = applyFilmCube(
-                negative: negative, print: printProfile, monochrome: monochrome, exposureGain: exposureGain, to: output
+                negative: negative, print: printProfile, monochrome: monochrome, exposureGain: exposureGain,
+                parameters: parameters, to: output
             )
         } else if customization.blackAndWhite {
             // No stock: the plain B&W look from v1, unchanged
@@ -535,6 +538,7 @@ nonisolated enum ImageProcessor {
         print printProfile: PrintProfile,
         monochrome: Bool,
         exposureGain: Double = 1,
+        parameters: FilmModelParameters,
         to input: CIImage
     ) -> CIImage {
         let dimension = Constants.ImageProcessing.Film.lutDimension
@@ -542,7 +546,8 @@ nonisolated enum ImageProcessor {
         cube.inputImage = input
         cube.cubeDimension = Float(dimension)
         cube.cubeData = FilmLUT.cachedCube(
-            negative: negative, print: printProfile, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension
+            negative: negative, print: printProfile, monochrome: monochrome, exposureGain: exposureGain,
+            parameters: parameters, dimension: dimension
         )
         cube.colorSpace = stripOutputColorSpace
         return cube.outputImage ?? skipping("Film cube", input)

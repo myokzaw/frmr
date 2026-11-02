@@ -9,7 +9,9 @@ Plan: `frmr-v1.2.2-spec.md`.
 - **Fixed:** flipping between the front and back camera no longer shows a sideways or wrongly mirrored picture for a moment.
 - **Smoother camera flip.** Instead of freezing, the last picture blurs and turns over like the iOS Camera app, then fades to the new camera. With Reduce Motion it just cross-fades.
 - Extra taps on the flip button during a flip are ignored. If the other camera can't start, the current one stays on and you see an error.
-- Still to come in 1.2.2: lighter shadows on the film stocks, Shadows and Highlights tools, a crop tool, importing photos from your gallery, and the app's name shown as Frmrr throughout.
+- **Your photos keep their look.** Each photo now remembers which version of the film look it was made with. Photos taken before this update look exactly as they did, even after future changes to the film stocks. Opening an older photo in the editor moves it to the newest look; Save keeps it, and Discard leaves the photo as it was.
+- The app's name is now written **Frmrr** in Settings and in the camera and photo-library permission prompts. The photo-library prompt used to show an old name, "Filum".
+- Still to come in 1.2.2: lighter shadows on the film stocks, Shadows and Highlights tools, a crop tool, and importing photos from your gallery.
 
 ## v5.2.1 — fixes (in progress)
 

@@ -203,7 +203,7 @@ struct SettingsView: View {
         } header: {
             Text("Help")
         } footer: {
-            Text(didRequestTips ? "Tips show again the next time you open frmr." : "Tips point out the camera's controls the first time you use them.")
+            Text(didRequestTips ? "Tips show again the next time you open Frmrr." : "Tips point out the camera's controls the first time you use them.")
         }
         .listRowBackground(theme.card)
     }
@@ -262,7 +262,7 @@ struct SettingsView: View {
         } header: {
             Text("About")
         } footer: {
-            Text("frmr works fully offline: no accounts, no analytics, no network.")
+            Text("Frmrr works fully offline: no accounts, no analytics, no network.")
         }
         .listRowBackground(theme.card)
     }

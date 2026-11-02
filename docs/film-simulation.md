@@ -37,6 +37,19 @@ The tone and colour part (steps 1 and 2) is pure maths in Swift. It is baked int
 
 ---
 
+## 2a. Model versions (v1.2.2 F-122-B)
+
+A `FilmLook` stores `modelVersion` (Int). A look without the key decodes as **1**; every new look is `Constants.ImageProcessing.Film.currentModelVersion` (**2**).
+
+- **`FilmModelParameters`** (`FilmModel.swift`) is the per-version set: each stock's `NegativeProfile`, each print's `PrintProfile` (with its black target) and `shadowToeExponent`. `FilmModelParameters.forVersion(_:)` returns v1 for 1 and below, v2 otherwise; `.current` is the version new looks use.
+- **Where the numbers live:** the plain `Film.Negative`, `Film.Print` and `Film.shadowToeExponent` are the **v1 set and must not change**. The v2 set is `Film.ModelV2` (Negative, Print, shadowToeExponent). **Right now every v2 value is a reference to the v1 value, so v2 renders exactly like v1.** To change the film look, replace entries in `ModelV2` only.
+- **Plumbing:** `FilmLook.customization` and `StripCustomization.modelVersion` carry the version; `ImageProcessor.filmLook` reads the set from it; `FilmChain(toeExponent:)` and `FilmLUT.cube/cachedCube(parameters:)` take it. The cube cache key is the profiles plus `modelVersion` and the toe exponent, so two versions never share a cube.
+- **Who uses which version:** the live viewfinder, fresh captures and `FilmSwatch` use `.current`. Roll, viewer, entries, export and strips render the version stored in the look (a strip frame uses its own photo's version, also under a stock override). A diary entry with no stored look reads as v1.
+- **Editor:** opening a v1 Roll photo sets the working look to the current version (not counted as an edit); Save stores it, Discard leaves the stored look at v1.
+- **`isStockDefault`** compares at the look's own version (the version is not a user edit).
+
+---
+
 ## 3. The pipeline, step by step
 
 ```

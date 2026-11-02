@@ -264,10 +264,11 @@ struct FilmPreviewMappingTests {
     @Test func thePreviewUsesTheStripsCubeForEachStock() {
         #expect(FilmPreviewRenderer.previewCube(for: .none) == nil)
         for stock in StripCustomization.FilmStock.allCases where stock != .none {
-            let negative = stock.negative!
-            let print = stock.defaultPrint!.profile
+            let parameters = FilmModelParameters.current
+            let negative = parameters.negative(for: stock)!
+            let print = parameters.print(for: stock.defaultPrint!)
             #expect(FilmPreviewRenderer.previewCube(for: stock)
-                == FilmLUT.cachedCube(negative: negative, print: print, monochrome: stock.isMonochrome), "\(stock.label)")
+                == FilmLUT.cachedCube(negative: negative, print: print, monochrome: stock.isMonochrome, parameters: parameters), "\(stock.label)")
         }
     }
 

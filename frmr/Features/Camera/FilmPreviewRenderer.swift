@@ -144,8 +144,13 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
     /// (FilmLUT's cache), so the viewfinder and the saved look agree on
     /// colour and tone. nil for Off.
     nonisolated static func previewCube(for stock: StripCustomization.FilmStock) -> Data? {
-        guard let negative = stock.negative, let print = stock.defaultPrint?.profile else { return nil }
-        return FilmLUT.cachedCube(negative: negative, print: print, monochrome: stock.isMonochrome)
+        // The live viewfinder always previews the current model (F-122-B)
+        let parameters = FilmModelParameters.current
+        guard let negative = parameters.negative(for: stock), let printStock = stock.defaultPrint else { return nil }
+        return FilmLUT.cachedCube(
+            negative: negative, print: parameters.print(for: printStock), monochrome: stock.isMonochrome,
+            parameters: parameters
+        )
     }
 
     /// Where a frame of `imageSize` lands in a view of `bounds` under

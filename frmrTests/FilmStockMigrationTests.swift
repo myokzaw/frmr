@@ -84,7 +84,7 @@ struct FilmStockMigrationTests {
     @Test func everyStockExceptNoneHasCurvesGrainAndADefaultPrint() {
         for stock in FilmStock.allCases {
             let isOff = stock == .none
-            #expect((stock.negative == nil) == isOff, "\(stock.label) curves")
+            #expect((stock.negative(version: 2) == nil) == isOff, "\(stock.label) curves")
             #expect((stock.grainIntensity > 0) == !isOff, "\(stock.label) grain")
             #expect((stock.defaultPrint == nil) == isOff, "\(stock.label) default print")
             #expect((stock.iso == nil) == isOff, "\(stock.label) ISO")

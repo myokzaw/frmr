@@ -23,8 +23,12 @@ nonisolated enum FilmSwatch {
 
     private static func compute(_ stock: StripCustomization.FilmStock) -> [(r: Double, g: Double, b: Double)] {
         let patches = Constants.ImageProcessing.Swatch.patches
-        guard let negative = stock.negative, let print = stock.defaultPrint?.profile else { return patches }
-        let chain = FilmChain(negative: negative, print: print, monochrome: stock.isMonochrome)
+        let parameters = FilmModelParameters.current
+        guard let negative = parameters.negative(for: stock), let printStock = stock.defaultPrint else { return patches }
+        let chain = FilmChain(
+            negative: negative, print: parameters.print(for: printStock), monochrome: stock.isMonochrome,
+            toeExponent: parameters.shadowToeExponent
+        )
         return patches.map { patch in
             let out = chain.render(
                 r: FilmModel.linear(fromSRGB: patch.r),

@@ -11,7 +11,11 @@ struct FilmCalibrationTests {
     private typealias Film = Constants.ImageProcessing.Film
 
     private static func chain(_ stock: StripCustomization.FilmStock) -> FilmChain {
-        FilmChain(negative: stock.negative!, print: stock.defaultPrint!.profile, monochrome: false)
+        let parameters = FilmModelParameters.current
+        return FilmChain(
+            negative: parameters.negative(for: stock)!, print: parameters.print(for: stock.defaultPrint!),
+            monochrome: false, toeExponent: parameters.shadowToeExponent
+        )
     }
 
     private static func encoded(_ c: (r: Double, g: Double, b: Double)) -> (r: Double, g: Double, b: Double) {
