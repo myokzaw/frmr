@@ -6,6 +6,9 @@ nonisolated extension Constants {
     enum RollUI {
         static let columns = 3
         static let selectionBadgeSize: CGFloat = 24
+        // A selection has no limit, so three digits must still fit the disc
+        static let selectionBadgeMinTextScale: CGFloat = 0.5
+        static let selectionBadgeTextInset: CGFloat = 3
         static let selectionBadgePadding: CGFloat = Constants.DesignUI.Space.xs
         static let selectionRingWidth: CGFloat = 3
         static let badgeScrimOpacity: CGFloat = 0.45
@@ -16,5 +19,8 @@ nonisolated extension Constants {
         static let diaryBadgeSize: CGFloat = 22
         static let diaryBadgeIconSize: CGFloat = 11
         static let diaryBadgePadding: CGFloat = Constants.DesignUI.Space.xs
+        // The "Imported" mark on gallery imports (F-122-E)
+        static let importedBadgeSize: CGFloat = 22
+        static let importedBadgeIconSize: CGFloat = 11
     }
 }

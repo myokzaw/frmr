@@ -61,6 +61,12 @@ Capture (RAW + JPEG)
       │
 Render time (strip slot, review, thumbnail, Download)
   1. uprightCIImage / sensor-space input   resolve or carry the orientation tag
+  1a. Rotate (F-122-F)                     FilmLook.quarterTurns (clockwise, 0...3) folded into the orientation
+                                           tag (ImageProcessor.turnedOrientation): no pixels move. Full look AND
+                                           strips (StripCustomization.quarterTurns), before everything.
+  1b. Crop (F-122-F, full look only)       FilmLook.crop, a rect of the UPRIGHT, TURNED original, cut out next
+                                           (ImageProcessor.cropped), so every step below sees the cropped frame.
+                                           Strips never crop: StripCustomization has no crop field.
   2. resize                                strip: aspect-fill + crop to the 4:5 slot (resizedToSlot)
                                            full look: shrink to cover the display size, or keep full res
   3. Exposure      × 2^EV  (v5.2)          stock Off: a plain linear gain here (and nothing else but B&W)
@@ -70,8 +76,9 @@ Render time (strip slot, review, thumbnail, Download)
                                            → added in LINEAR light
   5. Film cube     (gain baked in)         colour matrix → ×2^EV → negative curve → print curve
                                            → shadow toe + black/white normalisation  (FilmModel)
-  5b. Shadows / Highlights (F-122-C)       one monotone tone curve on the printed picture, right after the cube
-                                           (stock Off: right after the plain gain / B&W). Skipped at 0 and 0.
+  5b. Contrast / Shadows / Highlights      one monotone tone curve on the printed picture, right after the cube
+      (F-122-C, F-122-J)                   (stock Off: right after the plain gain / B&W). Skipped when all are 0.
+  5c. Saturation + (F-122-J)               colour cube; before the effects, so grain doesn't become colour noise
   6. Vignette      × strengths.vignette    on the printed picture
   7. Haze (bloom)  × strengths.haze        blurred copy, screen-blended
   8. Light leak    × strengths.lightLeak   seeded warm glows outside a frame edge, screen-blended
@@ -79,6 +86,8 @@ Render time (strip slot, review, thumbnail, Download)
 ```
 
 The order is part of the spec and is deliberate:
+- **Crop (v1.2.2 F-122-F)** goes before everything: `FilmLook.crop` is a normalised rect of the upright original, so it is correct for EXIF-rotated sources (cut out in upright space, then carried back to sensor space with the same tag). Every frame-sized stage then runs on the cropped frame: vignette and light-leak positions come from the cropped extent, halation and haze radii are fractions of the cropped width, and grain size scales with the cropped width (`grainScale`). Display renders decode and shrink *after* the crop (`FilmLookCache` decodes the file larger by 1 / crop size so the cut-out still covers the view). A whole-photo crop is no crop. The crop is geometry, not look: "Reset to stock defaults" keeps it (`isStockDefault` ignores it); the Crop tool has its own Reset. Strips use the whole photo.
+- **Rotate (v1.2.2 F-122-F)** comes before the crop: `FilmLook.quarterTurns` (clockwise, 0…3) is composed into the orientation tag, and the crop rect is relative to the turned photo, so rotating with a crop active rotates the rect too (`CropRect.turnedClockwise`). Unlike the crop it also reaches strips (`StripCustomization.quarterTurns`, applied to the upright slot input), so a turned photo is never sideways in a strip. Zero turns changes nothing in the pipeline. Like the crop it is geometry: "Reset to stock defaults" keeps it; the Crop tool's Reset clears both. `ImageProcessor.geometryOnly` is the cheap turned-and-cropped photo (no film) the editor shows until a render lands.
 - Halation goes **before** the cube, so the glow passes through the film's shoulder the way real light does.
 - Grain goes **last**, so it sits on top of the print.
 
@@ -88,6 +97,11 @@ The order is part of the spec and is deliberate:
 - Grain follows from the print density, as before.
 - With **stock Off** the gain is a plain linear gain (`applyLinearGain`) and hard-clips like any gain; B&W-only (`CIPhotoEffectMono`) follows it.
 - **0 EV changes nothing:** gain 1 skips the stage, uses the same cube key, and `FilmLook.altersPhoto` stays false for Off + 0 EV. `exposure` ≠ 0 makes a look "altered" even with stock Off.
+
+**Contrast and Saturation (v1.2.2 F-122-J):** `FilmLook.contrast` / `saturation` (−100…+100, step 1, left out of storage at 0, so old looks read 0 and render unchanged).
+- **Contrast** runs first in `ToneStage`'s curve, so Shadows and Highlights can still open what it crushed. Up is a gain S-curve around encoded 0.5, reaching true black and pure white, so high values deliberately override the stocks' open blacks. Down squeezes the range toward 0.5, a faded print.
+- **Saturation** is `SaturationStage`, a 33-point cube in encoded output. Down moves each colour evenly toward its Rec. 709 grey and runs after every effect, so −100 is truly grey even with colour grain or a light leak. Up runs before the effects: muted colours gain most, hues around 28° with skin-like chroma give up 70% of the boost, the hue and luma are kept, and nothing is pushed out of range. It is skipped when the look renders in black and white.
+- Recipe: tune `Constants.ImageProcessing.Film.ToneControl.contrast*` and `Film.Saturation`.
 
 **Shadows and Highlights (v1.2.2 F-122-C):** `FilmLook.shadows` / `highlights` (−100…+100, step 1, 0 = off, old looks decode 0) are a separate stage, not part of the cube: `ToneStage` (`FilmModel.swift`) is one curve on the printed picture's encoded value, applied by `ImageProcessor.applyToneStage` as a 256-entry `CIColorCurves` table straight after the cube (stock Off: after the plain gain or B&W). **Why not in the cube:** a colour-matrix stock needs a full 64³ build per cube key, so folding the tools in would rebuild it every scrub tick; the table is 256 floats built per render, so scrubbing costs the same as Exposure. The live preview and the full-resolution Download share `filmLook(...)`, so they match.
 - Pivot at encoded 0.5 (`ToneControl.pivotEncoded`, between where the stocks land mid grey, 118–140/255). **Shadows** acts only below it: + adds a bump `(1−t)²(0.15 + 3t)` times 0.26 at +100 (lifts black a little, peaks in the low shadows); − multiplies by `1 − 0.7(1−t)²` at −100, so 0 stays 0 and deep tones stay distinct. **Highlights** acts only above it: + adds `u²(1−u)` (white stays 1); − subtracts a blend of that bump and a smoothstep, so white drops slightly and the roll-off is longer. Each half is monotone, so the curve is.
@@ -288,6 +302,7 @@ Random elements (grain, light leak) use `SeededRandom` (SplitMix64). Swift's `Ha
 | `FilmEffectsTests` | Halation, grain, haze, light-leak behaviour, and seed determinism (parameterised) |
 | `OffIsIdentityTests` | Strength 0 / stock Off = pixel-identical, for every effect, stock and render surface (parameterised) |
 | `FilmLookTests` | `FilmLook` migration, strength 1 = v4, vignette; exposure (v5.2): snapping, Codable and old data, monotonic brightening, shoulder roll-off, plain gain for Off, halation reading exposed light, determinism |
+| `ContrastSaturationTests` (F-122-J) | Curve monotone and reaching black and white, −100 Saturation grey on every colour stock with effects on, skin and vivid restraint, gamut and hue, black-and-white looks ignore Saturation, storage, editor wiring |
 | `ShadowsHighlightsTests` (F-122-C) | Tone curve monotone and one-sided, every stock at ±100, floor at −100 Shadows, Off, Codable, snapping, editor wiring |
 | `FilmCalibrationTests` (also) | Stock swatch colours (v5.2) |
 | `ImageProcessorTests` | Orientation mapping (8 cases), slot resize, HEIC tag |

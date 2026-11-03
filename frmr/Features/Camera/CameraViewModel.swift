@@ -40,6 +40,10 @@ final class CameraViewModel {
         case film
         case whiteBalance
         case exposure
+        case zoom
+
+        /// The three controls that replace the stock dial (F-122-H).
+        var swapsIntoDialSlot: Bool { self != .film }
     }
 
     var errorState: ErrorState?
@@ -54,10 +58,13 @@ final class CameraViewModel {
 
     /// Which of Film / White balance / Exposure is open; at most one at a
     /// time. View state, not user data: resets on every camera appear.
-    private(set) var openPanel: Panel?
+    private(set) var openPanel: Panel? {
+        didSet { restartPanelIdleTimer() }
+    }
     var isWhiteBalanceExpanded: Bool { openPanel == .whiteBalance }
     var isFilmStockExpanded: Bool { openPanel == .film }
     var isExposurePanelExpanded: Bool { openPanel == .exposure }
+    var isZoomPanelExpanded: Bool { openPanel == .zoom }
 
     /// Opens `panel`, closing whichever was open; opening the open one closes it.
     func togglePanel(_ panel: Panel) {
@@ -67,6 +74,61 @@ final class CameraViewModel {
     func closePanels() {
         openPanel = nil
     }
+
+    // MARK: Dial-slot controls (F-122-H)
+
+    /// Exposure, Zoom and White balance take the stock dial's place above
+    /// the shutter row; the dial returns when the control closes.
+    var dialSlotControl: Panel? {
+        guard let openPanel, openPanel.swapsIntoDialSlot else { return nil }
+        return openPanel
+    }
+
+    /// How long an open dial-slot control waits, with no scrub, step or
+    /// preset tap, before it closes itself. Injectable for tests.
+    @ObservationIgnored var panelIdleTimeout: Duration = Constants.CameraUI.controlIdleTimeout
+    @ObservationIgnored private var panelIdleTask: Task<Void, Never>?
+
+    /// Which value the White balance slider edits.
+    enum WhiteBalanceAxis: String, CaseIterable, Identifiable {
+        case kelvin
+        case tint
+        var id: String { rawValue }
+        var label: String { self == .kelvin ? "Kelvin" : "Tint" }
+    }
+    var whiteBalanceAxis: WhiteBalanceAxis = .kelvin
+
+    func selectWhiteBalanceAxis(_ axis: WhiteBalanceAxis) {
+        whiteBalanceAxis = axis
+        panelInteracted()
+    }
+
+    /// Any touch on the open control restarts its idle countdown. A capture
+    /// is not one: it neither closes the control nor keeps it open.
+    func panelInteracted() {
+        guard dialSlotControl != nil else { return }
+        restartPanelIdleTimer()
+    }
+
+    private func restartPanelIdleTimer() {
+        panelIdleTask?.cancel()
+        panelIdleTask = nil
+        guard dialSlotControl != nil else { return }
+        let timeout = panelIdleTimeout
+        panelIdleTask = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            self?.closeIdleControl()
+        }
+    }
+
+    private func closeIdleControl() {
+        panelIdleTask = nil
+        if dialSlotControl != nil { openPanel = nil }
+    }
+
+    /// Waits for a pending idle close, for tests.
+    func panelIdleSettled() async { await panelIdleTask?.value }
 
     // MARK: Free white balance (v5 F3)
 
@@ -157,12 +219,27 @@ final class CameraViewModel {
     private(set) var isDraggingExposure = false
     // Keeps the readout on screen for a beat after the drag ends
     private(set) var isExposureLingering = false
-    private(set) var zoomFactor: CGFloat = Constants.Camera.minZoomFactor
+    /// App-side digital zoom, 1...`maxDigitalZoom` in 0.2 steps (F-122-G).
+    /// The device stays at 1x. Pinch and the Zoom ruler move this one value,
+    /// which is what the readout and lens chip show.
+    private(set) var zoomFactor: CGFloat = Constants.Camera.minZoomFactor {
+        didSet { syncPreviewZoom() }
+    }
+    /// The unsnapped zoom while a pinch or a ruler drag is in progress; nil
+    /// otherwise. The viewfinder and a shot taken mid-gesture follow it, so
+    /// the picture moves smoothly between steps.
+    private(set) var liveZoom: CGFloat? {
+        didSet { syncPreviewZoom() }
+    }
+    /// What the viewfinder is scaled by: the live value mid-gesture, else the snapped one.
+    var previewZoom: CGFloat { liveZoom ?? zoomFactor }
+    /// What a shot is cropped to (WYSIWYG): the live value mid-gesture, else the snapped one.
+    var captureZoom: CGFloat { liveZoom ?? zoomFactor }
+    var isZoomLive: Bool { liveZoom != nil }
 
     // Converting a tap into a device point needs the preview layer's geometry.
     // Not observed: it's plumbing the view hands back, never rendered state.
     @ObservationIgnored private weak var previewLayer: AVCaptureVideoPreviewLayer?
-    @ObservationIgnored private var zoomRange = Constants.Camera.minZoomFactor...Constants.Camera.minZoomFactor
     @ObservationIgnored private var pinchBaseZoom = Constants.Camera.minZoomFactor
     @ObservationIgnored private var exposureBiasAtDragStart: Float = 0
     @ObservationIgnored private var focusIndicatorTask: Task<Void, Never>?
@@ -177,8 +254,9 @@ final class CameraViewModel {
     // Visible while dragging, while a non-zero bias is applied (the user needs
     // to see the camera isn't metering normally), and briefly after release.
     var isExposureIndicatorVisible: Bool { isDraggingExposure || isExposureLingering || exposureBias != 0 }
-    // A zero-width range means the camera can't zoom (typical of the front lens)
-    var isZoomEnabled: Bool { zoomRange.upperBound > zoomRange.lowerBound }
+    /// The front camera has no zoom (F-122-G): the control is hidden and a
+    /// pinch is ignored.
+    var isZoomEnabled: Bool { cameraPosition == .back }
 
     // MARK: Continue to diary (v5.1 F4/F5)
 
@@ -225,8 +303,9 @@ final class CameraViewModel {
     var isPhotoMode: Bool { mode == .photo }
     var isPhotoboothMode: Bool { mode == .photobooth }
     var isShutterDisabled: Bool { isCapturing || isPermissionDenied }
-    // Lens chips only make sense on a multi-lens back camera
-    var isLensSelectorVisible: Bool { cameraPosition == .back && availableLenses.count > 1 }
+    // The lens chips are also the way into the Zoom sheet, so a back camera
+    // with a single lens still shows its one chip (F-122-G)
+    var isLensSelectorVisible: Bool { cameraPosition == .back && !availableLenses.isEmpty }
     var isFlipCameraVisible: Bool { hasFrontCamera && !isPermissionDenied }
 
     func selectPhotoMode() { mode = .photo }
@@ -266,11 +345,27 @@ final class CameraViewModel {
         startSwitch(position: cameraPosition, lens: lens, showsTransition: false)
     }
 
+    /// A lens chip tap (F-122-G): the lens you're on opens the Zoom sheet,
+    /// another lens switches to it as before.
+    func lensTapped(_ lens: CameraLens) {
+        guard !isSwitchingCamera else { return }
+        if lens == selectedLens, isZoomEnabled {
+            togglePanel(.zoom)
+        } else {
+            selectLens(lens)
+        }
+    }
+
+    /// The selected chip shows the zoom while zoomed, its own value at 1x.
+    func lensChipText(for lens: CameraLens) -> String {
+        lens == selectedLens && DigitalZoom.isZoomed(zoomFactor) ? DigitalZoom.readout(zoomFactor) : lens.label
+    }
+
     /// Waits for a pending switch to finish, for tests.
     func switchSettled() async { await switchTask?.value }
 
     private func startSwitch(position: CameraPosition, lens: CameraLens, showsTransition: Bool) {
-        let previous = (position: cameraPosition, lens: selectedLens)
+        let previous = (position: cameraPosition, lens: selectedLens, zoom: zoomFactor)
         switchGeneration += 1
         let generation = switchGeneration
         // Snapshot before the session moves, so it is the old camera's last frame
@@ -282,6 +377,11 @@ final class CameraViewModel {
         cameraPosition = position
         selectedLens = lens
         isSwitchingCamera = true
+        // Zoom is per lens (F-122-G); a flip to the front has none at all
+        liveZoom = nil
+        zoomFactor = Constants.Camera.minZoomFactor
+        pinchBaseZoom = zoomFactor
+        if position == .front, openPanel == .zoom { openPanel = nil }
 
         switchTimeoutTask?.cancel()
         switchTimeoutTask = Task { [weak self, timeout = switchTimeout] in
@@ -296,6 +396,8 @@ final class CameraViewModel {
             guard attached else {
                 self.cameraPosition = previous.position
                 self.selectedLens = previous.lens
+                self.zoomFactor = previous.zoom
+                self.pinchBaseZoom = previous.zoom
                 self.errorState?.raise(.captureFailed(reason: "Couldn't switch cameras."))
                 self.finishSwitch(generation: generation)
                 return
@@ -304,7 +406,6 @@ final class CameraViewModel {
             // The lock and the manual state live on the device, so the new camera starts clean
             self.captureSession.apply(whiteBalance: self.whiteBalance)
             self.resetManualControls()
-            Task { self.zoomRange = await self.captureSession.zoomRange() }
             await self.awaitNewFrame()
             self.finishSwitch(generation: generation)
         }
@@ -346,12 +447,16 @@ final class CameraViewModel {
     }
 
     func userTapped(at location: CGPoint) {
-        // Tapping the viewfinder dismisses the open Film, WB or EV panel
-        // (v3 F3, v4 F9, v5 F3) — before the guard, so it works even if the
-        // preview isn't up yet
-        closePanels()
+        // Tapping the viewfinder dismisses the Film list (v3 F3, v4 F9); the
+        // dial-slot controls stay (F-122-H), so a tap-to-focus while
+        // adjusting doesn't lose them. Before the guard, so it works even if
+        // the preview isn't up yet
+        if openPanel == .film { closePanels() } else { panelInteracted() }
         guard let previewLayer else { return }
-        let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: location)
+        // The picture is scaled about the centre by the zoom, so the tapped
+        // point is mapped back into the unscaled layer first (F-122-G)
+        let layerPoint = DigitalZoom.unscaledPoint(location, zoom: previewZoom, in: previewLayer.bounds.size)
+        let devicePoint = previewLayer.captureDevicePointConverted(fromLayerPoint: layerPoint)
         captureSession.setFocusAndExposure(atDevicePoint: devicePoint)
 
         focusPoint = location
@@ -400,19 +505,65 @@ final class CameraViewModel {
 
     func pinchChanged(scale: CGFloat) {
         guard isZoomEnabled else { return }
-        zoomFactor = CaptureSession.clampedZoom(
-            pinchBaseZoom * scale,
-            min: zoomRange.lowerBound,
-            max: zoomRange.upperBound
-        )
-        captureSession.setZoom(zoomFactor, animated: false)
+        let raw = DigitalZoom.clampedContinuous(pinchBaseZoom * scale)
+        liveZoom = raw
+        let snapped = DigitalZoom.clamped(raw)
+        if snapped != zoomFactor {
+            zoomFactor = snapped
+            Haptics.play(.detent)
+        }
+    }
+
+    /// The fingers lift: the stored value is already the snapped one, so the
+    /// viewfinder settles from the live value to it.
+    func pinchEnded() {
+        liveZoom = nil
+        pinchBaseZoom = zoomFactor
+    }
+
+    /// The Zoom ruler's unsnapped position while dragged; nil when the drag ends.
+    func scrubZoom(_ raw: Double?) {
+        guard isZoomEnabled else { return }
+        liveZoom = raw.map { DigitalZoom.clampedContinuous(CGFloat($0)) }
+    }
+
+    /// The viewfinder animation for a zoom change: none mid-gesture (it
+    /// follows the fingers), a short ease otherwise, and none with Reduce Motion.
+    func zoomGlideAnimation(reduceMotion: Bool) -> Animation? {
+        guard !isZoomLive, !reduceMotion else { return nil }
+        return .easeOut(duration: Constants.Camera.zoomGlideDuration)
+    }
+
+    private func syncPreviewZoom() {
+        let glides = liveZoom == nil && !UIAccessibility.isReduceMotionEnabled
+        filmPreviewRenderer.setZoom(previewZoom, animated: glides)
     }
 
     func resetZoom() {
+        setZoom(Constants.Camera.minZoomFactor)
+    }
+
+    // MARK: Digital zoom (F-122-G)
+
+    /// The Zoom ruler, double-tap reset and VoiceOver: clamped to 1...3 and
+    /// snapped to 0.2.
+    func setZoom(_ zoom: CGFloat) {
         guard isZoomEnabled else { return }
-        zoomFactor = zoomRange.lowerBound
-        pinchBaseZoom = zoomFactor
-        captureSession.setZoom(zoomFactor, animated: true)
+        applyZoom(zoom)
+        panelInteracted()
+    }
+
+    func toggleZoomPanel() {
+        guard isZoomEnabled else { return }
+        togglePanel(.zoom)
+    }
+
+    var zoomReadout: String { DigitalZoom.readout(zoomFactor) }
+
+    private func applyZoom(_ zoom: CGFloat) {
+        let value = DigitalZoom.clamped(zoom)
+        if value != zoomFactor { zoomFactor = value }
+        pinchBaseZoom = value
     }
 
     // Drag up (negative height) brightens. Pure, so the mapping is unit-testable.
@@ -431,6 +582,7 @@ final class CameraViewModel {
         isExposureLingering = false
         exposureFadeTask?.cancel()
         captureSession.setExposureBias(0)
+        liveZoom = nil
         zoomFactor = Constants.Camera.minZoomFactor
         pinchBaseZoom = Constants.Camera.minZoomFactor
     }
@@ -451,7 +603,6 @@ final class CameraViewModel {
         hasFrontCamera = CaptureSession.hasFrontCamera()
         captureSession.start()
         captureSession.setVideoFramesEnabled(showsFilmPreview)
-        zoomRange = await captureSession.zoomRange()
         // Warm the Taptic Engine so the shutter tap doesn't lag the first capture
         Haptics.prepareShutter()
         startObservingOrientation()
@@ -527,6 +678,7 @@ final class CameraViewModel {
     /// The same preset, but the panel stays open: the Photo-mode panel
     /// keeps its Kelvin and tint sliders reachable after a preset.
     func chooseWhiteBalancePreset(_ mode: WBMode) {
+        panelInteracted()
         whiteBalance = mode
         isWhiteBalanceCustom = false
         if let preset = mode.temperatureAndTint {
@@ -543,6 +695,7 @@ final class CameraViewModel {
     /// The Kelvin/tint sliders: a free white balance, clamped to 2500–9000 K
     /// and −50…+50, applied to the device on the session queue.
     func setWhiteBalance(kelvin: Float, tint: Float) {
+        panelInteracted()
         whiteBalanceKelvin = CaptureSession.clampedKelvin(kelvin)
         whiteBalanceTint = CaptureSession.clampedTint(tint)
         isWhiteBalanceCustom = true
@@ -577,6 +730,7 @@ final class CameraViewModel {
         exposureBias = snapped
         exposureBiasAtDragStart = snapped
         captureSession.setExposureBias(snapped)
+        panelInteracted()
     }
 
     /// Moves the bias by whole detents (negative = darker).
@@ -688,22 +842,33 @@ final class CameraViewModel {
     func captureForPhoto(context: ModelContext? = nil) async {
         let stock = filmStock
         let captureDate = Date.now
+        // Read at the shutter, not when the photo arrives (F-122-G); the live
+        // value mid-gesture, so the crop matches what the viewfinder showed
+        let zoom = captureZoom
         guard let photo = await capturePhoto() else { return }
         guard let preview = UIImage(data: photo.jpegData) else {
             errorState?.raise(.captureFailed(reason: "The photo data couldn't be read."))
             return
         }
+        let crop = Self.captureCrop(zoom: zoom, photoSize: preview.size)
         let development: Task<UIImage, Never>? = photo.rawData == nil ? nil : Task { [weak self] in
             guard let self else { return preview }
             return await self.processRAWIfPresent(photo, fallback: preview)
         }
         if !editAfterEachShot, let context {
             await saveStraightToRoll(
-                preview: preview, stock: stock, captureDate: captureDate, development: development, context: context
+                preview: preview, stock: stock, captureDate: captureDate, development: development,
+                crop: crop, context: context
             )
         } else {
-            beginPhotoEdit(preview: preview, stock: stock, captureDate: captureDate, development: development)
+            beginPhotoEdit(preview: preview, stock: stock, captureDate: captureDate, development: development, crop: crop)
         }
+    }
+
+    /// The crop a shot at `zoom` is saved with: centred, 1/zoom of the upright
+    /// photo, at the photo's orientation; nil at 1x (F-122-G).
+    static func captureCrop(zoom: CGFloat, photoSize: CGSize) -> CropRect? {
+        DigitalZoom.cropRect(zoom: zoom, isLandscape: CropGeometry.defaultIsLandscape(for: photoSize))
     }
 
     /// Saves a capture to the Roll on the camera's stock defaults without an
@@ -715,12 +880,13 @@ final class CameraViewModel {
         stock: StripCustomization.FilmStock,
         captureDate: Date = .now,
         development: Task<UIImage, Never>? = nil,
+        crop: CropRect? = nil,
         context: ModelContext
     ) async -> RollPhoto? {
         let original = await development?.value ?? preview
         do {
             let saved = try RollViewModel.insert(
-                original: original, look: .stockDefaults(for: stock), capturedAt: captureDate, context: context
+                original: original, look: FilmLook.stockDefaults(for: stock).with(crop: crop), capturedAt: captureDate, context: context
             )
             Haptics.play(.saved)
             return saved
@@ -740,15 +906,18 @@ final class CameraViewModel {
         stock: StripCustomization.FilmStock,
         captureDate: Date = .now,
         development: Task<UIImage, Never>? = nil,
+        crop: CropRect? = nil,
         savePhotoData: (@Sendable (Data) async throws -> Void)? = nil
     ) -> PhotoEditViewModel {
         photoEdit?.discard()
         let edit = savePhotoData.map {
             PhotoEditViewModel(
                 preview: preview, stock: stock, captureDate: captureDate,
-                development: development, savePhotoData: $0
+                development: development, crop: crop, savePhotoData: $0
             )
-        } ?? PhotoEditViewModel(preview: preview, stock: stock, captureDate: captureDate, development: development)
+        } ?? PhotoEditViewModel(
+            preview: preview, stock: stock, captureDate: captureDate, development: development, crop: crop
+        )
         edit.errorState = errorState
         edit.onFinish = { [weak self] outcome in self?.photoEditFinished(outcome, edit: edit) }
         photoEdit = edit
@@ -792,15 +961,25 @@ final class CameraViewModel {
     }
 
     /// The developed shot plus the stock chosen when the shutter fired
-    /// (v4 F11), not when development finished.
+    /// (v4 F11), not when development finished. A zoomed shot fills its slot
+    /// with the zoomed framing: strips ignore a look's crop (F-122-F), so the
+    /// zoom is cut into the slot's image itself (F-122-G).
     func captureForPhotobooth() async -> PhotoboothShot? {
         let stock = filmStock
+        let zoom = captureZoom
         guard let photo = await capturePhoto() else { return nil }
         guard let preview = UIImage(data: photo.jpegData) else {
             errorState?.raise(.captureFailed(reason: "The photo data couldn't be read."))
             return nil
         }
-        return PhotoboothShot(image: await processRAWIfPresent(photo, fallback: preview), filmStock: stock)
+        let developed = await processRAWIfPresent(photo, fallback: preview)
+        return PhotoboothShot(image: Self.photoboothSlotImage(developed, zoom: zoom), filmStock: stock)
+    }
+
+    /// `image` cut to the centred 1/zoom framing; the image itself at 1x.
+    static func photoboothSlotImage(_ image: UIImage, zoom: CGFloat) -> UIImage {
+        guard let crop = captureCrop(zoom: zoom, photoSize: image.size) else { return image }
+        return ImageProcessor.geometryOnly(image, look: FilmLook.original.with(crop: crop))
     }
 
     // The prompt screen's save and skip end the pending diary step

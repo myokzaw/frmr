@@ -212,7 +212,7 @@ struct ShadowsHighlightsEditorTests {
 
     @Test func toolsFollowExposureInOrder() {
         let ids = PhotoEditViewModel.Tool.allTools.map(\.id)
-        #expect(Array(ids.prefix(5)) == ["exposure", "shadows", "highlights", "film", "print"])
+        #expect(Array(ids.prefix(8)) == ["exposure", "shadows", "highlights", "contrast", "saturation", "crop", "film", "print"])
         #expect(PhotoEditViewModel.Tool(id: "shadows") == .shadows && PhotoEditViewModel.Tool(id: "highlights") == .highlights)
     }
 
@@ -234,7 +234,7 @@ struct ShadowsHighlightsEditorTests {
         let look = FilmLook(stock: .portrait400, shadows: 50, highlights: -100)
         let items = PhotoEditView.toolItems(look: look, exposureReadout: "0 EV", shadowsReadout: "+50", highlightsReadout: "\u{2212}100")
         #expect(items[1].id == "shadows" && items[1].ring == 0.5 && items[1].value == "+50")
-        #expect(items[2].id == "highlights" && items[2].ring == 1)
+        #expect(items[2].id == "highlights" && items[2].ring == -1)
         #expect(items[1].hint == "Lift or deepen the shadows" && items[2].hint == "Recover or brighten the highlights")
         let plain = PhotoEditView.toolItems(look: .stockDefaults(for: .portrait400), exposureReadout: "0 EV")
         #expect(plain[1].ring == nil && plain[2].ring == nil)

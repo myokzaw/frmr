@@ -171,6 +171,8 @@ final class StripViewModel {
             exposure: ownLook.exposure,
             shadows: ownLook.shadows,
             highlights: ownLook.highlights,
+            contrast: ownLook.contrast,
+            saturation: ownLook.saturation,
             modelVersion: ownLook.modelVersion
         )
         let stocksKey = PreviewKey(kind: .stocks, look: base, width: width, height: height)

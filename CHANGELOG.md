@@ -16,7 +16,17 @@ Plan: `frmr-v1.2.2-spec.md`.
 - **Sliders you can feel.** Exposure, Shadows, Highlights and the effect sliders now work like the Photos app. The marker stays in the middle and you slide the ruler under it, with a click on every step and a firmer one at 0 and the main marks, so small changes are easy. Touching a slider no longer makes it jump.
 - The camera's exposure control uses the same ruler, with a click every third of a stop.
 - Shadows is about twice as strong at either end.
-- Still to come in 1.2.2: a crop tool, and importing photos from your gallery.
+- **Crop.** A new Crop tool in the photo editor. Choose Original, Free, 3:4, 4:5, 1:1 or 16:9 (portrait or landscape), then drag the corners, edges or the frame to place it. Cropping never changes your original, and Reset brings back the whole photo. Crops show in the Roll, the viewer, your diary entries and exported photos; film strips still use the whole photo.
+- **Rotate and a better swap.** The Crop tool has a Rotate button that turns the photo a quarter turn clockwise each tap. It also turns film strips, so a turned photo never sits sideways. The portrait/landscape swap now works on Original (the largest centred frame the other way round) and Free, and only a square 1:1 stays disabled. Reset in the Crop tool undoes the crop and the turn.
+- Leaving the Crop tool no longer flashes the uncropped photo: the cropped picture shows at once and fades to the finished one.
+- **Fixed:** the app no longer quits when you take a photo while digitally zoomed (between the 0.5×, 1× and tele lenses).
+- **Zoom stays RAW, with a zoom ruler.** Tap the lens button you're on (0.5×, 1× or tele) to open a Zoom ruler from 1× to 3× in 0.1 steps; pinch still works and double-tap resets. The button shows how far you're zoomed. A zoomed photo is saved as an editable crop of the full RAW, so you can widen it later in the Crop tool. In Film strip mode the slot gets the zoomed framing.
+- **Adjust and shoot without closing anything.** Exposure, Zoom and White balance now take the film dial's place above the shutter, instead of a panel that covered it. Close one with its × or by tapping its button again. It stays open between shots and tucks away after a few seconds of not touching it. White balance has a Kelvin | Tint switch so it fits.
+- **Roomier, smoother controls.** Exposure and Zoom now sit in one clean row with a bigger readout and a longer ruler. Zoom glides as you pinch or scrub and settles on 0.2× steps, and a photo taken mid-pinch is cropped to exactly what you see. White balance has more breathing room.
+- **Import from your library.** The + button in the Roll brings in up to 10 photos. Edit each in turn, or skip it, or apply one look to the rest. Imports start with no film look, are dated today, carry no location data, and show an Imported mark. RAW photos are developed from the RAW, like camera shots.
+- **Contrast and Saturation in the editor.** Two new tools next to Shadows and Highlights, from −100 to +100. Saturation boosts muted colours more than strong ones and holds back on skin tones; all the way down is black and white, and it is hidden on black-and-white looks. Contrast goes as far as true black and pure white, or down to a faded print. Existing photos look the same until you move a slider.
+- **Tool rings show direction.** The ring around Exposure, Shadows, Highlights, Contrast and Saturation runs clockwise when the value goes up and anticlockwise when it goes down.
+- **Select as many photos as you like in the Roll.** Delete and Export now work on any number of photos, not just 4. Make strip turns off above 4, and a note above the bar says why. Big exports use temporary files instead of memory.
 
 ## v5.2.1 — fixes (in progress)
 

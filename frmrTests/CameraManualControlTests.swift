@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
+import UIKit
 @testable import frmr
 
 // v5 F1 (launch in Photo) and F3 (white balance Kelvin/tint, third-stop EV,
@@ -83,14 +84,15 @@ struct CameraPanelTests {
     @Test func onlyOneOfFilmWhiteBalanceAndExposureIsOpen() throws {
         let camera = try camera()
         #expect(camera.openPanel == nil)
-        for panel in [CameraViewModel.Panel.film, .whiteBalance, .exposure] {
+        for panel in [CameraViewModel.Panel.film, .whiteBalance, .exposure, .zoom] {
             camera.togglePanel(panel)
             #expect(camera.openPanel == panel)
             #expect(camera.isFilmStockExpanded == (panel == .film))
             #expect(camera.isWhiteBalanceExpanded == (panel == .whiteBalance))
             #expect(camera.isExposurePanelExpanded == (panel == .exposure))
+            #expect(camera.isZoomPanelExpanded == (panel == .zoom))
         }
-        camera.togglePanel(.exposure)
+        camera.togglePanel(.zoom)
         #expect(camera.openPanel == nil, "toggling the open panel closes it")
     }
 
@@ -105,13 +107,120 @@ struct CameraPanelTests {
         #expect(camera.isExposurePanelExpanded && !camera.isFilmStockExpanded)
     }
 
-    @Test func tappingTheViewfinderClosesWhicheverPanelIsOpen() throws {
+    @Test func tappingTheViewfinderClosesTheFilmListButKeepsTheDialSlotControls() throws {
         let camera = try camera()
-        camera.toggleExposurePanel()
+        camera.toggleFilmStockExpansion()
         camera.userTapped(at: .zero)
         #expect(camera.openPanel == nil)
+        camera.toggleExposurePanel()
+        camera.userTapped(at: .zero)
+        #expect(camera.openPanel == .exposure, "a tap-to-focus doesn't lose the control (F-122-H)")
         camera.closePanels()
         #expect(camera.openPanel == nil)
+    }
+
+    // MARK: Dial-slot controls (F-122-H)
+
+    private func timedCamera(_ timeout: Duration = .milliseconds(80)) throws -> CameraViewModel {
+        let camera = try camera()
+        camera.panelIdleTimeout = timeout
+        return camera
+    }
+
+    @Test func eachControlOpensInTheDialSlotAndItsButtonClosesIt() throws {
+        let camera = try camera()
+        #expect(camera.dialSlotControl == nil)
+        let opens: [(CameraViewModel.Panel, () -> Void)] = [
+            (.exposure, camera.toggleExposurePanel),
+            (.whiteBalance, camera.toggleWhiteBalanceExpansion),
+            (.zoom, camera.toggleZoomPanel),
+        ]
+        for (panel, toggle) in opens {
+            toggle()
+            #expect(camera.dialSlotControl == panel)
+            toggle()
+            #expect(camera.dialSlotControl == nil, "the same button again brings the dial back")
+        }
+        camera.toggleFilmStockExpansion()
+        #expect(camera.dialSlotControl == nil, "the Film list is not a dial-slot control")
+    }
+
+    @Test func openingAnotherControlSwapsDirectly() throws {
+        let camera = try camera()
+        camera.toggleExposurePanel()
+        camera.toggleWhiteBalanceExpansion()
+        #expect(camera.dialSlotControl == .whiteBalance)
+        camera.toggleZoomPanel()
+        #expect(camera.dialSlotControl == .zoom)
+    }
+
+    @Test func theWhiteBalanceSwitchChoosesWhichValueTheSliderEdits() throws {
+        let camera = try camera()
+        #expect(camera.whiteBalanceAxis == .kelvin)
+        camera.selectWhiteBalanceAxis(.tint)
+        #expect(camera.whiteBalanceAxis == .tint)
+    }
+
+    @Test func anIdleControlClosesItself() async throws {
+        let camera = try timedCamera()
+        camera.toggleExposurePanel()
+        await camera.panelIdleSettled()
+        #expect(camera.openPanel == nil)
+    }
+
+    @Test func interactionRestartsTheIdleCountdown() async throws {
+        let camera = try timedCamera(.milliseconds(300))
+        camera.toggleExposurePanel()
+        try await Task.sleep(for: .milliseconds(200))
+        camera.stepExposureBias(by: 1)
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(camera.openPanel == .exposure, "400 ms in, but the step restarted the 300 ms countdown")
+        await camera.panelIdleSettled()
+        #expect(camera.openPanel == nil)
+    }
+
+    @Test func everyKindOfInteractionPingsTheTimer() async throws {
+        let pings: [(CameraViewModel.Panel, (CameraViewModel) -> Void)] = [
+            (.exposure, { $0.setExposureBias(0.7) }),
+            (.zoom, { $0.setZoom(1.5) }),
+            (.zoom, { $0.setZoom(2.2) }),
+            (.whiteBalance, { $0.chooseWhiteBalancePreset(.shade) }),
+            (.whiteBalance, { $0.setWhiteBalanceKelvin(5000) }),
+            (.whiteBalance, { $0.setWhiteBalanceTint(5) }),
+            (.whiteBalance, { $0.selectWhiteBalanceAxis(.tint) }),
+        ]
+        for (panel, act) in pings {
+            let camera = try timedCamera(.milliseconds(300))
+            camera.togglePanel(panel)
+            try await Task.sleep(for: .milliseconds(200))
+            act(camera)
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(camera.openPanel == panel, "\(panel) interaction should restart the countdown")
+            camera.closePanels()
+        }
+    }
+
+    @Test func aCaptureNeitherClosesNorKeepsTheControlOpen() async throws {
+        let camera = try timedCamera(.milliseconds(300))
+        camera.toggleExposurePanel()
+        await camera.captureForPhoto()
+        camera.beginPhotoEdit(preview: UIImage(), stock: .none)
+        #expect(camera.openPanel == .exposure, "a shot leaves it open")
+        try await Task.sleep(for: .milliseconds(150))
+        await camera.captureForPhoto()
+        try await Task.sleep(for: .milliseconds(250))
+        #expect(camera.openPanel == nil, "and doesn't reset the countdown")
+    }
+
+    @Test func closingByHandCancelsTheCountdown() async throws {
+        let camera = try timedCamera(.milliseconds(100))
+        camera.toggleZoomPanel()
+        camera.closePanels()
+        camera.toggleWhiteBalanceExpansion()
+        camera.closePanels()
+        try await Task.sleep(for: .milliseconds(200))
+        camera.toggleExposurePanel()
+        #expect(camera.openPanel == .exposure, "a stale timer must not close a control opened later")
     }
 
     @Test func aListSelectionClosesItsOwnPanelOnly() throws {

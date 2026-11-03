@@ -32,6 +32,10 @@ nonisolated extension Constants {
         // whole range takes a couple of swipes (v1.2.2 F-122-D)
         static let toneTickSpacing: CGFloat = 6
         static let exposureTickSpacing: CGFloat = 22
+        // Camera zoom ruler (F-122-G): a tick per 0.2x, a little wider than
+        // the old per-0.1x spacing of 22 so each step still feels deliberate
+        static let zoomTickSpacing: CGFloat = 24
+        static let zoomMajorStep: Double = 1
         static let strengthTickSpacing: CGFloat = 10
         static let disabledOpacity: CGFloat = 0.4
 

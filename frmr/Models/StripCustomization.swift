@@ -24,10 +24,16 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     /// Shadows and Highlights (F-122-C), -100...+100. Per photo only, like exposure.
     var shadows: Double = 0
     var highlights: Double = 0
+    /// Contrast and Saturation (F-122-J), -100...+100. Per photo only, like exposure.
+    var contrast: Double = 0
+    var saturation: Double = 0
     /// The film-model version this customization renders with (F-122-B). Comes
     /// from a Roll photo's `FilmLook`; strip-level customizations and fresh
     /// captures use the current version.
     var modelVersion: Int = Constants.ImageProcessing.Film.currentModelVersion
+    /// Clockwise quarter turns of the photo (F-122-F rotate), 0…3. Per photo
+    /// only, like exposure: it comes from a Roll photo's `FilmLook`.
+    var quarterTurns: Int = 0
     /// The linear-light gain 2^EV.
     var exposureGain: Double { exposure == 0 ? 1 : pow(2, exposure) }
 
@@ -76,7 +82,10 @@ nonisolated struct StripCustomization: Equatable, Sendable {
         guard filmStock == nil, let look else {
             var frame = effective(forFrameStock: frameStock)
             // A stored photo keeps its own model version under an override too
-            if let look { frame.modelVersion = look.modelVersion }
+            if let look {
+                frame.modelVersion = look.modelVersion
+                frame.quarterTurns = look.quarterTurns
+            }
             return frame
         }
         var frame = look.customization

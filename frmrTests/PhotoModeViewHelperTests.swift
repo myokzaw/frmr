@@ -20,17 +20,29 @@ struct PhotoModeViewHelperTests {
         #expect(ToolRing.fraction(strength: 9) == 1)
         #expect(ToolRing.fraction(exposure: 0) == nil, "No ring at 0 EV")
         #expect(ToolRing.fraction(exposure: 1) == 0.5)
-        #expect(ToolRing.fraction(exposure: -2) == 1)
+        #expect(ToolRing.fraction(exposure: -2) == -1)
+        #expect(ToolRing.fraction(tone: 0) == nil, "No ring at 0")
+        #expect(ToolRing.fraction(tone: 50) == 0.5)
+        #expect(ToolRing.fraction(tone: -25) == -0.25)
+    }
+
+    @Test func valueRingRunsClockwiseUpAndAnticlockwiseDown() {
+        // The circle's path runs clockwise from the top: up starts there,
+        // down ends there
+        #expect(ToolRing.arc(for: 0.25) == (from: 0, to: 0.25))
+        #expect(ToolRing.arc(for: -0.25) == (from: 0.75, to: 1))
+        #expect(ToolRing.arc(for: 1) == (from: 0, to: 1))
+        #expect(ToolRing.arc(for: -1) == (from: 0, to: 1))
     }
 
     // F-EXP: Exposure is the first tool; every effect carries a ring and a value
     @Test func editorToolItemsStartWithExposure() {
         var look = FilmLook.stockDefaults(for: .portrait400)
         let items = PhotoEditView.toolItems(look: look, exposureReadout: "0 EV")
-        #expect(items.map(\.id) == ["exposure", "shadows", "highlights", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue))
+        #expect(items.map(\.id) == ["exposure", "shadows", "highlights", "contrast", "saturation", "crop", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue))
         #expect(items[0].systemImage == "plus.forwardslash.minus")
         #expect(items[0].ring == nil)
-        #expect(items.dropFirst(5).allSatisfy { $0.ring != nil && $0.value.hasSuffix("%") })
+        #expect(items.dropFirst(8).allSatisfy { $0.ring != nil && $0.value.hasSuffix("%") })
 
         look.exposure = 1
         let brighter = PhotoEditView.toolItems(look: look, exposureReadout: "+1.0 EV")
@@ -38,7 +50,7 @@ struct PhotoModeViewHelperTests {
         #expect(brighter[0].value == "+1.0 EV")
 
         let off = PhotoEditView.toolItems(look: .stockDefaults(for: .none), exposureReadout: "0 EV")
-        #expect(off.dropFirst(5).allSatisfy { $0.ring == nil && $0.value == "Off" }, "Off has no effects to ring")
+        #expect(off.dropFirst(8).allSatisfy { $0.ring == nil && $0.value == "Off" }, "Off has no effects to ring")
     }
 
     // F-EXP scrubber: firm tick at 0, taller at whole stops, ⅓-stop notches

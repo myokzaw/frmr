@@ -88,6 +88,13 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
     private var cube: Data?
     private var stock: StripCustomization.FilmStock = .none
     private var cubeGeneration = 0
+    /// App-side digital zoom (F-122-G): the frame is scaled about the view's
+    /// centre as it is drawn, so the plain layer and this view agree.
+    private(set) var zoom: CGFloat = 1
+    /// Where `zoom` is heading. Differs from `zoom` only while gliding to a
+    /// discrete change; a live gesture sets both at once.
+    private(set) var targetZoom: CGFloat = 1
+    private var lastZoomTick: CFTimeInterval?
     private var lastDrawnSequence: UInt64?
     private var views: [WeakView] = []
 
@@ -121,6 +128,18 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
             self.cube = cube
             self.lastDrawnSequence = nil
         }
+    }
+
+    /// `animated` glides there over a few frames (constant time, exponential,
+    /// stepped in `draw`); otherwise the frame follows at once, as it does
+    /// under a pinch. Nothing runs while stationary.
+    func setZoom(_ newZoom: CGFloat, animated: Bool = false) {
+        targetZoom = max(newZoom, 1)
+        if !animated || !isActive {
+            zoom = targetZoom
+            lastZoomTick = nil
+        }
+        lastDrawnSequence = nil
     }
 
     var isActive: Bool { stock != .none }
@@ -170,15 +189,22 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
 
     /// One frame, ready to render into a `drawableSize` target whose origin
     /// is top-left: aspect-filled, then (for a stock) through the cube. The
-    /// scale comes first so the cube only runs on displayed pixels.
-    nonisolated static func previewImage(_ frame: CIImage, cube: Data?, drawableSize: CGSize) -> CIImage {
+    /// scale comes first so the cube only runs on displayed pixels. `zoom`
+    /// (F-122-G) enlarges the result about the centre of the drawable, in the
+    /// same step, so the frame is sampled once at the final size.
+    nonisolated static func previewImage(_ frame: CIImage, cube: Data?, drawableSize: CGSize, zoom: CGFloat = 1) -> CIImage {
         let extent = frame.extent
         let target = aspectFillRect(imageSize: extent.size, in: CGRect(origin: .zero, size: drawableSize))
         let scale = target.width / max(extent.width, 1)
+        let zoomed = max(zoom, 1)
+        let centre = CGPoint(x: drawableSize.width / 2, y: drawableSize.height / 2)
         var image = frame
             .transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
             .transformed(by: CGAffineTransform(scaleX: scale, y: scale))
             .transformed(by: CGAffineTransform(translationX: target.minX, y: target.minY))
+            .transformed(by: CGAffineTransform(translationX: -centre.x, y: -centre.y))
+            .transformed(by: CGAffineTransform(scaleX: zoomed, y: zoomed))
+            .transformed(by: CGAffineTransform(translationX: centre.x, y: centre.y))
         if let cube {
             let filter = CIFilter.colorCubeWithColorSpace()
             filter.inputImage = image
@@ -195,7 +221,7 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
     func snapshot(size: CGSize, scale: CGFloat) -> UIImage? {
         guard let context, let frame = frameSink.newestFrame(), size.width > 0, size.height > 0 else { return nil }
         let pixelSize = CGSize(width: size.width * scale, height: size.height * scale)
-        let image = Self.previewImage(CIImage(cvPixelBuffer: frame.buffer), cube: cube, drawableSize: pixelSize)
+        let image = Self.previewImage(CIImage(cvPixelBuffer: frame.buffer), cube: cube, drawableSize: pixelSize, zoom: zoom)
         guard let cgImage = context.createCGImage(image, from: CGRect(origin: .zero, size: pixelSize)) else { return nil }
         return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
     }
@@ -219,6 +245,7 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
 
     func draw(in view: MTKView) {
         guard isActive, let commandQueue, let frame = frameSink.newestFrame() else { return }
+        advanceZoom()
         // No new camera frame since the last draw: the screen already shows it
         guard frame.sequence != lastDrawnSequence else { return }
         guard
@@ -228,7 +255,7 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
             return
         }
         let image = Self.previewImage(
-            CIImage(cvPixelBuffer: frame.buffer), cube: cube, drawableSize: view.drawableSize
+            CIImage(cvPixelBuffer: frame.buffer), cube: cube, drawableSize: view.drawableSize, zoom: zoom
         )
         do {
             try render(image, to: drawable.texture, commandBuffer: commandBuffer)
@@ -240,6 +267,20 @@ final class FilmPreviewRenderer: NSObject, MTKViewDelegate {
         commandBuffer.present(drawable)
         commandBuffer.commit()
         lastDrawnSequence = frame.sequence
+    }
+
+    /// One smoothing step toward `targetZoom`; a redraw is forced while it
+    /// moves, because the camera frame itself may not have changed.
+    private func advanceZoom() {
+        guard zoom != targetZoom else {
+            lastZoomTick = nil
+            return
+        }
+        let now = CACurrentMediaTime()
+        let dt = now - (lastZoomTick ?? now)
+        lastZoomTick = now
+        zoom = DigitalZoom.next(current: zoom, target: targetZoom, dt: dt)
+        lastDrawnSequence = nil
     }
 
     private struct WeakView {

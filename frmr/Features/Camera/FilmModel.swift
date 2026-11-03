@@ -635,27 +635,27 @@ nonisolated enum FilmLUT {
         return built
     }
 
-    private static let cache = CubeCache(limit: Constants.ImageProcessing.Film.lutCacheLimit)
+    private static let cache = CubeCache<Key>(limit: Constants.ImageProcessing.Film.lutCacheLimit)
 }
 
 /// Lock-protected, insertion-ordered cache with a size cap.
-nonisolated private final class CubeCache: @unchecked Sendable {
+nonisolated private final class CubeCache<Key: Hashable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [FilmLUT.Key: Data] = [:]
-    private var order: [FilmLUT.Key] = []
+    private var entries: [Key: Data] = [:]
+    private var order: [Key] = []
     private let limit: Int
 
     init(limit: Int) {
         self.limit = max(1, limit)
     }
 
-    func value(for key: FilmLUT.Key) -> Data? {
+    func value(for key: Key) -> Data? {
         lock.lock()
         defer { lock.unlock() }
         return entries[key]
     }
 
-    func insert(_ data: Data, for key: FilmLUT.Key) {
+    func insert(_ data: Data, for key: Key) {
         lock.lock()
         defer { lock.unlock() }
         guard entries[key] == nil else { return }
@@ -834,12 +834,13 @@ nonisolated enum LightLeak {
     }
 }
 
-// MARK: Shadows and Highlights (v1.2.2 F-122-C)
+// MARK: Shadows, Highlights and Contrast (v1.2.2 F-122-C, F-122-J)
 
-/// The Shadows and Highlights tools' curve: one monotone map of the print's
-/// encoded output, applied right after the film cube. Shadows acts only
-/// below the encoded mid grey, Highlights only above it, so the two never
-/// interact and the curve stays monotone whenever each half does.
+/// The Shadows, Highlights and Contrast tools' curve: one monotone map of the
+/// print's encoded output, applied right after the film cube. Shadows acts
+/// only below the encoded mid grey, Highlights only above it, so the two never
+/// interact and the curve stays monotone whenever each half does. Contrast
+/// runs first, so Shadows and Highlights can still open what it crushed.
 nonisolated enum ToneStage {
     typealias T = Constants.ImageProcessing.Film.ToneControl
 
@@ -847,8 +848,9 @@ nonisolated enum ToneStage {
     static let pivot: Double = T.pivotEncoded
 
     /// Encoded `value` (0...1) through the curve; `shadows` and `highlights`
-    /// are -1...+1 (the tools' -100...+100). 0 and 0 returns `value`.
-    static func apply(_ value: Double, shadows: Double, highlights: Double) -> Double {
+    /// and `contrast` are -1...+1 (the tools' -100...+100). All 0 returns `value`.
+    static func apply(_ input: Double, shadows: Double, highlights: Double, contrast: Double = 0) -> Double {
+        let value = contrast == 0 ? input : contrasted(input, contrast)
         var out = value
         let t = min(max(value / pivot, 0), 1)
         if shadows > 0 {
@@ -871,16 +873,106 @@ nonisolated enum ToneStage {
         return out
     }
 
+    /// + : an S-curve around mid grey with 0 and 1 fixed, flat at both ends,
+    /// so the darkest tones reach true black and the brightest pure white.
+    /// - : the range closes toward mid grey, a faded print.
+    private static func contrasted(_ value: Double, _ contrast: Double) -> Double {
+        let x = min(max(value, 0), 1)
+        guard contrast > 0 else {
+            return pivot + (x - pivot) * (1 - -contrast * T.contrastFlattenAmount)
+        }
+        let steepness = 1 + contrast * T.contrastBoostAmount
+        let dark = pow(x, steepness)
+        return dark / (dark + pow(1 - x, steepness))
+    }
+
     /// Float32 RGB table for `CIColorCurves`: the same curve in all three channels.
-    static func table(shadows: Double, highlights: Double) -> Data {
+    static func table(shadows: Double, highlights: Double, contrast: Double = 0) -> Data {
         let count = T.tableSize
         var floats: [Float] = []
         floats.reserveCapacity(count * 3)
         for index in 0..<count {
             let input = Double(index) / Double(count - 1)
-            let output = Float(min(max(apply(input, shadows: shadows, highlights: highlights), 0), 1))
+            let output = Float(min(max(apply(input, shadows: shadows, highlights: highlights, contrast: contrast), 0), 1))
             floats.append(contentsOf: [output, output, output])
         }
         return floats.withUnsafeBufferPointer { Data(buffer: $0) }
     }
+}
+
+// MARK: Saturation (v1.2.2 F-122-J)
+
+/// The Saturation tool's colour map, in the print's encoded output. Down, every
+/// colour moves evenly toward its own grey, and -1 is that grey. Up, muted
+/// colours gain more than vivid ones and skin tones hold back, so faces don't
+/// turn orange; the hue is kept, and no channel is pushed past 0 or 1.
+nonisolated enum SaturationStage {
+    typealias S = Constants.ImageProcessing.Film.Saturation
+
+    /// `amount` is -1...+1 (the tool's -100...+100); 0 returns the colour as is.
+    static func apply(r: Double, g: Double, b: Double, amount: Double) -> (r: Double, g: Double, b: Double) {
+        guard amount != 0 else { return (r, g, b) }
+        let grey = S.lumaRed * r + S.lumaGreen * g + S.lumaBlue * b
+        var factor = 1 + amount
+        if amount > 0 {
+            let chroma = max(r, g, b) - min(r, g, b)
+            let muted = 1 - S.vividRestraint * chroma
+            let skin = 1 - S.skinProtection * skinWeight(r: r, g: g, b: b)
+            factor = 1 + amount * S.boostAmount * muted * skin
+            for channel in [r, g, b] where channel != grey {
+                let room = channel > grey ? (1 - grey) / (channel - grey) : grey / (grey - channel)
+                factor = min(factor, room)
+            }
+        }
+        func out(_ channel: Double) -> Double { min(max(grey + (channel - grey) * factor, 0), 1) }
+        return (out(r), out(g), out(b))
+    }
+
+    /// 1 for a colour squarely in the skin range, fading to 0 by hue and for
+    /// colours too vivid to be skin.
+    static func skinWeight(r: Double, g: Double, b: Double) -> Double {
+        let high = max(r, g, b)
+        let chroma = high - min(r, g, b)
+        guard chroma > 0 else { return 0 }
+        let sextant: Double
+        if high == r {
+            sextant = (g - b) / chroma
+        } else if high == g {
+            sextant = (b - r) / chroma + 2
+        } else {
+            sextant = (r - g) / chroma + 4
+        }
+        let hue = (sextant * 60 + 360).truncatingRemainder(dividingBy: 360)
+        let offset = abs(hue - S.skinHueDegrees)
+        let distance = min(offset, 360 - offset) / S.skinHueWidthDegrees
+        let fade = min(max((chroma - S.skinChromaFadeStart) / (S.skinChromaFadeEnd - S.skinChromaFadeStart), 0), 1)
+        return exp(-0.5 * distance * distance) * (1 - fade * fade * (3 - 2 * fade))
+    }
+
+    /// The map baked for `CIColorCube`: Float32 RGBA, red varying fastest.
+    static func cube(amount: Double, dimension: Int = S.cubeDimension) -> Data {
+        var floats: [Float] = []
+        floats.reserveCapacity(dimension * dimension * dimension * 4)
+        let last = Double(dimension - 1)
+        for blue in 0..<dimension {
+            for green in 0..<dimension {
+                for red in 0..<dimension {
+                    let colour = apply(r: Double(red) / last, g: Double(green) / last, b: Double(blue) / last, amount: amount)
+                    floats.append(contentsOf: [Float(colour.r), Float(colour.g), Float(colour.b), 1])
+                }
+            }
+        }
+        return floats.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    /// Cached per slider step, since a drag revisits the same few values.
+    static func cachedCube(amount: Double) -> Data {
+        let key = Int((amount * 1000).rounded())
+        if let cached = cache.value(for: key) { return cached }
+        let built = cube(amount: amount)
+        cache.insert(built, for: key)
+        return built
+    }
+
+    private static let cache = CubeCache<Int>(limit: S.cacheLimit)
 }

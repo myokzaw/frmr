@@ -8,7 +8,8 @@ struct ToolIconItem: Identifiable, Hashable {
     let hint: String
     /// What VoiceOver reads after the title ("120%", "+0.3 EV"); empty for none.
     var value: String = ""
-    /// 0…1 arc drawn around the glyph (the tool's current value); nil draws none.
+    /// -1…1 arc drawn around the glyph (the tool's current value), clockwise
+    /// from the top when positive and anticlockwise when negative; nil draws none.
     var ring: Double?
 }
 
@@ -22,20 +23,30 @@ nonisolated enum ToolRing {
         return min(max((strength - range.lowerBound) / span, 0), 1)
     }
 
-    /// Shadows and Highlights: no ring at 0, otherwise |value| as a share of
-    /// the range's limit.
+    /// Shadows, Highlights, Contrast and Saturation: no ring at 0, otherwise
+    /// the value as a signed share of the range's limit.
     static func fraction(tone: Double, range: ClosedRange<Double> = FilmLook.toneRange) -> Double? {
-        let limit = max(abs(range.lowerBound), abs(range.upperBound))
-        guard tone != 0, limit > 0 else { return nil }
-        return min(abs(tone) / limit, 1)
+        signedShare(tone, of: range)
     }
 
-    /// Exposure: no ring at 0 EV, otherwise how far it is from 0 as a share
-    /// of the widest setting either way.
+    /// Exposure: no ring at 0 EV, otherwise the signed share of the widest
+    /// setting either way.
     static func fraction(exposure: Double, range: ClosedRange<Double> = FilmLook.exposureRange) -> Double? {
+        signedShare(exposure, of: range)
+    }
+
+    private static func signedShare(_ value: Double, of range: ClosedRange<Double>) -> Double? {
         let limit = max(abs(range.lowerBound), abs(range.upperBound))
-        guard exposure != 0, limit > 0 else { return nil }
-        return min(abs(exposure) / limit, 1)
+        guard value != 0, limit > 0 else { return nil }
+        return min(max(value / limit, -1), 1)
+    }
+
+    /// The part of the circle to draw, where 0 and 1 are both the top and the
+    /// path runs clockwise: an increase leaves the top going clockwise, a
+    /// decrease leaves it going anticlockwise.
+    static func arc(for fraction: Double) -> (from: Double, to: Double) {
+        let share = min(abs(fraction), 1)
+        return fraction < 0 ? (1 - share, 1) : (0, share)
     }
 }
 
@@ -125,11 +136,12 @@ private struct ValueRing: View {
 
     var body: some View {
         if let fraction {
+            let arc = ToolRing.arc(for: fraction)
             ZStack {
                 Circle()
                     .stroke(trackColor.opacity(UI.toolRingTrackOpacity), lineWidth: UI.toolRingWidth)
                 Circle()
-                    .trim(from: 0, to: fraction)
+                    .trim(from: arc.from, to: arc.to)
                     .stroke(color, style: StrokeStyle(lineWidth: UI.toolRingWidth, lineCap: .round))
                     .rotationEffect(.degrees(UI.toolRingStartDegrees))
             }

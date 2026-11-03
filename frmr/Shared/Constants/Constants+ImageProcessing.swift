@@ -290,6 +290,37 @@ nonisolated extension Constants {
                 /// a smoothstep so the white drops a little (long roll-off)
                 static let highlightRecoverAmount: Double = 0.16
                 static let highlightRecoverBumpShare: Double = 0.65
+                /// Contrast + (F-122-J): the S-curve's steepness at mid grey is
+                /// 1 + this at the full setting. It reaches true black and white
+                static let contrastBoostAmount: Double = 1
+                /// Contrast -: the share of the tonal range given up at the
+                /// full setting; the black lifts and the white drops
+                static let contrastFlattenAmount: Double = 0.5
+            }
+
+            // MARK: Saturation (v1.2.2 F-122-J)
+            enum Saturation {
+                /// Grid per axis of the baked colour cube. The map is smooth, so
+                /// this is far smaller than the film cube and quick to re-bake
+                /// while the slider moves
+                static let cubeDimension = 33
+                static let cacheLimit = 8
+                /// + : extra colour for a muted tone at the full setting (1 doubles it)
+                static let boostAmount: Double = 1
+                /// + : how much less a fully vivid colour gets than a muted one
+                static let vividRestraint: Double = 0.8
+                /// + : the share of the boost skin tones give up, around this hue
+                static let skinProtection: Double = 0.7
+                static let skinHueDegrees: Double = 28
+                static let skinHueWidthDegrees: Double = 22
+                /// Colours more vivid than skin ever is (a sunset orange) lose
+                /// the protection between these two chroma values
+                static let skinChromaFadeStart: Double = 0.6
+                static let skinChromaFadeEnd: Double = 0.9
+                /// Rec. 709 weights, the grey a colour desaturates toward
+                static let lumaRed: Double = 0.2126
+                static let lumaGreen: Double = 0.7152
+                static let lumaBlue: Double = 0.0722
             }
 
             // MARK: Effect strengths (v5 F5)

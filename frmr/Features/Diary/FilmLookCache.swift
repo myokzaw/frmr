@@ -87,7 +87,10 @@ nonisolated final class FilmLookCache: @unchecked Sendable {
         let rendered: UIImage?? = await AsyncGate.display.run {
             await Task.detached(priority: .userInitiated) {
                 self.image(id: id, look: look, seed: seed, pixelSize: pixelSize) {
-                    ImageIOThumbnail.load(contentsOf: url, coveringPixelSize: pixelSize)
+                    // A crop shows only part of the file, and a quarter turn swaps
+                    // its sides: decode big enough that the part still covers
+                    // the view (F-122-F)
+                    ImageIOThumbnail.load(contentsOf: url, coveringPixelSize: look.sourceCoveringSize(forOutput: pixelSize))
                 }
             }.value
         }

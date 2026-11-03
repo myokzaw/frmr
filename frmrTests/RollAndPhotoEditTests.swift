@@ -164,24 +164,34 @@ struct RollStoreTests {
         #expect(try context.fetch(FetchDescriptor<DailyStrip>()).count == 1)
     }
 
-    @Test func selectionKeepsTapOrderAndRespectsTheStripLimit() {
-        let rows = (0..<6).map { RollPhoto(capturedAt: Date(timeIntervalSince1970: Double($0)), photoPath: "Roll/\($0).jpg", look: .original) }
+    @Test func selectionHasNoLimitAndKeepsTapOrder() {
+        let rows = (0..<25).map { RollPhoto(capturedAt: Date(timeIntervalSince1970: Double($0)), photoPath: "Roll/\($0).jpg", look: .original) }
         let model = RollViewModel()
-        for row in rows.prefix(4) { #expect(model.toggleSelection(of: row, limit: Constants.Roll.maxPhotosPerStrip)) }
-        #expect(!model.toggleSelection(of: rows[4], limit: Constants.Roll.maxPhotosPerStrip), "a fifth photo is ignored")
-        #expect(model.selectionCount == 4)
-        #expect(!RollViewModel.canAddToStrip(selectedCount: 4))
+        for row in rows { model.toggleSelection(of: row) }
+        #expect(model.selectionCount == 25)
 
-        #expect(model.toggleSelection(of: rows[1], limit: Constants.Roll.maxPhotosPerStrip), "deselecting always works")
-        #expect(model.selectedPhotos(in: rows).map(\.id) == [rows[0].id, rows[2].id, rows[3].id])
-        #expect(RollViewModel.canAddToStrip(selectedCount: 3))
+        model.toggleSelection(of: rows[1])
+        #expect(model.selectionCount == 24)
+        #expect(model.selectedPhotos(in: rows).prefix(3).map(\.id) == [rows[0].id, rows[2].id, rows[3].id])
 
-        // Export has no limit
-        let exporter = RollViewModel()
-        for row in rows { exporter.toggleSelection(of: row) }
-        #expect(exporter.selectionCount == 6)
-        exporter.endSelecting()
-        #expect(!exporter.isSelecting && !exporter.hasSelection)
+        model.endSelecting()
+        #expect(!model.isSelecting && !model.hasSelection)
+    }
+
+    @Test func makeStripNeedsOneToFourPhotos() {
+        #expect(!RollViewModel.canMakeStrip(selectedCount: 0))
+        #expect(RollViewModel.canMakeStrip(selectedCount: 1))
+        #expect(RollViewModel.canMakeStrip(selectedCount: Constants.Roll.maxPhotosPerStrip))
+        #expect(!RollViewModel.canMakeStrip(selectedCount: Constants.Roll.maxPhotosPerStrip + 1))
+    }
+
+    @Test func selectionBarKeepsToOneLineAndNotesTheStripLimit() {
+        #expect(RollSelectionText.summary(count: 0, exportedCount: 0) == "Select photos")
+        #expect(RollSelectionText.summary(count: 4, exportedCount: 0) == "4 selected")
+        #expect(RollSelectionText.summary(count: 10, exportedCount: 0) == "10 selected")
+        #expect(RollSelectionText.summary(count: 10, exportedCount: 10) == "Saved 10 to Photos")
+        #expect(RollSelectionText.stripLimitNote(count: 4) == nil)
+        #expect(RollSelectionText.stripLimitNote(count: 5) == "A strip holds up to 4 photos")
     }
 
     @Test func stripItemsLinkToTheCurrentLookAndCapAtFour() throws {
@@ -250,12 +260,29 @@ struct RollStoreTests {
         let saved = SavedFiles()
         let model = RollViewModel()
 
-        await model.export(rows, savePhotosData: { saved.save($0) })
+        await model.export(rows, savePhotoFiles: { files in
+            saved.save(try files.map { try Data(contentsOf: $0) })
+        })
 
         #expect(saved.all.count == 2)
         #expect(model.lastExportCount == 2 && !model.isExporting)
         #expect(pixelSize(of: saved.all[0]) == CGSize(width: 160, height: 120))
         #expect(pixelSize(of: saved.all[1]) == CGSize(width: 200, height: 100))
+    }
+
+    @Test func exportRemovesItsTemporaryFiles() async throws {
+        let context = try makeContext()
+        let row = try RollViewModel.insert(original: photo(), look: .original, capturedAt: .now, context: context)
+        defer { removeFiles([row]) }
+        let handedOver = LockedURLs()
+
+        await RollViewModel().export([row], savePhotoFiles: { files in
+            #expect(files.allSatisfy { FileManager.default.fileExists(atPath: $0.path()) })
+            handedOver.save(files)
+        })
+
+        #expect(handedOver.all.count == 1)
+        #expect(handedOver.all.allSatisfy { !FileManager.default.fileExists(atPath: $0.path()) })
     }
 
     @Test func aFailedExportRaisesAnErrorAndSavesNothing() async throws {
@@ -266,7 +293,7 @@ struct RollStoreTests {
         let model = RollViewModel()
         model.errorState = errors
 
-        await model.export([row], savePhotosData: { _ in throw AppError.photoLibraryPermissionDenied })
+        await model.export([row], savePhotoFiles: { _ in throw AppError.photoLibraryPermissionDenied })
 
         #expect(model.lastExportCount == 0)
         if case .photoLibraryPermissionDenied = errors.current {} else {
@@ -362,7 +389,7 @@ struct PhotoEditStateTests {
         #expect(edit.tool == .film)
         edit.tool = .effect(.grain)
         #expect(edit.tool.id == "grain")
-        let ids = ["exposure", "shadows", "highlights", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
+        let ids = ["exposure", "shadows", "highlights", "contrast", "saturation", "crop", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
         #expect(PhotoEditViewModel.Tool.allTools.map(\.id) == ids, "Exposure comes first")
         #expect(ids.map { PhotoEditViewModel.Tool(id: $0).id } == ids)
         #expect(PhotoEditViewModel.Tool(id: "nonsense") == .film)
@@ -1038,5 +1065,17 @@ struct EditAfterEachShotTests {
         // The developed original is what was stored, not the preview
         let stored = try #require(RollViewModel.loadPhoto(for: row))
         #expect(stored.size.width == 200)
+    }
+}
+
+/// Collects the files an export hands to its save closure.
+private final class LockedURLs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+
+    var all: [URL] { lock.withLock { urls } }
+
+    func save(_ files: [URL]) {
+        lock.withLock { urls += files }
     }
 }

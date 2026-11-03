@@ -128,6 +128,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
             session.addInput(input)
             camera = device
             cameraPosition = position
+            resetDeviceZoom(device)
             makeRotationCoordinator(for: device)
             // BUG-122-01: the new input made a new video connection that starts
             // in sensor orientation. Angle and mirroring go in before the commit
@@ -399,49 +400,19 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         }
     }
 
-    /// The zoom range this camera actually offers, capped by our soft maximum
-    /// (devices go further, but image quality falls off).
-    func zoomRange() async -> ClosedRange<CGFloat> {
-        await withCheckedContinuation { continuation in
-            sessionQueue.async {
-                guard let camera = self.camera else {
-                    continuation.resume(returning: Constants.Camera.minZoomFactor...Constants.Camera.minZoomFactor)
-                    return
-                }
-                let lower = camera.minAvailableVideoZoomFactor
-                let upper = max(lower, min(camera.maxAvailableVideoZoomFactor, Constants.Camera.maxZoomFactor))
-                continuation.resume(returning: lower...upper)
-            }
+    /// Puts the device back at zoom 1. Digital zoom is app-side (F-122-G), so
+    /// `videoZoomFactor` must always be 1 or Bayer RAW capture raises
+    /// (BUG-122-03). Session queue only.
+    private func resetDeviceZoom(_ device: AVCaptureDevice) {
+        guard device.videoZoomFactor != 1 else { return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            device.videoZoomFactor = 1
+        } catch {
+            // Safe to continue: makePhotoSettings still falls back to processed-only
+            print("[CaptureSession] Could not reset zoom: \(error)")
         }
-    }
-
-    func setZoom(_ factor: CGFloat, animated: Bool) {
-        sessionQueue.async {
-            guard let camera = self.camera else { return }
-            let clamped = Self.clampedZoom(
-                factor,
-                min: camera.minAvailableVideoZoomFactor,
-                max: min(camera.maxAvailableVideoZoomFactor, Constants.Camera.maxZoomFactor)
-            )
-            do {
-                try camera.lockForConfiguration()
-                defer { camera.unlockForConfiguration() }
-                if animated {
-                    camera.ramp(toVideoZoomFactor: clamped, withRate: Constants.Camera.zoomRampRate)
-                } else {
-                    camera.videoZoomFactor = clamped
-                }
-            } catch {
-                // Safe to continue: the current zoom level stays as-is
-                print("[CaptureSession] Could not set zoom: \(error)")
-            }
-        }
-    }
-
-    // Pure, so the clamping is unit-testable without a device
-    static func clampedZoom(_ factor: CGFloat, min lower: CGFloat, max upper: CGFloat) -> CGFloat {
-        guard upper > lower else { return lower }
-        return Swift.min(Swift.max(factor, lower), upper)
     }
 
     private func configureIfNeeded() {
@@ -468,6 +439,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         session.addOutput(photoOutput)
         photoOutput.maxPhotoQualityPrioritization = .quality
         camera = device
+        resetDeviceZoom(device)
         makeRotationCoordinator(for: device)
 
         // BGRA so Core Image reads frames directly; late frames are dropped
@@ -494,10 +466,26 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                 AVVideoQualityKey: NSNumber(value: Constants.jpegCompressionQuality)
             ]
         ]
-        if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
+        let cropFactor = photoOutput.connection(with: .video)?.videoScaleAndCropFactor ?? 1
+        if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first,
+           Self.canCaptureBayerRaw(
+               zoomFactor: camera?.videoZoomFactor ?? 1,
+               isRampingZoom: camera?.isRampingVideoZoom ?? false,
+               cropFactor: cropFactor
+           ) {
             return AVCapturePhotoSettings(rawPixelFormatType: rawFormat, processedFormat: processedFormat)
         }
         return AVCapturePhotoSettings(format: processedFormat)
+    }
+
+    /// Bayer RAW needs the device zoom and the photo connection's crop at
+    /// exactly 1; any other value makes `capturePhoto` raise
+    /// NSInvalidArgumentException, which Swift can't catch (BUG-122-03).
+    /// Digital zoom is app-side since F-122-G, so this is a safety net: if
+    /// the device is ever not at 1, the shot is processed-only. Pure so the
+    /// rule is unit-testable.
+    static func canCaptureBayerRaw(zoomFactor: CGFloat, isRampingZoom: Bool, cropFactor: CGFloat) -> Bool {
+        !isRampingZoom && zoomFactor == 1 && cropFactor == 1
     }
 
     /// Device gains must sit in 1…maxWhiteBalanceGain or the device throws;

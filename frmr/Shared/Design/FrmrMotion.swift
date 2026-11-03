@@ -10,6 +10,8 @@ nonisolated enum FrmrMotion: CaseIterable {
     case panel
     /// The develop ramp while a RAW is pending; instant under Reduce Motion.
     case develop
+    /// A stand-in photo giving way to its finished render; instant under Reduce Motion.
+    case crossfade
 
     typealias M = Constants.DesignUI.Motion
 
@@ -22,6 +24,8 @@ nonisolated enum FrmrMotion: CaseIterable {
         case (.panel, true): return .easeInOut(duration: M.panelReducedDuration)
         case (.develop, false): return .easeOut(duration: M.developDuration)
         case (.develop, true): return nil
+        case (.crossfade, false): return .easeInOut(duration: M.crossfadeDuration)
+        case (.crossfade, true): return nil
         }
     }
 

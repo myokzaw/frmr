@@ -26,10 +26,26 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     /// printed picture right after the film cube; 0 changes nothing.
     var shadows: Double
     var highlights: Double
+    /// Contrast and Saturation tools (F-122-J), -100...+100. Contrast joins
+    /// the Shadows and Highlights curve; Saturation has its own colour stage.
+    /// Both act on the printed picture; 0 changes nothing.
+    var contrast: Double
+    var saturation: Double
     /// The film-model version the look renders with (F-122-B). New looks are
     /// at `currentModelVersion`; a stored look without the key is 1, so photos
     /// taken before 1.2.2 keep their look until the editor upgrades them.
     var modelVersion: Int
+    /// The crop (F-122-F): a rect of the upright original, applied before
+    /// every film stage. nil = no crop. It is geometry, not look: "Reset to
+    /// stock defaults" keeps it (`isStockDefault` ignores it) and the Crop
+    /// tool has its own Reset. Strips never use it (`customization` has no
+    /// crop), so a strip frame shows the whole photo.
+    var crop: CropRect?
+    /// Clockwise quarter turns of the photo, 0…3 (F-122-F rotate). Applied to
+    /// the upright original before the crop, which is relative to the turned
+    /// photo. Unlike the crop it also applies in strips, so a turned photo
+    /// never sits sideways in one (`customization` carries it).
+    var quarterTurns: Int
 
     init(
         stock: StripCustomization.FilmStock,
@@ -39,11 +55,19 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         exposure: Double = 0,
         shadows: Double = 0,
         highlights: Double = 0,
-        modelVersion: Int = Constants.ImageProcessing.Film.currentModelVersion
+        contrast: Double = 0,
+        saturation: Double = 0,
+        modelVersion: Int = Constants.ImageProcessing.Film.currentModelVersion,
+        crop: CropRect? = nil,
+        quarterTurns: Int = 0
     ) {
+        self.crop = crop
+        self.quarterTurns = FilmLook.normalisedTurns(quarterTurns)
         self.modelVersion = modelVersion
         self.shadows = FilmLook.snappedTone(shadows)
         self.highlights = FilmLook.snappedTone(highlights)
+        self.contrast = FilmLook.snappedTone(contrast)
+        self.saturation = FilmLook.snappedTone(saturation)
         self.exposure = FilmLook.snappedExposure(exposure)
         self.stock = stock
         self.printStock = printStock
@@ -63,7 +87,36 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     /// True while this look equals the stock's defaults (the Reset action's
     /// enabled state). Compared at the look's own model version: the version
     /// is not something the user edited.
-    var isStockDefault: Bool { self == FilmLook(stock: stock, modelVersion: modelVersion) }
+    var isStockDefault: Bool { withoutGeometry == FilmLook(stock: stock, modelVersion: modelVersion) }
+
+    /// This look with the crop and the turns removed: what "Reset to stock
+    /// defaults" compares, since both are geometry, not look.
+    var withoutGeometry: FilmLook {
+        var look = self
+        look.crop = nil
+        look.quarterTurns = 0
+        return look
+    }
+
+    /// `turns` as 0…3 (any integer, negatives too, wraps).
+    static func normalisedTurns(_ turns: Int) -> Int { ((turns % 4) + 4) % 4 }
+
+    /// This look with another crop, everything else unchanged.
+    func with(crop newCrop: CropRect?) -> FilmLook {
+        var look = self
+        look.crop = newCrop
+        return look
+    }
+
+    /// This look with other turns, everything else unchanged.
+    func with(quarterTurns turns: Int) -> FilmLook {
+        var look = self
+        look.quarterTurns = FilmLook.normalisedTurns(turns)
+        return look
+    }
+
+    /// The crop's rect while it removes something; nil otherwise.
+    var activeCropRect: CGRect? { hasActiveCrop ? crop?.rect : nil }
 
     /// This look on the given model version, everything else unchanged.
     func with(modelVersion version: Int) -> FilmLook {
@@ -74,9 +127,25 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
 
     /// Whether anything would change the photo: Off with no B&W is the
     /// untouched original.
-    var altersPhoto: Bool { stock != .none || blackAndWhite || exposure != 0 || shadows != 0 || highlights != 0 }
+    var altersPhoto: Bool { stock != .none || blackAndWhite || exposure != 0 || shadows != 0 || highlights != 0 || contrast != 0 || saturation != 0 }
 
-    // MARK: Shadows and Highlights (F-122-C)
+    /// A crop that removes something (a whole-photo crop is no crop).
+    var hasActiveCrop: Bool { crop.map { !$0.isFullFrame } ?? false }
+
+    /// Whether rendering would produce anything but the stored original:
+    /// the film look, a crop or a turn.
+    var altersOutput: Bool { altersPhoto || hasActiveCrop || quarterTurns != 0 }
+
+    /// The size to decode the whole photo at so that, turned and cropped by
+    /// this look, it still covers `output` (the displayed, upright size).
+    func sourceCoveringSize(forOutput output: CGSize) -> CGSize {
+        var size = output
+        if let crop, hasActiveCrop { size = crop.sourceCoveringSize(forOutput: size) }
+        // An odd number of turns swaps the photo's width and height
+        return quarterTurns % 2 == 0 ? size : CGSize(width: size.height, height: size.width)
+    }
+
+    // MARK: Shadows, Highlights, Contrast and Saturation (F-122-C, F-122-J)
 
     static let toneRange: ClosedRange<Double> = Constants.ImageProcessing.Film.ToneControl.range
     static let toneStep: Double = Constants.ImageProcessing.Film.ToneControl.step
@@ -254,7 +323,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     // MARK: Stored form
 
     private enum CodingKeys: String, CodingKey {
-        case stock, printStock, blackAndWhite, strengths, exposure, shadows, highlights, modelVersion
+        case stock, printStock, blackAndWhite, strengths, exposure, shadows, highlights, contrast, saturation, modelVersion, crop, quarterTurns
         case effects  // the v4 FilmEffects key, read but never written
     }
 
@@ -273,9 +342,17 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         // Looks stored before 1.2.2 have no shadows or highlights: 0
         self.shadows = FilmLook.snappedTone((try? container.decodeIfPresent(Double.self, forKey: .shadows)) ?? 0)
         self.highlights = FilmLook.snappedTone((try? container.decodeIfPresent(Double.self, forKey: .highlights)) ?? 0)
+        // Looks stored before these tools have no contrast or saturation: 0
+        self.contrast = FilmLook.snappedTone((try? container.decodeIfPresent(Double.self, forKey: .contrast)) ?? 0)
+        self.saturation = FilmLook.snappedTone((try? container.decodeIfPresent(Double.self, forKey: .saturation)) ?? 0)
         // Looks stored before 1.2.2 have no version: model 1
         self.modelVersion = (try? container.decodeIfPresent(Int.self, forKey: .modelVersion))
             ?? Constants.ImageProcessing.Film.legacyModelVersion
+        // Looks stored before 1.2.2 have no crop; an unreadable one reads as none
+        let storedCrop = (try? container.decodeIfPresent(CropRect.self, forKey: .crop)) ?? nil
+        self.crop = storedCrop.flatMap { $0.isValid ? $0 : nil }
+        // Looks stored before the rotate tool have no turns
+        self.quarterTurns = FilmLook.normalisedTurns((try? container.decodeIfPresent(Int.self, forKey: .quarterTurns)) ?? 0)
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -287,13 +364,19 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         try container.encode(exposure, forKey: .exposure)
         try container.encode(shadows, forKey: .shadows)
         try container.encode(highlights, forKey: .highlights)
+        if contrast != 0 { try container.encode(contrast, forKey: .contrast) }
+        if saturation != 0 { try container.encode(saturation, forKey: .saturation) }
         try container.encode(modelVersion, forKey: .modelVersion)
+        try container.encodeIfPresent(crop, forKey: .crop)
+        if quarterTurns != 0 { try container.encode(quarterTurns, forKey: .quarterTurns) }
     }
 
     // MARK: Pipeline bridge
 
     /// The strip-pipeline description of this look (paper white; the strip
-    /// supplies its own background).
+    /// supplies its own background). Deliberately has no crop (F-122-F):
+    /// strips use the whole photo with their own fit. The turns do carry,
+    /// so a rotated photo is upright in a strip too.
     var customization: StripCustomization {
         var customization = StripCustomization()
         customization.filmStock = stock
@@ -303,7 +386,10 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         customization.exposure = exposure
         customization.shadows = shadows
         customization.highlights = highlights
+        customization.contrast = contrast
+        customization.saturation = saturation
         customization.modelVersion = modelVersion
+        customization.quarterTurns = quarterTurns
         return customization
     }
 

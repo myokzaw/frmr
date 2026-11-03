@@ -138,6 +138,17 @@ nonisolated struct ScrubberScale: Equatable {
         firmStep: Constants.ScrubberUI.exposureMajorStep
     )
 
+    /// The camera's digital zoom (F-122-G): 1...3x in 0.2 steps, firm at
+    /// each whole x.
+    static let cameraZoom = ScrubberScale(
+        range: Double(Constants.Camera.minZoomFactor)...Double(Constants.Camera.maxDigitalZoom),
+        step: Double(Constants.Camera.zoomStep),
+        majorStep: Constants.ScrubberUI.zoomMajorStep,
+        tickSpacing: Constants.ScrubberUI.zoomTickSpacing,
+        reference: Double(Constants.Camera.minZoomFactor),
+        firmStep: Constants.ScrubberUI.zoomMajorStep
+    )
+
     /// Shadows and Highlights (F-122-C): -100...+100, a tick per 1, taller
     /// every 10, firm at 0 and ±50, VoiceOver in steps of 5.
     static let tone = ScrubberScale(
@@ -176,6 +187,9 @@ struct EffectScrubber: View {
     /// False where the surrounding panel already shows title, readout and
     /// its own steps (the camera's exposure sheet).
     var showsHeader = true
+    /// The unsnapped value under the finger while the ruler is dragged, and
+    /// nil when the drag ends (the camera's viewfinder follows it smoothly).
+    var onLiveValue: ((Double?) -> Void)?
 
     private typealias UI = Constants.ScrubberUI
 
@@ -254,11 +268,13 @@ struct EffectScrubber: View {
                             afterDrag: drag.translation.width, from: start, spacing: scale.tickSpacing,
                             step: scale.step, range: scale.range)
                         dragPosition = position
+                        onLiveValue?(position)
                         set(position)
                     }
                     .onEnded { _ in
                         dragStart = nil
                         dragPosition = nil
+                        onLiveValue?(nil)
                     }
             )
             .simultaneousGesture(TapGesture(count: 2).onEnded { reset() })

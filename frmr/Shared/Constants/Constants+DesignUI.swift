@@ -63,6 +63,8 @@ nonisolated extension Constants {
             static let hudFadeOut: TimeInterval = 0.3
             /// Opacity and saturation ramp while a RAW is still developing.
             static let developDuration: TimeInterval = 0.6
+            /// A stand-in photo fading into its finished render.
+            static let crossfadeDuration: TimeInterval = 0.25
         }
     }
 }

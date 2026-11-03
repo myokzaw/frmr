@@ -1,7 +1,7 @@
 # frmr — 1.2.2 plan (draft)
 
 **Date:** 2026-10-27
-**Status:** In progress (2026-10-27). Steps 1–3 done; steps 4 and 4b done; step 5 (Crop) started.
+**Status:** In progress. Every feature step is done, confirmed by the user on device and committed. Step 7 (QA and docs) is under way.
 **Version:** app version (`MARKETING_VERSION`) 1.2.1 → **1.2.2**. The home-screen name stays **Frmrr**.
 **Branch:** `v1.2.2`, made from `main` @ `90795e0` when work starts.
 **Agent rule:** **one Sonnet agent** for this release, working one step at a time (the user asked for this on 2026-10-27, instead of the usual two per round). The lead checks each step, runs the `all` test tier and writes the docs.
@@ -12,6 +12,11 @@
 |---|---|---|
 | BUG-122-01 | Orientation glitch for a moment when flipping front/back | Bug |
 | BUG-122-02 | Viewfinder freezes when flipping; replace with a blur-and-flip transition | Bug |
+| BUG-122-03 | App crashes when taking a digitally zoomed photo (user, 2026-11-02) | Bug |
+| F-122-G | Digital zoom on RAW (crop after capture) and a Zoom sheet | Feature |
+| F-122-H | Exposure, Zoom and White balance swap in for the stock dial instead of a sheet that covers the shutter | UI |
+| F-122-I | Roll selection has no limit, for Delete and Export; Make strip takes 1 to 4 | UI |
+| F-122-J | Contrast and Saturation tools in the editor | Film, UI |
 | F-122-A | Lighter shadows with real blacks (film model v2) | Look |
 | F-122-B | Film model versioning: old photos keep their look | Engine |
 | F-122-C | Shadows and Highlights tools in the photo editor | Feature |
@@ -208,7 +213,8 @@
 - Presets: **Original, Free, 3:4, 4:5, 1:1, 16:9**, with a portrait/landscape swap for the fixed ratios.
 - Drag the corners or edges to resize and drag the photo inside the frame to position it, with a rule-of-thirds overlay while dragging.
 - Reset brings back the whole frame.
-- Not included: rotate, straighten and flip.
+- **Rotate 90°** (follow-up): a quarter turn clockwise per tap, stored as `FilmLook.quarterTurns`, applied before the crop and in strips too. Not included: straighten and flip.
+- The swap works on every preset except 1:1.
 
 **Storage:**
 - Non-destructive. The crop is saved with the look as `FilmLook.crop`, a normalised rect (0…1) relative to the upright original. nil means no crop.
@@ -227,6 +233,60 @@
 - A minimum crop size (constant) is enforced.
 - VoiceOver can choose a preset.
 - `RollAndPhotoEditTests` and `DisplayThumbnailTests` pass.
+
+## F-122-G — Digital zoom on RAW, with a Zoom sheet (user, 2026-11-02)
+
+**Why:** BUG-122-03 is fixed by taking a processed-only photo when digitally zoomed, so zoomed shots lose the RAW development. The user wants zoomed shots to stay RAW, and to see how far they're zoomed.
+
+**Decisions (user, 2026-11-02):**
+
+| Question | Decision |
+|---|---|
+| Zoom control | **A sheet like Exposure**, with a ruler |
+| Where it opens | **Tap the lens button you're already on** (0.5×, 1× or tele). Tapping another lens switches lens as today. |
+| Range | **Within the current lens only.** The lens buttons work as today, and the ruler crops the chosen lens. |
+| Maximum | **3× past each lens**, a constant |
+| Ruler | **0.1× steps**: a click per step, a firm click at each whole ×, and −/+ buttons, like the camera's Exposure ruler |
+| Pinch | **Kept.** It moves the same value; double-tap resets to 1×. |
+| Front camera | **No zoom** (stays 1×) |
+| Film strip mode | **Zoom applies to the slot** (user, 2026-11-03): the slot image is cut to the zoomed framing |
+| How it's saved | **As an editable crop** (F-122-F): the whole RAW is kept, and the Crop tool can widen it later |
+
+**How it works:**
+- The capture device's `videoZoomFactor` stays at **1.0**, so Bayer RAW is always allowed. Digital zoom becomes an app-side value, `zoom` (1…3), per lens; switching lens resets it to 1×.
+- **Viewfinder:** both previews are scaled about their centre by `zoom`: the plain `AVCaptureVideoPreviewLayer` (stock Off) and the Metal film preview. The grid and overlays stay on the visible frame. Tap-to-focus and exposure-point mapping account for the scale, so the point you tap is the point that focuses.
+- **Capture:** RAW + processed as today. The saved look gets `crop` = the centred rect of size 1/zoom × 1/zoom in the upright photo, preset Original, at the shot's orientation. It applies after RAW development, through the existing crop path, so the Roll, viewer, entries and export show the zoomed frame, and strips use the full photo (F-122-F). At 1× no crop is stored.
+- **Lens button label:** it shows the current zoom while zoomed ("2.4×"), and its own lens value at 1×.
+- **Sheet:** a "Zoom" title and a "2.4×" readout, like the Exposure panel, with − / ruler / +. It opens one sheet at a time with WB and EV.
+- **Safety net:** BUG-122-03's processed-only fallback stays in case the device zoom is ever not 1.
+- **Known trade-off:** the viewfinder gets softer at high zoom, because it enlarges the video frame. The saved photo is cropped from the full RAW, at about 12 MP / zoom².
+
+**Acceptance:**
+- No crash at any zoom on any lens.
+- A zoomed shot is RAW-developed: `rawData` is present and the photo goes through the RAW path.
+- The saved crop matches the framed area (centre and size within 1%) in portrait and landscape.
+- The Crop tool can widen it back to the full photo.
+- Pinch, ruler and −/+ all move the same value, which is clamped to 1…3.
+- Switching lens resets to 1×.
+- Tap-to-focus hits the tapped point when zoomed.
+- The front camera shows no zoom control.
+- Tests: zoom → crop rect (pure), preview scale and tap-point mapping (pure), the view-model zoom state, and capture storing the crop.
+
+## F-122-H — Camera controls swap in for the dial (user, 2026-11-03)
+
+**Why:** on device, the Exposure and Zoom sheets (and White balance) covered the shutter row, so the user had to close them to take a picture.
+
+**Decisions (user, 2026-11-03):**
+- Exposure (±), Zoom (tap the selected lens) and White balance (thermometer) **replace the stock dial in its slot**, like the iOS Camera. The shutter row never moves and is always usable. These three no longer use a sheet.
+- To close a control, tap its button again or its ×. Opening another control swaps directly; one is open at a time.
+- **A control stays open after a shot.** It closes itself after 6 s with no interaction (`controlIdleTimeout`). Reduce Motion swaps it without a slide.
+- **White balance** gets a scrolling preset row plus one slider, with a Kelvin | Tint switch (`camera.wb.axis`).
+
+**Acceptance:**
+- The shutter is hittable while each control is open.
+- Close by button, by ×, and by the idle timeout all work.
+- A capture doesn't close the control.
+- It works in both camera layouts, in landscape (the chips' glyphs turn and the cards stay upright) and in Film strip mode.
 
 ## F-122-E — Import from gallery (Library → Roll)
 
@@ -302,6 +362,15 @@ Each handoff uses the template in `.claude/agents/README.md`. The agent runs the
 | 3 — F-122-A | **Done; the user approved the before/after sheet (2026-11-02).** Unit tests: 388/388 pass; `FilmModelV1PinnedTests` still pins v1. v2 print blacks (/255, v1 → v2): Projection 3→10, Cinema 4→12, Lab 6→14, Matte 28→34. The new `NegativeProfile.shadowLift` (v1 = 0) adds `lift·27/4·t(1−t)²` to the toe below the pivot, so mid grey and up don't move. Per-stock lift: Portrait 0.080, Daylight 0.056, Mono 400 0.050, Cine 0.032, Mono 3200 0.028, Slide 0.012. The toe exponent (8) and pivot (0.18) are unchanged. `FilmModelV2ShadowTests` (8) covers lighter blacks, print and stock order, the 18/255 black ceiling, monotonicity and mid grey within 4/255. `FilmCalibrationTests.portraitSkiesStayCyanNotLavender` is loosened to Off + 3° for v2: the lift moves a deep-navy patch 2.56°. Sheets are rendered from the user's DNGs to `qa/film-sheets/`, which is gitignored. |
 | 4 — F-122-C | **Done; user confirmed (2026-11-02).** Unit tests: 408/408 pass. `FilmLook.shadows` and `.highlights` (−100…+100, step 1; old looks read 0) are carried through `StripCustomization`. `ToneStage` is a monotone curve in the print's sRGB-encoded output, pivot 0.5, applied as a 256-entry `CIColorCurves` table straight after the film cube (for Off, after gain/B&W), and skipped at 0/0. It is not in the cube because scrubbing would rebuild the cube on every tick. Preview and save share `filmLook(...)`. Tuning is in `Constants.ImageProcessing.Film.ToneControl`. Measured on Portrait 400 (/255 at linear 0.01, 0.05, 0.18, 0.6, 0.9): base 58, 95, 140, 219, 240; Shadows +100 73, 100, 140, 219, 240; Shadows −100 48, 92, 140, 219, 240; Highlights +100 58, 95, 141, 236, 251; Highlights −100 58, 95, 138, 181, 210. Lead note: +100 Shadows is gentle (peak lift about 17/255, black about 4/255). `shadowOpenAmount` 0.13 is the knob if the user wants more. |
 | 4b — F-122-C follow-up (user, 2026-11-02) | **Done; user confirmed.** The user asked for more tactile sliders that make small changes easy, for the camera's exposure slider too, and for a stronger Shadows. `EffectScrubber` is now Photos-style: the marker is fixed at the centre and the ruler follows the finger (left raises the value). The drag is relative, so a touch changes nothing, and double-tap still resets. Tick spacing: tone 6pt, exposure 22pt, effects 10pt. A `.selection` haptic fires on every step, with a medium haptic at 0, ±50 (tone), whole stops and 100%. The camera `ExposurePanel` uses the same ruler instead of a system Slider; the WB sliders are unchanged. Shadows: `shadowOpenAmount` 0.13→0.26 and `shadowDeepenAmount` 0.55→0.7. Portrait 400 at linear 0.01: −100 46, 0 58, +100 88. The UI tests now drag the ruler instead of tapping its ends (`frmrUITests/ScrubberGestures.swift`). Unit tests: 411/411. UI tests: all pass on the new iOS 27 shard simulators. |
-| 5–7 | Not started |
+| 5 — F-122-F | **Done; confirmed by the user on device (2026-11-02).** Unit tests: 444/444; UI tests: all pass. `FilmLook.crop: CropRect?` is normalised to the upright original, top-left origin, and stores its preset and orientation; old looks read nil. `ImageProcessor.renderFullLook` crops first, in upright space, then re-tags to sensor space, so exposure, film and every frame-sized effect lay out on the crop. The crop applies to Roll thumbnails, the viewer, entries, the prompt screen and Download. Strips ignore it: `customization` carries no crop, and a test checks this. Reset to stock defaults keeps the crop; the Crop tool has its own Reset. `CropGeometry` holds the pure helpers; the minimum crop is 10% of the short side. `EntryLookImage` now re-renders on any look change (it used to key on the stock only). `FilmLookCache` decodes larger for small crops. Follow-up (2026-11-02): swap on Original/Free, Rotate 90° (`quarterTurns`, clockwise, also in strips), and a stand-in photo (turned+cropped, `ImageProcessor.geometryOnly`) so leaving the tool never flashes the old framing; unit tests 475/475. Device checks: rotate feel and haptic, the cross-fade, drag feel and overlapping handles on a small frame, haptics, VoiceOver, and a cropped RAW and EXIF-rotated shot everywhere. |
+| 5b — crop follow-up (user, 2026-11-02) | **Done; confirmed by the user on device.** Unit tests: 476/476; UI tests: all pass. The swap now works on Original (largest centred frame in the other orientation) and Free (swaps w/h); only 1:1 is disabled. `FilmLook.quarterTurns` (0…3, Rotate button `rotate.right`, clockwise) is folded into the orientation tag before the crop and honoured in strips. The crop rect turns with the photo. Crop-tool Reset clears crop and turn. No flash on leaving the Crop tool: the VM shows a stand-in (the last render cropped, or the plain photo turned and cropped via `ImageProcessor.geometryOnly`) until the render lands, then cross-fades; Reduce Motion swaps instantly. Compare now shows the plain photo with its turn and crop. |
+| BUG-122-03 | **Fixed; confirmed by the user on device (2026-11-02).** Cause: Bayer RAW capture requires `videoZoomFactor` and the photo connection's `videoScaleAndCropFactor` to be exactly 1. Anything else makes `capturePhoto` raise NSInvalidArgumentException, which Swift can't catch. Lenses (0.5×, 1×, tele) are separate devices at 1.0, so only in-between digital zoom crashed. Fix: `makePhotoSettings` requests RAW only when `CaptureSession.canCaptureBayerRaw` (zoom 1, not ramping, crop 1). Otherwise it takes the processed photo only, through the app's existing no-RAW path. Trade-off: digitally zoomed shots are developed from the processed JPEG, not RAW. `ZoomedCaptureTests` (4). Unit tests: 480/480. |
+| F-122-G | **Done; confirmed by the user on device (2026-11-03).** Unit tests: 502/502; UI tests: all pass. The device `videoZoomFactor` is always 1, so every shot is RAW. Zoom is app-side (1…3, 0.1 steps) in `DigitalZoom.swift`. The plain preview uses `.scaleEffect`; the film preview scales in `previewImage(zoom:)`. Tap-to-focus goes through `DigitalZoom.unscaledPoint`. At capture, a 1/zoom centred `CropRect` (preset Original) is attached in both the editor flow and the straight-to-Roll flow. Film strip mode cuts the zoom into the slot image (`photoboothSlotImage`; user decision 2026-11-03), because strips ignore look crops. Tapping the selected lens opens the Zoom sheet; a single-lens phone shows one chip. Pinch, ruler and ± share `applyZoom`; double-tap resets. Lens switch and flip reset to 1×; the front camera has no zoom. Device `setZoom`/`zoomRange`/`clampedZoom` are removed. Known: on short phones the viewfinder is taller than 3:4, so the saved crop shows a little more at the sides (as unzoomed shots already do). |
+| F-122-H | **Done; confirmed by the user on device (2026-11-03).** `CameraControlSheet` is replaced by `DialSlot`: a ZStack keeps the hidden dial for height, so Exposure and Zoom (about 62pt) fit the dial's roughly 72pt. WB is about 92pt, so the slot grows about 20pt while it's open. `CameraPanels.swift` is rewritten. The view model has `panelIdleTimeout` (injectable) and interaction pings. A viewfinder tap no longer closes these controls and counts as interaction. `CameraPanelTests` (12). The UI test is now `testWhiteBalanceAndExposureSwapInForTheDial`, which also checks the shutter is hittable while a control is open. Open: the never-run compact-height `dockedChrome` fallback has no dial slot. |
+| F-122-G/H follow-up (user, 2026-11-03) | **Done; confirmed by the user on device.** Exposure and Zoom are one 44pt row: readout (52pt, amber, monospaced), ruler, ×. Only Exposure keeps −/+, and there's no title text. WB: presets + × on row 1, then Kelvin|Tint + slider. Zoom step is 0.2 (24pt per step), with firm ticks at whole ×. The preview follows the live, unsnapped value during a gesture (`liveZoom`) and glides to discrete changes: a 0.15s ease on the plain layer, and exponential smoothing in `FilmPreviewRenderer.draw` (τ 0.12s); Reduce Motion is instant. A pinch fires a detent per snapped step. Capture crops to `liveZoom ?? zoomFactor`. |
+| 6 — F-122-E | **Done; confirmed by the user on device (2026-11-03).** Roll `+` (`roll.import`) opens `PhotosPicker` (max 10, images, `.current` encoding). A full-screen cover runs the editor per pick with a "2 of 5" counter, Skip / Apply to rest / Save, and Cancel (×). Retake is hidden during an import. Pure `ImportBatch` struct; `GalleryImportSession` loads one pick at a time. `GalleryImportDecoder`: RAW bytes go through `process(rawData:)`; HEIC/JPEG through an ImageIO thumbnail (orientation applied, long side ≤ 4032). Originals are written by `strippedJPEGData` (pixels + orientation only; a test checks no GPS/EXIF/TIFF). `RollPhoto.sourceRaw` defaults to "camera" (lightweight migration). Imported badge on Roll thumbnails and in the editor. `AppError.importFailed`. `GalleryImportTests` (26). No UI test, because the out-of-process picker isn't reliably drivable. Device risks: whether the picker hands back the DNG for RAW+JPEG/ProRAW assets, memory on 10 × 48 MP, and the alert when the last pick fails. |
+| F-122-I | **Done; confirmed by the user on device (2026-11-03).** User: selecting stopped at 4, so deleting 10 photos took three rounds. `toggleSelection` has no limit. `canMakeStrip` (1 to 4) replaces `canAddToStrip`; a note above the bar ("A strip holds up to 4 photos") explains it rather than dropping photos silently, moved there from the bar after the user found two lines cramped. Export encodes to temporary HEIC files one at a time (`saveToCameraRoll(photoFiles:)`), still one all-or-nothing library change, removed afterwards. Badge numbers scale to fit three digits. Device check: memory and time on a large export. |
+| F-122-J | **Done; confirmed by the user on device (2026-11-03).** User's choices: editor only; Saturation gentle and protecting skin; Contrast full range like Photos, so high values can undo the lighter blacks; in 1.2.2. `FilmLook.contrast` / `saturation` (−100…+100, step 1, omitted from storage at 0, so older looks read 0 and render unchanged). Contrast runs first in `ToneStage`'s curve (a gain S-curve up, a linear squeeze toward mid grey down), so Shadows and Highlights can still open what it crushed. `SaturationStage`: a 33-point cube in the print's encoded output, boost before vignette, haze, leak and grain so grain doesn't become colour noise, reduction after them so −100 is truly grey. Skipped when the look renders in black and white; the tool is hidden there and the editor leaves it if the look turns black and white. Strips carry both. After device feedback the value rings of every signed tool (Exposure, Shadows, Highlights, Contrast, Saturation) run clockwise for an increase and anticlockwise for a decrease (`ToolRing.arc`). Device check: how the ranges and the skin protection feel on real photos. |
+| 7 | QA and docs: not started |
 
 **Environment note (2026-10-27):** Xcode now has only the iOS 27.0 simulator runtime, so the iOS 26.x role simulators are unavailable. `frmr-lead` was recreated on iOS 27.0. The other roles (`frmr-backend`, the `frmr-ui-*` shards and the rest) still need recreating before agents can run tests or the UI tier can run.

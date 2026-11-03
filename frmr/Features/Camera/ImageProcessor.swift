@@ -97,12 +97,89 @@ nonisolated enum ImageProcessor {
     // `CIImage(image:)` ignores that tag, so filtering through it and
     // rendering as `.up` laid every landscape-held photo on its side as soon
     // as grain or B&W was on. Resolve the tag into the pixels up front.
-    private static func uprightCIImage(from image: UIImage) -> CIImage? {
+    private static func uprightCIImage(from image: UIImage, quarterTurns: Int = 0) -> CIImage? {
         guard let cgImage = image.cgImage else {
             // CIImage-backed UIImages carry no separate tag to resolve
             return CIImage(image: image)
         }
-        return CIImage(cgImage: cgImage).oriented(cgOrientation(from: image.imageOrientation))
+        // F-122-F rotate: the turn is folded into the tag, so it costs nothing
+        let tag = turnedOrientation(image.imageOrientation, clockwise: quarterTurns)
+        return CIImage(cgImage: cgImage).oriented(cgOrientation(from: tag))
+    }
+
+    // MARK: Rotate (F-122-F)
+
+    // The eight orientations as 2×2 matrices (a b / c d) on y-down pixel
+    // coordinates, mapping a sensor-space offset from the centre to the
+    // upright one. A clockwise quarter turn is (0 -1 / 1 0).
+    private typealias OrientationMatrix = (a: Int, b: Int, c: Int, d: Int)
+
+    private static func matrix(of orientation: UIImage.Orientation) -> OrientationMatrix {
+        switch orientation {
+        case .up: return (1, 0, 0, 1)
+        case .upMirrored: return (-1, 0, 0, 1)
+        case .down: return (-1, 0, 0, -1)
+        case .downMirrored: return (1, 0, 0, -1)
+        case .leftMirrored: return (0, 1, 1, 0)
+        case .right: return (0, -1, 1, 0)
+        case .rightMirrored: return (0, -1, -1, 0)
+        case .left: return (0, 1, -1, 0)
+        @unknown default: return (1, 0, 0, 1)
+        }
+    }
+
+    private static let allOrientations: [UIImage.Orientation] = [
+        .up, .upMirrored, .down, .downMirrored, .leftMirrored, .right, .rightMirrored, .left,
+    ]
+
+    /// The tag that displays a photo tagged `orientation` and then turned
+    /// `turns` quarter turns clockwise (any integer; wraps).
+    static func turnedOrientation(_ orientation: UIImage.Orientation, clockwise turns: Int) -> UIImage.Orientation {
+        var m = matrix(of: orientation)
+        for _ in 0..<FilmLook.normalisedTurns(turns) {
+            m = (-m.c, -m.d, m.a, m.b)
+        }
+        return allOrientations.first { matrix(of: $0) == m } ?? orientation
+    }
+
+    /// `image` shown turned `quarterTurns` clockwise: the same pixels with a
+    /// different tag, so it is free. The image itself for 0 turns.
+    static func turnedPhoto(_ image: UIImage, quarterTurns: Int) -> UIImage {
+        guard FilmLook.normalisedTurns(quarterTurns) != 0, let cgImage = image.cgImage else { return image }
+        return UIImage(
+            cgImage: cgImage, scale: image.scale,
+            orientation: turnedOrientation(image.imageOrientation, clockwise: quarterTurns)
+        )
+    }
+
+    /// The photo as the editor shows it without the film: turned and cropped
+    /// by `look`, nothing else. Cheap (a tag and a pixel window, no render),
+    /// so it can stand in on screen until the real render lands. The image
+    /// itself when the look has neither.
+    static func geometryOnly(_ image: UIImage, look: FilmLook) -> UIImage {
+        let turned = turnedPhoto(image, quarterTurns: look.quarterTurns)
+        guard let crop = look.crop, look.hasActiveCrop, let cgImage = turned.cgImage else { return turned }
+        let tag = turned.imageOrientation
+        let sensor = CGSize(width: cgImage.width, height: cgImage.height)
+        let upright = sensorSpaceSize(of: sensor, for: tag)
+        let pixels = crop.pixelRect(in: upright)
+        let m = matrix(of: tag)
+        // The matrix is orthogonal, so its transpose maps upright back to sensor
+        func toSensor(_ point: CGPoint) -> CGPoint {
+            let qx = point.x - upright.width / 2, qy = point.y - upright.height / 2
+            return CGPoint(
+                x: CGFloat(m.a) * qx + CGFloat(m.c) * qy + sensor.width / 2,
+                y: CGFloat(m.b) * qx + CGFloat(m.d) * qy + sensor.height / 2
+            )
+        }
+        let p0 = toSensor(CGPoint(x: pixels.minX, y: pixels.minY))
+        let p1 = toSensor(CGPoint(x: pixels.maxX, y: pixels.maxY))
+        let window = CGRect(
+            x: min(p0.x, p1.x).rounded(), y: min(p0.y, p1.y).rounded(),
+            width: abs(p1.x - p0.x).rounded(), height: abs(p1.y - p0.y).rounded()
+        )
+        guard let piece = cgImage.cropping(to: window) else { return turned }
+        return UIImage(cgImage: piece, scale: turned.scale, orientation: tag)
     }
 
     /// - Parameter outputWidth: the slot width in pixels the result will be
@@ -125,11 +202,12 @@ nonisolated enum ImageProcessor {
         // frame stock to fall back on and renders as Off
         let stock = customization.filmStock ?? .none
         guard customization.blackAndWhite || stock != .none || customization.exposure != 0
-            || customization.shadows != 0 || customization.highlights != 0 else {
+            || customization.shadows != 0 || customization.highlights != 0 || customization.contrast != 0
+            || customization.saturation != 0 || customization.quarterTurns != 0 else {
             return image
         }
         guard
-            let upright = uprightCIImage(from: image),
+            let upright = uprightCIImage(from: image, quarterTurns: customization.quarterTurns),
             let input = resizedToSlot(upright, outputWidth: outputWidth)
         else {
             // Cosmetic filters only — falling back to the unfiltered photo loses no
@@ -179,10 +257,17 @@ nonisolated enum ImageProcessor {
         seed: UInt64,
         coveringPixelSize: CGSize? = nil
     ) throws -> UIImage {
-        guard look.altersPhoto else { return image }
+        guard look.altersOutput else { return image }
         guard let cgImage = image.cgImage else { throw AppError.filmLookRenderFailed }
-        let orientation = image.imageOrientation
+        // F-122-F: the turn comes first, as a tag, then the crop (relative to
+        // the turned photo)
+        let orientation = turnedOrientation(image.imageOrientation, clockwise: look.quarterTurns)
         var input = CIImage(cgImage: cgImage)
+        // The crop comes first, so every stage below (resize,
+        // grain, vignette, light leak, halation) works on the cropped frame
+        if let crop = look.crop, look.hasActiveCrop {
+            input = cropped(input, to: crop, orientation: orientation)
+        }
         var scale = image.scale
 
         if let target = coveringPixelSize,
@@ -205,6 +290,37 @@ nonisolated enum ImageProcessor {
             throw AppError.filmLookRenderFailed
         }
         return UIImage(cgImage: rendered, scale: scale, orientation: orientation)
+    }
+
+    /// F-122-F: `crop` (a rect of the upright photo) cut out of a sensor-space
+    /// image, returned in sensor space with its origin at zero so the
+    /// orientation tag still applies. Works through the upright image because
+    /// the crop is stored relative to it.
+    static func cropped(_ input: CIImage, to crop: CropRect, orientation: UIImage.Orientation) -> CIImage {
+        let tag = cgOrientation(from: orientation)
+        let upright = atOrigin(input.oriented(tag))
+        let pixels = crop.pixelRect(in: upright.extent.size)
+        // Core Image's origin is bottom-left; the crop's is top-left
+        let area = CGRect(
+            x: pixels.minX, y: upright.extent.height - pixels.maxY, width: pixels.width, height: pixels.height
+        )
+        let piece = atOrigin(upright.cropped(to: area))
+        return atOrigin(piece.oriented(inverse(of: tag)))
+    }
+
+    private static func atOrigin(_ image: CIImage) -> CIImage {
+        let extent = image.extent
+        guard extent.minX != 0 || extent.minY != 0 else { return image }
+        return image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+    }
+
+    /// The tag that undoes `tag`: only the quarter turns differ from their own inverse.
+    private static func inverse(of tag: CGImagePropertyOrientation) -> CGImagePropertyOrientation {
+        switch tag {
+        case .right: return .left
+        case .left: return .right
+        default: return tag
+        }
     }
 
     /// An upright size expressed in the sensor-space pixels of a photo
@@ -306,9 +422,18 @@ nonisolated enum ImageProcessor {
             mono.inputImage = output
             output = mono.outputImage ?? skipping("B&W (no stock)", output)
         }
-        // F-122-C: Shadows and Highlights, one monotone curve on the printed
-        // picture right after the cube (or after the plain B&W / gain for Off)
-        output = applyToneStage(to: output, shadows: customization.shadows, highlights: customization.highlights)
+        // F-122-C, F-122-J: Shadows, Highlights and Contrast, one monotone
+        // curve on the printed picture right after the cube (or after the
+        // plain B&W / gain for Off)
+        output = applyToneStage(
+            to: output, shadows: customization.shadows, highlights: customization.highlights, contrast: customization.contrast
+        )
+        // F-122-J: a black-and-white picture has no colour to adjust. Boosting
+        // comes before the grain so it doesn't turn the grain into colour
+        // noise; lowering comes after everything, so -100 is truly grey even
+        // with colour grain and a light leak on it.
+        let saturation = customization.rendersInBlackAndWhite ? 0 : customization.saturation
+        if saturation > 0 { output = applySaturation(to: output, saturation: saturation) }
         if stock != .none {
             // v5 F5 overturns OPEN: v4-4: the vignette sits after the cube,
             // on the printed picture, and defaults to 0
@@ -337,6 +462,7 @@ nonisolated enum ImageProcessor {
                 profile: stock.grainProfile
             )
         }
+        if saturation < 0 { output = applySaturation(to: output, saturation: saturation) }
         return output.cropped(to: input.extent)
     }
 
@@ -514,18 +640,28 @@ nonisolated enum ImageProcessor {
         return matrix.outputImage ?? skipping("Exposure gain", input)
     }
 
-    // MARK: Shadows and Highlights (v1.2.2 F-122-C)
+    // MARK: Shadows, Highlights, Contrast and Saturation (v1.2.2 F-122-C, F-122-J)
 
     /// The tools' tone curve as a 256-entry lookup in encoded sRGB. 0 and 0
     /// returns the input untouched, so the look is pixel-identical without them.
-    static func applyToneStage(to input: CIImage, shadows: Double, highlights: Double) -> CIImage {
-        guard shadows != 0 || highlights != 0 else { return input }
+    static func applyToneStage(to input: CIImage, shadows: Double, highlights: Double, contrast: Double = 0) -> CIImage {
+        guard shadows != 0 || highlights != 0 || contrast != 0 else { return input }
         let curves = CIFilter.colorCurves()
         curves.inputImage = input
         curves.curvesDomain = CIVector(x: 0, y: 1)
-        curves.curvesData = ToneStage.table(shadows: shadows / FilmLook.toneRange.upperBound, highlights: highlights / FilmLook.toneRange.upperBound)
+        let full = FilmLook.toneRange.upperBound
+        curves.curvesData = ToneStage.table(shadows: shadows / full, highlights: highlights / full, contrast: contrast / full)
         curves.colorSpace = stripOutputColorSpace
         return curves.outputImage?.cropped(to: input.extent) ?? skipping("Shadows and Highlights", input)
+    }
+
+    private static func applySaturation(to input: CIImage, saturation: Double) -> CIImage {
+        let cube = CIFilter.colorCubeWithColorSpace()
+        cube.inputImage = input
+        cube.cubeDimension = Float(Constants.ImageProcessing.Film.Saturation.cubeDimension)
+        cube.cubeData = SaturationStage.cachedCube(amount: saturation / FilmLook.toneRange.upperBound)
+        cube.colorSpace = stripOutputColorSpace
+        return cube.outputImage ?? skipping("Saturation", input)
     }
 
     // MARK: Film model (v4 F2/F3)

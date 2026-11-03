@@ -33,14 +33,17 @@ struct PhotoEditView: View {
             ToolIconBar(
                 items: Self.toolItems(
                     look: edit.look, exposureReadout: edit.exposureReadout,
-                    shadowsReadout: edit.shadowsReadout, highlightsReadout: edit.highlightsReadout
+                    shadowsReadout: edit.shadowsReadout, highlightsReadout: edit.highlightsReadout,
+                    contrastReadout: edit.contrastReadout, saturationReadout: edit.saturationReadout,
+                    cropReadout: edit.cropReadout
                 ),
                 selectedID: edit.tool.id,
                 identifierPrefix: "edit.tool",
                 selectedColor: theme.accentFill,
                 idleColor: theme.text,
-                onSelect: { edit.tool = PhotoEditViewModel.Tool(id: $0) }
+                onSelect: { edit.select(tool: PhotoEditViewModel.Tool(id: $0)) }
             )
+            if edit.isImporting { importRow }
             actionRow
         }
         .padding(.bottom, Constants.DesignUI.Space.s)
@@ -80,14 +83,27 @@ struct PhotoEditView: View {
     // bar floats over the photo area so the photo can use the whole height.
     private var photoArea: some View {
         GeometryReader { geometry in
-            DevelopingPhoto(image: edit.displayedPhoto, isDeveloping: edit.isDevelopingPhoto)
+            // A new identity per stand-in swap: the old (stand-in) and new
+            // (render) pictures cross-fade, or just swap under Reduce Motion
+            ZStack {
+                DevelopingPhoto(image: edit.displayedPhoto, isDeveloping: edit.isDevelopingPhoto)
+                    .id(edit.standInSwaps)
+                    .transition(.opacity)
+            }
+            .frmrAnimation(.crossfade, value: edit.standInSwaps)
                 .frame(width: geometry.size.width, height: geometry.size.height)
+                // The crop canvas draws its own, inset copy
+                .opacity(edit.isCropping ? 0 : 1)
                 .overlay(alignment: .bottomLeading) {
                     RenderingIndicator(isVisible: edit.isRendering || edit.isDevelopingPhoto)
                         .padding(UI.compareBadgePadding)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     CompareBadge(isVisible: edit.isComparing)
+                        .padding(UI.compareBadgePadding)
+                }
+                .overlay(alignment: .bottom) {
+                    ImportedBadge(isVisible: edit.isImportedPhoto && !edit.isCropping)
                         .padding(UI.compareBadgePadding)
                 }
                 .contentShape(Rectangle())
@@ -108,6 +124,9 @@ struct PhotoEditView: View {
                 .onChange(of: geometry.size) { _, size in
                     edit.setDisplaySize(size, scale: displayScale)
                 }
+                .overlay {
+                    if edit.isCropping { cropCanvas }
+                }
                 .overlay(alignment: .top) { topBar }
         }
     }
@@ -118,12 +137,12 @@ struct PhotoEditView: View {
                 HStack(spacing: UI.topBarSpacing) {
                     GlassIconButton(
                         systemImage: "xmark",
-                        label: "Discard",
+                        label: edit.isImporting ? "Cancel import" : "Discard",
                         identifier: "edit.discard",
                         rotates: false,
                         action: edit.discard
                     )
-                    .accessibilityHint(edit.isReEditing ? "Leaves this photo unchanged" : "Throws this photo away")
+                    .accessibilityHint(discardHint)
                     leadingButton
                 }
             }
@@ -155,9 +174,17 @@ struct PhotoEditView: View {
         .padding(.top, UI.topBarPadding)
     }
 
-    // A fresh shot can be retaken; a Roll photo can be deleted instead
+    private var discardHint: String {
+        if edit.isImporting { return "Stops the import. Photos already saved stay in your roll" }
+        return edit.isReEditing ? "Leaves this photo unchanged" : "Throws this photo away"
+    }
+
+    // A fresh shot can be retaken; a Roll photo can be deleted instead; an
+    // import has neither (it can be skipped)
     @ViewBuilder private var leadingButton: some View {
-        if edit.isReEditing {
+        if edit.isImporting {
+            EmptyView()
+        } else if edit.isReEditing {
             GlassIconButton(
                 systemImage: "trash",
                 label: "Delete",
@@ -185,6 +212,9 @@ struct PhotoEditView: View {
         case .exposure: exposureScrubber
         case .shadows: shadowsScrubber
         case .highlights: highlightsScrubber
+        case .contrast: contrastScrubber
+        case .saturation: saturationScrubber
+        case .crop: cropControls
         case .film: filmPreviews
         case .print: printControls
         case .effect(let effect): effectScrubber(for: effect)
@@ -239,6 +269,131 @@ struct PhotoEditView: View {
             resetHint: "Returns to 0"
         )
         .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    // F-122-J: the same ruler as Shadows and Highlights
+    private var contrastScrubber: some View {
+        EffectScrubber(
+            title: "Contrast",
+            value: Binding(get: { edit.contrast }, set: edit.setContrast),
+            defaultValue: 0,
+            hint: "Deepens or flattens the difference between light and dark",
+            identifier: "edit.contrast",
+            textColor: theme.text,
+            tint: theme.accentFill,
+            scale: .tone,
+            valueText: edit.contrastReadout,
+            resetHint: "Returns to 0"
+        )
+        .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    private var saturationScrubber: some View {
+        EffectScrubber(
+            title: "Saturation",
+            value: Binding(get: { edit.saturation }, set: edit.setSaturation),
+            defaultValue: 0,
+            hint: "Adds colour, or takes it away down to black and white",
+            identifier: "edit.saturation",
+            textColor: theme.text,
+            tint: theme.accentFill,
+            scale: .tone,
+            valueText: edit.saturationReadout,
+            resetHint: "Returns to 0"
+        )
+        .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    // MARK: Crop (F-122-F)
+
+    private var cropCanvas: some View {
+        CropCanvasView(
+            image: edit.cropCanvasPhoto,
+            crop: edit.cropState,
+            onMove: { edit.moveCrop(from: $0, byPoints: $1, in: $2) },
+            onResize: { edit.resizeCrop($0, from: $1, byPoints: $2, in: $3) }
+        )
+    }
+
+    // Presets as chips, then the orientation swap and Reset
+    private var cropControls: some View {
+        VStack(spacing: Constants.DesignUI.Space.xs) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: Constants.CropUI.chipSpacing) {
+                    ForEach(CropPreset.allCases) { preset in
+                        cropChip(preset)
+                    }
+                }
+                .padding(.horizontal, UI.horizontalPadding)
+            }
+            HStack(spacing: Constants.CropUI.chipSpacing) {
+                Button {
+                    edit.swapCropOrientation()
+                    Haptics.play(.detent)
+                } label: {
+                    Image(systemName: "rectangle.portrait.rotate")
+                        .font(.frmrLabel)
+                        .foregroundStyle(theme.text)
+                        .frame(width: Constants.DesignUI.targetMin, height: Constants.DesignUI.targetMin)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!edit.canSwapCropOrientation)
+                .opacity(edit.canSwapCropOrientation ? 1 : Constants.CropUI.disabledOpacity)
+                .accessibilityLabel("Swap portrait and landscape")
+                .accessibilityIdentifier("edit.crop.swap")
+                Button {
+                    edit.rotatePhoto()
+                    Haptics.play(.detent)
+                } label: {
+                    Image(systemName: "rotate.right")
+                        .font(.frmrLabel)
+                        .foregroundStyle(theme.text)
+                        .frame(width: Constants.DesignUI.targetMin, height: Constants.DesignUI.targetMin)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Rotate 90 degrees")
+                .accessibilityIdentifier("edit.crop.rotate")
+                Spacer(minLength: 0)
+                Button("Reset") {
+                    edit.resetCrop()
+                    Haptics.play(.detent)
+                }
+                .font(.frmrLabel)
+                .foregroundStyle(theme.text)
+                .frame(minWidth: Constants.DesignUI.targetMin, minHeight: Constants.DesignUI.targetMin)
+                .buttonStyle(.plain)
+                .disabled(!edit.canResetCrop)
+                .opacity(edit.canResetCrop ? 1 : Constants.CropUI.disabledOpacity)
+                .accessibilityHint("Brings back the whole photo and turns it upright")
+                .accessibilityIdentifier("edit.crop.reset")
+            }
+            .padding(.horizontal, UI.horizontalPadding)
+        }
+    }
+
+    private func cropChip(_ preset: CropPreset) -> some View {
+        let isSelected = edit.cropState.preset == preset
+        return Button {
+            edit.selectCropPreset(preset)
+            Haptics.play(.detent)
+        } label: {
+            Text(preset.label)
+                .font(.frmrLabel)
+                .foregroundStyle(isSelected ? theme.onAccent : theme.text)
+                .lineLimit(1)
+                .padding(.horizontal, Constants.CropUI.chipHorizontalPadding)
+                .frame(minWidth: Constants.DesignUI.targetMin, minHeight: Constants.DesignUI.targetMin)
+                .background {
+                    if isSelected { Capsule().fill(theme.accentFill) }
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Crop \(preset.spokenLabel)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("edit.crop.preset.\(preset.rawValue)")
     }
 
     // v5.2 M5: this photo in each stock, Photos-style
@@ -323,6 +478,39 @@ struct PhotoEditView: View {
 
     // MARK: Actions
 
+    // Gallery import (F-122-E): where this pick sits in the batch, Skip and
+    // Apply to rest; Save to roll and Cancel are the usual controls
+    private var importRow: some View {
+        HStack(spacing: UI.actionSpacing) {
+            Text(edit.importCounter ?? "")
+                .font(.frmrLabel)
+                .foregroundStyle(theme.textMuted)
+                .accessibilityIdentifier("edit.importCounter")
+            Spacer(minLength: 0)
+            Button("Skip", action: edit.skip)
+                .font(.frmrLabel)
+                .foregroundStyle(theme.text)
+                .frame(minWidth: Constants.DesignUI.targetMin, minHeight: Constants.DesignUI.targetMin)
+                .buttonStyle(.plain)
+                .accessibilityHint("Moves on without saving this photo")
+                .accessibilityIdentifier("edit.import.skip")
+            Button("Apply to rest", action: applyToRest)
+                .font(.frmrLabel)
+                .foregroundStyle(theme.text)
+                .frame(minHeight: Constants.DesignUI.targetMin)
+                .buttonStyle(.plain)
+                .disabled(!edit.importHasRemaining || edit.isSavingToRoll)
+                .opacity(edit.importHasRemaining ? 1 : Constants.CropUI.disabledOpacity)
+                .accessibilityHint("Saves this photo, then gives every photo left the same film look, without the crop")
+                .accessibilityIdentifier("edit.import.applyToRest")
+        }
+        .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    private func applyToRest() {
+        Task { await edit.applyToRest(context: modelContext) }
+    }
+
     // Continue to diary (secondary glass, only right after a capture) and
     // Save to roll (the one amber primary), side by side
     private var actionRow: some View {
@@ -398,14 +586,25 @@ struct PhotoEditView: View {
 // MARK: Tool bar items
 
 extension PhotoEditView {
-    /// What the tool bar offers, in order (Exposure, Shadows, Highlights, Film, Print, then the
-    /// five effects), each with its VoiceOver value and value ring. Pure, so
-    /// the rings are unit-testable (replaces the v5.1 modified-tools set).
+    /// What the tool bar offers, in order (Exposure, Shadows, Highlights, Contrast, Saturation, Crop,
+    /// Film, Print, then the five effects), each with its VoiceOver value and
+    /// value ring. Saturation is left out while the look renders in black and
+    /// white. Pure, so the rings are unit-testable (replaces the v5.1
+    /// modified-tools set).
     nonisolated static func toolItems(
-        look: FilmLook, exposureReadout: String, shadowsReadout: String = "0", highlightsReadout: String = "0"
+        look: FilmLook, exposureReadout: String, shadowsReadout: String = "0", highlightsReadout: String = "0",
+        contrastReadout: String = "0", saturationReadout: String = "0",
+        cropReadout: String = ""
     ) -> [ToolIconItem] {
         let effects = look.stock.hasEffects
-        let fixed = [
+        let saturation = look.rendersInBlackAndWhite ? [] : [
+            ToolIconItem(
+                id: "saturation", title: "Saturation", systemImage: "drop",
+                hint: "Add or take away colour", value: saturationReadout,
+                ring: ToolRing.fraction(tone: look.saturation)
+            ),
+        ]
+        let tone = [
             ToolIconItem(
                 id: "exposure", title: "Exposure", systemImage: "plus.forwardslash.minus",
                 hint: "Over- or under-expose the film", value: exposureReadout,
@@ -421,13 +620,24 @@ extension PhotoEditView {
                 hint: "Recover or brighten the highlights", value: highlightsReadout,
                 ring: ToolRing.fraction(tone: look.highlights)
             ),
+            ToolIconItem(
+                id: "contrast", title: "Contrast", systemImage: "circle.righthalf.filled",
+                hint: "Deepen or flatten light and dark", value: contrastReadout,
+                ring: ToolRing.fraction(tone: look.contrast)
+            ),
+        ]
+        let fixed = [
+            ToolIconItem(
+                id: "crop", title: "Crop", systemImage: "crop",
+                hint: "Crop the photo", value: cropReadout
+            ),
             ToolIconItem(id: "film", title: "Film", systemImage: "film", hint: "Choose the film stock", value: look.stock.label),
             ToolIconItem(
                 id: "print", title: "Print", systemImage: "printer",
                 hint: "Choose the print and black and white", value: look.resolvedPrint?.label ?? ""
             ),
         ]
-        return fixed + FilmLook.Effect.allCases.map { effect in
+        return tone + saturation + fixed + FilmLook.Effect.allCases.map { effect in
             let strength = look.strengths[effect]
             return ToolIconItem(
                 id: effect.rawValue, title: effect.label, systemImage: effect.toolSymbolName, hint: effect.toolHint,
@@ -481,6 +691,24 @@ private struct DevelopingPhoto: View {
             .contrast(isDeveloping ? UI.latentContrast : 1)
             .blur(radius: isDeveloping ? UI.latentBlur : 0)
             .frmrAnimation(.develop, value: isDeveloping)
+    }
+}
+
+// F-122-E: marks a photo that came from the gallery
+private struct ImportedBadge: View {
+    let isVisible: Bool
+
+    var body: some View {
+        if isVisible {
+            Text("Imported")
+                .font(.frmrMeta.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, Constants.DesignUI.Space.m)
+                .padding(.vertical, Constants.DesignUI.Space.xs)
+                .frmrGlassCapsule()
+                .accessibilityLabel("Imported photo")
+                .accessibilityIdentifier("edit.importedBadge")
+        }
     }
 }
 
