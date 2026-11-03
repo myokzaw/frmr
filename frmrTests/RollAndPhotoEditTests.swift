@@ -362,7 +362,7 @@ struct PhotoEditStateTests {
         #expect(edit.tool == .film)
         edit.tool = .effect(.grain)
         #expect(edit.tool.id == "grain")
-        let ids = ["exposure", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
+        let ids = ["exposure", "shadows", "highlights", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue)
         #expect(PhotoEditViewModel.Tool.allTools.map(\.id) == ids, "Exposure comes first")
         #expect(ids.map { PhotoEditViewModel.Tool(id: $0).id } == ids)
         #expect(PhotoEditViewModel.Tool(id: "nonsense") == .film)

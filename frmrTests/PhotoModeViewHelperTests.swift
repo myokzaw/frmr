@@ -27,10 +27,10 @@ struct PhotoModeViewHelperTests {
     @Test func editorToolItemsStartWithExposure() {
         var look = FilmLook.stockDefaults(for: .portrait400)
         let items = PhotoEditView.toolItems(look: look, exposureReadout: "0 EV")
-        #expect(items.map(\.id) == ["exposure", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue))
+        #expect(items.map(\.id) == ["exposure", "shadows", "highlights", "film", "print"] + FilmLook.Effect.allCases.map(\.rawValue))
         #expect(items[0].systemImage == "plus.forwardslash.minus")
         #expect(items[0].ring == nil)
-        #expect(items.dropFirst(3).allSatisfy { $0.ring != nil && $0.value.hasSuffix("%") })
+        #expect(items.dropFirst(5).allSatisfy { $0.ring != nil && $0.value.hasSuffix("%") })
 
         look.exposure = 1
         let brighter = PhotoEditView.toolItems(look: look, exposureReadout: "+1.0 EV")
@@ -38,7 +38,7 @@ struct PhotoModeViewHelperTests {
         #expect(brighter[0].value == "+1.0 EV")
 
         let off = PhotoEditView.toolItems(look: .stockDefaults(for: .none), exposureReadout: "0 EV")
-        #expect(off.dropFirst(3).allSatisfy { $0.ring == nil && $0.value == "Off" }, "Off has no effects to ring")
+        #expect(off.dropFirst(5).allSatisfy { $0.ring == nil && $0.value == "Off" }, "Off has no effects to ring")
     }
 
     // F-EXP scrubber: firm tick at 0, taller at whole stops, ⅓-stop notches

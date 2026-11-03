@@ -18,23 +18,27 @@ import UIKit
 /// Download writes a photo to the camera roll and creates no Roll record.
 @Observable
 final class PhotoEditViewModel: Identifiable {
-    /// The editor's tools, in tool-bar order: Exposure (v5.2), Film, Print,
-    /// then one per effect (`allTools`).
+    /// The editor's tools, in tool-bar order: Exposure (v5.2), Shadows,
+    /// Highlights (F-122-C), Film, Print, then one per effect (`allTools`).
     enum Tool: Hashable {
         case exposure
+        case shadows
+        case highlights
         case film
         case print
         case effect(FilmLook.Effect)
 
         /// Every tool in tool-bar order.
         static var allTools: [Tool] {
-            [.exposure, .film, .print] + FilmLook.Effect.allCases.map(Tool.effect)
+            [.exposure, .shadows, .highlights, .film, .print] + FilmLook.Effect.allCases.map(Tool.effect)
         }
 
         /// Stable identifier (tool bar item, accessibility ids).
         var id: String {
             switch self {
             case .exposure: return "exposure"
+            case .shadows: return "shadows"
+            case .highlights: return "highlights"
             case .film: return "film"
             case .print: return "print"
             case .effect(let effect): return effect.rawValue
@@ -45,6 +49,8 @@ final class PhotoEditViewModel: Identifiable {
         init(id: String) {
             switch id {
             case "exposure": self = .exposure
+            case "shadows": self = .shadows
+            case "highlights": self = .highlights
             case "film": self = .film
             case "print": self = .print
             default: self = FilmLook.Effect(rawValue: id).map(Tool.effect) ?? .film
@@ -254,6 +260,34 @@ final class PhotoEditViewModel: Identifiable {
     func setExposure(_ value: Double) {
         var next = look
         next.exposure = FilmLook.snappedExposure(value)
+        apply(next)
+    }
+
+    // MARK: Shadows and Highlights (F-122-C)
+
+    var shadows: Double { look.shadows }
+    var highlights: Double { look.highlights }
+    var shadowsReadout: String { Self.toneReadout(for: look.shadows) }
+    var highlightsReadout: String { Self.toneReadout(for: look.highlights) }
+
+    /// "+25", "−40" (a true minus sign), "0".
+    static func toneReadout(for value: Double) -> String {
+        let snapped = FilmLook.snappedTone(value)
+        guard snapped != 0 else { return "0" }
+        return (snapped > 0 ? "+" : "\u{2212}") + String(Int(abs(snapped)))
+    }
+
+    /// Sets Shadows, snapped to whole steps and clamped to ±100.
+    func setShadows(_ value: Double) {
+        var next = look
+        next.shadows = FilmLook.snappedTone(value)
+        apply(next)
+    }
+
+    /// Sets Highlights, snapped to whole steps and clamped to ±100.
+    func setHighlights(_ value: Double) {
+        var next = look
+        next.highlights = FilmLook.snappedTone(value)
         apply(next)
     }
 

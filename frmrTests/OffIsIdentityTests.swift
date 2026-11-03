@@ -69,6 +69,18 @@ struct StrengthZeroIdentityTests {
         #expect(plain == explicit, "\(stock.label)")
     }
 
+    /// Shadows and Highlights at 0 are the look without the tools (F-122-C).
+    @Test(arguments: StripCustomization.FilmStock.allCases)
+    func shadowsAndHighlightsZeroLeaveTheLookUnchanged(stock: StripCustomization.FilmStock) throws {
+        let source = flatImage(0.5)
+        let plain = try #require(Raster(try ImageProcessor.renderFullLook(of: source, stock: stock, seed: 6)))
+        var look = FilmLook.stockDefaults(for: stock)
+        look.shadows = 0
+        look.highlights = 0
+        let explicit = try #require(Raster(try ImageProcessor.renderFullLook(of: source, look: look, seed: 6)))
+        #expect(plain == explicit, "\(stock.label)")
+    }
+
     /// The vignette defaults to 0, so a stock's full look is the same with
     /// the vignette explicitly zero (every stock, grain and leak seeded alike).
     @Test(arguments: StripCustomization.FilmStock.allCases.filter { $0 != .none })

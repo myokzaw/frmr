@@ -121,14 +121,19 @@ struct ExposurePanel: View {
                     action: { onStep(-1) }
                 )
                 .accessibilityIdentifier("camera.ev.darker")
-                PanelSliderRow(
+                // The sheet already shows title and readout, so the ruler has no header
+                EffectScrubber(
                     title: "Exposure",
-                    showsTitle: false,
-                    valueText: readout,
                     value: Binding(get: { Double(bias) }, set: { onBias(Float($0)) }),
-                    range: Double(Constants.Camera.exposureBiasMin)...Double(Constants.Camera.exposureBiasMax),
-                    step: Double(Constants.Camera.exposureStep),
-                    identifier: "camera.ev.slider"
+                    defaultValue: 0,
+                    hint: "Adjusts exposure in thirds of a stop",
+                    identifier: "camera.ev.slider",
+                    textColor: .white,
+                    tint: .appAmber,
+                    scale: .cameraExposure,
+                    valueText: readout,
+                    resetHint: "Returns to 0 EV",
+                    showsHeader: false
                 )
                 CameraChip(
                     systemImage: "plus",

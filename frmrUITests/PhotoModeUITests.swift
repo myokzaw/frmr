@@ -146,7 +146,7 @@ final class PhotoModeUITests: XCTestCase {
 
         // One sheet at a time: EV swaps into the same sheet
         ev.tap()
-        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForExistence(timeout: timeout), "EV slider missing: \(app.debugDescription.prefix(3000))")
+        XCTAssertTrue(app.descendants(matching: .any)["camera.ev.slider"].waitForExistence(timeout: timeout), "EV slider missing: \(app.debugDescription.prefix(3000))")
         XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout), "WB should give way when EV opens")
         app.buttons["camera.ev.brighter"].tap()
         XCTAssertTrue(waitForValue(ev) { $0 == "+0.3" }, "One step brighter reads +0.3")
@@ -157,7 +157,7 @@ final class PhotoModeUITests: XCTestCase {
 
         // Tapping the open sheet's button again closes it
         ev.tap()
-        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForNonExistence(timeout: timeout), "The button closes its sheet")
+        XCTAssertTrue(app.descendants(matching: .any)["camera.ev.slider"].waitForNonExistence(timeout: timeout), "The button closes its sheet")
         wb.tap()
         XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForExistence(timeout: timeout))
         wb.tap()
@@ -231,16 +231,16 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertEqual(scrubber.value as? String, "100%", "Halation starts at the stock default")
         XCTAssertFalse(reset.isEnabled, "Reset is off while the value is the default")
         saveScreenshot(named: "edit-tool-halation")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: false)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "0%" }, "The left end reads 0%, got \(String(describing: scrubber.value))")
         XCTAssertTrue(waitUntilEnabled(reset), "Reset enables once the value moves")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: true)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "150%" }, "The right end reads 150%, got \(String(describing: scrubber.value))")
         saveScreenshot(named: "edit-scrubber-150")
         reset.tap()
         XCTAssertTrue(waitForValue(scrubber) { $0 == "100%" }, "Reset returns to the stock default")
         // Double-tap resets too
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        scrubber.scrub(by: 40)
         XCTAssertTrue(waitForValue(scrubber) { $0 != "100%" })
         scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).doubleTap()
         XCTAssertTrue(waitForValue(scrubber) { $0 == "100%" }, "Double-tap resets to the default")
@@ -253,7 +253,7 @@ final class PhotoModeUITests: XCTestCase {
             saveScreenshot(named: "edit-tool-\(effect)", settle: 0)
         }
         tapTool("vignette", in: app)
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        scrubber.scrub(by: -40)
         XCTAssertTrue(waitForValue(scrubber) { $0 != "0%" })
         saveScreenshot(named: "edit-vignette-changed")
 
@@ -337,14 +337,14 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertFalse(reset.isEnabled, "Reset is off at 0 EV")
         saveScreenshot(named: "edit-tool-exposure")
 
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: true)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "+2.0 EV" }, "The right end reads +2.0 EV, got \(String(describing: scrubber.value))")
         XCTAssertTrue(waitForValue(tool) { $0 == "+2.0 EV" }, "The tool bar carries the value")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: false)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "\u{2212}2.0 EV" }, "The left end reads −2.0 EV, got \(String(describing: scrubber.value))")
-        // One notch right of the middle is a third of a stop
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + 1.0 / 12.0 * 0.95, dy: 0.5)).tap()
-        XCTAssertTrue(waitForValue(scrubber) { $0 == "+0.3 EV" }, "One notch is +0.3 EV, got \(String(describing: scrubber.value))")
+        // One notch (one tick's width of drag, left = brighter) is a third of a stop
+        scrubber.scrub(by: -24)
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "\u{2212}1.7 EV" }, "One notch up from −2.0 is −1.7 EV, got \(String(describing: scrubber.value))")
         saveScreenshot(named: "edit-exposure-changed")
         XCTAssertTrue(waitUntilEnabled(reset))
         reset.tap()
@@ -386,7 +386,7 @@ final class PhotoModeUITests: XCTestCase {
         tapTool("vignette", in: relaunched)
         let scrubber = relaunched.descendants(matching: .any)["edit.scrubber"]
         XCTAssertTrue(scrubber.waitForExistence(timeout: timeout))
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        scrubber.scrub(by: -40)
         relaunched.buttons["edit.discard"].tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForExistence(timeout: timeout))
         XCTAssertEqual(rollCount(in: relaunched), afterSave, "Discard in re-edit keeps the photo")
@@ -396,7 +396,7 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertTrue(relaunched.buttons["edit.save"].waitForExistence(timeout: timeout))
         tapTool("vignette", in: relaunched)
         XCTAssertEqual(scrubber.value as? String, "0%", "Discarded changes must not have been saved")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        scrubber.scrub(by: -40)
         relaunched.buttons["edit.save"].tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForExistence(timeout: timeout))
         relaunched.buttons["roll.photo"].firstMatch.tap()
@@ -448,7 +448,7 @@ final class PhotoModeUITests: XCTestCase {
         let halation = app.descendants(matching: .any)["strip.scrubber"]
         XCTAssertTrue(halation.waitForExistence(timeout: timeout))
         XCTAssertEqual(halation.value as? String, "100%", "Strip halation defaults to the stock default")
-        halation.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        halation.scrub(by: -40)
         XCTAssertTrue(waitForValue(halation) { $0 != "100%" }, "Halation scrubber did not move: \(String(describing: halation.value))")
         saveScreenshot(named: "strip-screen-roll-halation", settle: 2)
         app.buttons["Close"].tap()

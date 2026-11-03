@@ -22,6 +22,10 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     /// Exposure compensation in EV (v5.2 F-EXP), applied to linear light
     /// before halation and the film cube. 0 changes nothing.
     var exposure: Double
+    /// Shadows and Highlights tools (F-122-C), -100...+100. Applied to the
+    /// printed picture right after the film cube; 0 changes nothing.
+    var shadows: Double
+    var highlights: Double
     /// The film-model version the look renders with (F-122-B). New looks are
     /// at `currentModelVersion`; a stored look without the key is 1, so photos
     /// taken before 1.2.2 keep their look until the editor upgrades them.
@@ -33,9 +37,13 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         blackAndWhite: Bool = false,
         strengths: Strengths? = nil,
         exposure: Double = 0,
+        shadows: Double = 0,
+        highlights: Double = 0,
         modelVersion: Int = Constants.ImageProcessing.Film.currentModelVersion
     ) {
         self.modelVersion = modelVersion
+        self.shadows = FilmLook.snappedTone(shadows)
+        self.highlights = FilmLook.snappedTone(highlights)
         self.exposure = FilmLook.snappedExposure(exposure)
         self.stock = stock
         self.printStock = printStock
@@ -66,7 +74,20 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
 
     /// Whether anything would change the photo: Off with no B&W is the
     /// untouched original.
-    var altersPhoto: Bool { stock != .none || blackAndWhite || exposure != 0 }
+    var altersPhoto: Bool { stock != .none || blackAndWhite || exposure != 0 || shadows != 0 || highlights != 0 }
+
+    // MARK: Shadows and Highlights (F-122-C)
+
+    static let toneRange: ClosedRange<Double> = Constants.ImageProcessing.Film.ToneControl.range
+    static let toneStep: Double = Constants.ImageProcessing.Film.ToneControl.step
+
+    /// `value` clamped to `toneRange` and rounded to a whole step; NaN reads as 0.
+    static func snappedTone(_ value: Double) -> Double {
+        guard value.isFinite else { return 0 }
+        let clamped = min(max(value, toneRange.lowerBound), toneRange.upperBound)
+        let snapped = (clamped / toneStep).rounded() * toneStep
+        return snapped == 0 ? 0 : snapped
+    }
 
     // MARK: Exposure (v5.2 F-EXP)
 
@@ -233,7 +254,7 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
     // MARK: Stored form
 
     private enum CodingKeys: String, CodingKey {
-        case stock, printStock, blackAndWhite, strengths, exposure, modelVersion
+        case stock, printStock, blackAndWhite, strengths, exposure, shadows, highlights, modelVersion
         case effects  // the v4 FilmEffects key, read but never written
     }
 
@@ -249,6 +270,9 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         self.strengths = try container.decodeIfPresent(Strengths.self, forKey: key) ?? .defaults(for: stock)
         // Looks stored before v5.2 have no exposure: 0 EV
         self.exposure = FilmLook.snappedExposure((try? container.decodeIfPresent(Double.self, forKey: .exposure)) ?? 0)
+        // Looks stored before 1.2.2 have no shadows or highlights: 0
+        self.shadows = FilmLook.snappedTone((try? container.decodeIfPresent(Double.self, forKey: .shadows)) ?? 0)
+        self.highlights = FilmLook.snappedTone((try? container.decodeIfPresent(Double.self, forKey: .highlights)) ?? 0)
         // Looks stored before 1.2.2 have no version: model 1
         self.modelVersion = (try? container.decodeIfPresent(Int.self, forKey: .modelVersion))
             ?? Constants.ImageProcessing.Film.legacyModelVersion
@@ -261,6 +285,8 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         try container.encode(blackAndWhite, forKey: .blackAndWhite)
         try container.encode(strengths, forKey: .strengths)
         try container.encode(exposure, forKey: .exposure)
+        try container.encode(shadows, forKey: .shadows)
+        try container.encode(highlights, forKey: .highlights)
         try container.encode(modelVersion, forKey: .modelVersion)
     }
 
@@ -275,6 +301,8 @@ nonisolated struct FilmLook: Hashable, Sendable, Codable {
         customization.strengths = strengths.clamped
         customization.blackAndWhite = blackAndWhite
         customization.exposure = exposure
+        customization.shadows = shadows
+        customization.highlights = highlights
         customization.modelVersion = modelVersion
         return customization
     }

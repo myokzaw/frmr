@@ -12,7 +12,11 @@ Plan: `frmr-v1.2.2-spec.md`.
 - **Your photos keep their look.** Each photo now remembers which version of the film look it was made with. Photos taken before this update look exactly as they did, even after future changes to the film stocks. Opening an older photo in the editor moves it to the newest look; Save keeps it, and Discard leaves the photo as it was.
 - The app's name is now written **Frmrr** in Settings and in the camera and photo-library permission prompts. The photo-library prompt used to show an old name, "Filum".
 - **Lighter, more open shadows.** Every film stock shows more detail in dark areas, and the deepest blacks stay black with only a slight lift. Each stock keeps its character: Portrait is the most open, Slide and Cine 500T the deepest. Every print's blacks are a little lighter, with Matte still the most faded and Projection the deepest. Photos taken before this update keep their old look.
-- Still to come in 1.2.2: Shadows and Highlights tools, a crop tool, and importing photos from your gallery.
+- **Shadows and Highlights in the editor.** Two new tools after Exposure, from −100 to +100. Shadows lifts or deepens the dark tones; Highlights recovers or brightens the bright ones. They work on every film and with film Off, and at 0 your photo looks exactly as before.
+- **Sliders you can feel.** Exposure, Shadows, Highlights and the effect sliders now work like the Photos app. The marker stays in the middle and you slide the ruler under it, with a click on every step and a firmer one at 0 and the main marks, so small changes are easy. Touching a slider no longer makes it jump.
+- The camera's exposure control uses the same ruler, with a click every third of a stop.
+- Shadows is about twice as strong at either end.
+- Still to come in 1.2.2: a crop tool, and importing photos from your gallery.
 
 ## v5.2.1 — fixes (in progress)
 

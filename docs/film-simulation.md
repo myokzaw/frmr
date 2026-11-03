@@ -70,6 +70,8 @@ Render time (strip slot, review, thumbnail, Download)
                                            → added in LINEAR light
   5. Film cube     (gain baked in)         colour matrix → ×2^EV → negative curve → print curve
                                            → shadow toe + black/white normalisation  (FilmModel)
+  5b. Shadows / Highlights (F-122-C)       one monotone tone curve on the printed picture, right after the cube
+                                           (stock Off: right after the plain gain / B&W). Skipped at 0 and 0.
   6. Vignette      × strengths.vignette    on the printed picture
   7. Haze (bloom)  × strengths.haze        blurred copy, screen-blended
   8. Light leak    × strengths.lightLeak   seeded warm glows outside a frame edge, screen-blended
@@ -86,6 +88,11 @@ The order is part of the spec and is deliberate:
 - Grain follows from the print density, as before.
 - With **stock Off** the gain is a plain linear gain (`applyLinearGain`) and hard-clips like any gain; B&W-only (`CIPhotoEffectMono`) follows it.
 - **0 EV changes nothing:** gain 1 skips the stage, uses the same cube key, and `FilmLook.altersPhoto` stays false for Off + 0 EV. `exposure` ≠ 0 makes a look "altered" even with stock Off.
+
+**Shadows and Highlights (v1.2.2 F-122-C):** `FilmLook.shadows` / `highlights` (−100…+100, step 1, 0 = off, old looks decode 0) are a separate stage, not part of the cube: `ToneStage` (`FilmModel.swift`) is one curve on the printed picture's encoded value, applied by `ImageProcessor.applyToneStage` as a 256-entry `CIColorCurves` table straight after the cube (stock Off: after the plain gain or B&W). **Why not in the cube:** a colour-matrix stock needs a full 64³ build per cube key, so folding the tools in would rebuild it every scrub tick; the table is 256 floats built per render, so scrubbing costs the same as Exposure. The live preview and the full-resolution Download share `filmLook(...)`, so they match.
+- Pivot at encoded 0.5 (`ToneControl.pivotEncoded`, between where the stocks land mid grey, 118–140/255). **Shadows** acts only below it: + adds a bump `(1−t)²(0.15 + 3t)` times 0.26 at +100 (lifts black a little, peaks in the low shadows); − multiplies by `1 − 0.7(1−t)²` at −100, so 0 stays 0 and deep tones stay distinct. **Highlights** acts only above it: + adds `u²(1−u)` (white stays 1); − subtracts a blend of that bump and a smoothstep, so white drops slightly and the roll-off is longer. Each half is monotone, so the curve is.
+- Recipe: to tune the feel, edit `Constants.ImageProcessing.Film.ToneControl` (the `*Amount` and shape numbers). Keep the slope positive; `ToneStageCurveTests` checks it.
+- Zero-zero skips the stage (pixel-identical). Model versions: applies to any version (the editor works at the current one).
 
 **Strength 0 skips the stage entirely**, which is why "0" is pixel-identical to "off". Tests enforce this.
 
@@ -281,6 +288,7 @@ Random elements (grain, light leak) use `SeededRandom` (SplitMix64). Swift's `Ha
 | `FilmEffectsTests` | Halation, grain, haze, light-leak behaviour, and seed determinism (parameterised) |
 | `OffIsIdentityTests` | Strength 0 / stock Off = pixel-identical, for every effect, stock and render surface (parameterised) |
 | `FilmLookTests` | `FilmLook` migration, strength 1 = v4, vignette; exposure (v5.2): snapping, Codable and old data, monotonic brightening, shoulder roll-off, plain gain for Off, halation reading exposed light, determinism |
+| `ShadowsHighlightsTests` (F-122-C) | Tone curve monotone and one-sided, every stock at ±100, floor at −100 Shadows, Off, Codable, snapping, editor wiring |
 | `FilmCalibrationTests` (also) | Stock swatch colours (v5.2) |
 | `ImageProcessorTests` | Orientation mapping (8 cases), slot resize, HEIC tag |
 | `StripLookRegressionTests`, `FilmAtCaptureRegressionTests` (QA-owned) | Orientation across every stock × B&W × effect, and determinism |

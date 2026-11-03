@@ -833,3 +833,54 @@ nonisolated enum LightLeak {
         }
     }
 }
+
+// MARK: Shadows and Highlights (v1.2.2 F-122-C)
+
+/// The Shadows and Highlights tools' curve: one monotone map of the print's
+/// encoded output, applied right after the film cube. Shadows acts only
+/// below the encoded mid grey, Highlights only above it, so the two never
+/// interact and the curve stays monotone whenever each half does.
+nonisolated enum ToneStage {
+    typealias T = Constants.ImageProcessing.Film.ToneControl
+
+    /// The encoded value the print puts mid grey at.
+    static let pivot: Double = T.pivotEncoded
+
+    /// Encoded `value` (0...1) through the curve; `shadows` and `highlights`
+    /// are -1...+1 (the tools' -100...+100). 0 and 0 returns `value`.
+    static func apply(_ value: Double, shadows: Double, highlights: Double) -> Double {
+        var out = value
+        let t = min(max(value / pivot, 0), 1)
+        if shadows > 0 {
+            // Opens the shadows and lifts the black a little
+            out += shadows * T.shadowOpenAmount * (1 - t) * (1 - t) * (T.shadowOpenBlackShare + T.shadowOpenShape * t)
+        } else if shadows < 0 {
+            // A share of the tone, never a subtraction: 0 stays 0 and deep
+            // tones stay distinct instead of clipping
+            out *= 1 - -shadows * T.shadowDeepenAmount * (1 - t) * (1 - t)
+        }
+        let u = min(max((value - pivot) / (1 - pivot), 0), 1)
+        let bump = 6.75 * u * u * (1 - u)
+        if highlights > 0 {
+            out += highlights * T.highlightBoostAmount * bump
+        } else if highlights < 0 {
+            let smooth = u * u * (3 - 2 * u)
+            out -= -highlights * T.highlightRecoverAmount
+                * (T.highlightRecoverBumpShare * bump + (1 - T.highlightRecoverBumpShare) * smooth)
+        }
+        return out
+    }
+
+    /// Float32 RGB table for `CIColorCurves`: the same curve in all three channels.
+    static func table(shadows: Double, highlights: Double) -> Data {
+        let count = T.tableSize
+        var floats: [Float] = []
+        floats.reserveCapacity(count * 3)
+        for index in 0..<count {
+            let input = Double(index) / Double(count - 1)
+            let output = Float(min(max(apply(input, shadows: shadows, highlights: highlights), 0), 1))
+            floats.append(contentsOf: [output, output, output])
+        }
+        return floats.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+}

@@ -22,6 +22,14 @@ nonisolated enum ToolRing {
         return min(max((strength - range.lowerBound) / span, 0), 1)
     }
 
+    /// Shadows and Highlights: no ring at 0, otherwise |value| as a share of
+    /// the range's limit.
+    static func fraction(tone: Double, range: ClosedRange<Double> = FilmLook.toneRange) -> Double? {
+        let limit = max(abs(range.lowerBound), abs(range.upperBound))
+        guard tone != 0, limit > 0 else { return nil }
+        return min(abs(tone) / limit, 1)
+    }
+
     /// Exposure: no ring at 0 EV, otherwise how far it is from 0 as a share
     /// of the widest setting either way.
     static func fraction(exposure: Double, range: ClosedRange<Double> = FilmLook.exposureRange) -> Double? {

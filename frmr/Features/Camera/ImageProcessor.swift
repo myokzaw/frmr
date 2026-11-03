@@ -124,7 +124,8 @@ nonisolated enum ImageProcessor {
         // (`effective(forFrameStock:)`) before calling, so a nil here has no
         // frame stock to fall back on and renders as Off
         let stock = customization.filmStock ?? .none
-        guard customization.blackAndWhite || stock != .none || customization.exposure != 0 else {
+        guard customization.blackAndWhite || stock != .none || customization.exposure != 0
+            || customization.shadows != 0 || customization.highlights != 0 else {
             return image
         }
         guard
@@ -305,6 +306,9 @@ nonisolated enum ImageProcessor {
             mono.inputImage = output
             output = mono.outputImage ?? skipping("B&W (no stock)", output)
         }
+        // F-122-C: Shadows and Highlights, one monotone curve on the printed
+        // picture right after the cube (or after the plain B&W / gain for Off)
+        output = applyToneStage(to: output, shadows: customization.shadows, highlights: customization.highlights)
         if stock != .none {
             // v5 F5 overturns OPEN: v4-4: the vignette sits after the cube,
             // on the printed picture, and defaults to 0
@@ -508,6 +512,20 @@ nonisolated enum ImageProcessor {
         matrix.bVector = CIVector(x: 0, y: 0, z: g, w: 0)
         matrix.aVector = CIVector(x: 0, y: 0, z: 0, w: 1)
         return matrix.outputImage ?? skipping("Exposure gain", input)
+    }
+
+    // MARK: Shadows and Highlights (v1.2.2 F-122-C)
+
+    /// The tools' tone curve as a 256-entry lookup in encoded sRGB. 0 and 0
+    /// returns the input untouched, so the look is pixel-identical without them.
+    static func applyToneStage(to input: CIImage, shadows: Double, highlights: Double) -> CIImage {
+        guard shadows != 0 || highlights != 0 else { return input }
+        let curves = CIFilter.colorCurves()
+        curves.inputImage = input
+        curves.curvesDomain = CIVector(x: 0, y: 1)
+        curves.curvesData = ToneStage.table(shadows: shadows / FilmLook.toneRange.upperBound, highlights: highlights / FilmLook.toneRange.upperBound)
+        curves.colorSpace = stripOutputColorSpace
+        return curves.outputImage?.cropped(to: input.extent) ?? skipping("Shadows and Highlights", input)
     }
 
     // MARK: Film model (v4 F2/F3)

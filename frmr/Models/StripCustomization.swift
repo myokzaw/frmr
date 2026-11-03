@@ -21,6 +21,9 @@ nonisolated struct StripCustomization: Equatable, Sendable {
     /// Exposure compensation in EV (v5.2 F-EXP). Per photo only: it comes
     /// from a Roll photo's `FilmLook`, never from the strip-wide settings.
     var exposure: Double = 0
+    /// Shadows and Highlights (F-122-C), -100...+100. Per photo only, like exposure.
+    var shadows: Double = 0
+    var highlights: Double = 0
     /// The film-model version this customization renders with (F-122-B). Comes
     /// from a Roll photo's `FilmLook`; strip-level customizations and fresh
     /// captures use the current version.

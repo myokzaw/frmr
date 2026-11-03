@@ -31,7 +31,10 @@ struct PhotoEditView: View {
             toolControl
                 .frame(minHeight: UI.toolPanelHeight, alignment: .top)
             ToolIconBar(
-                items: Self.toolItems(look: edit.look, exposureReadout: edit.exposureReadout),
+                items: Self.toolItems(
+                    look: edit.look, exposureReadout: edit.exposureReadout,
+                    shadowsReadout: edit.shadowsReadout, highlightsReadout: edit.highlightsReadout
+                ),
                 selectedID: edit.tool.id,
                 identifierPrefix: "edit.tool",
                 selectedColor: theme.accentFill,
@@ -180,6 +183,8 @@ struct PhotoEditView: View {
     @ViewBuilder private var toolControl: some View {
         switch edit.tool {
         case .exposure: exposureScrubber
+        case .shadows: shadowsScrubber
+        case .highlights: highlightsScrubber
         case .film: filmPreviews
         case .print: printControls
         case .effect(let effect): effectScrubber(for: effect)
@@ -199,6 +204,39 @@ struct PhotoEditView: View {
             scale: .exposure,
             valueText: edit.exposureReadout,
             resetHint: "Returns to 0 EV"
+        )
+        .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    // F-122-C: −100…+100 in steps of 1, firm ticks at 0 and ±50
+    private var shadowsScrubber: some View {
+        EffectScrubber(
+            title: "Shadows",
+            value: Binding(get: { edit.shadows }, set: edit.setShadows),
+            defaultValue: 0,
+            hint: "Lifts or deepens the shadows",
+            identifier: "edit.shadows",
+            textColor: theme.text,
+            tint: theme.accentFill,
+            scale: .tone,
+            valueText: edit.shadowsReadout,
+            resetHint: "Returns to 0"
+        )
+        .padding(.horizontal, UI.horizontalPadding)
+    }
+
+    private var highlightsScrubber: some View {
+        EffectScrubber(
+            title: "Highlights",
+            value: Binding(get: { edit.highlights }, set: edit.setHighlights),
+            defaultValue: 0,
+            hint: "Recovers or brightens the highlights",
+            identifier: "edit.highlights",
+            textColor: theme.text,
+            tint: theme.accentFill,
+            scale: .tone,
+            valueText: edit.highlightsReadout,
+            resetHint: "Returns to 0"
         )
         .padding(.horizontal, UI.horizontalPadding)
     }
@@ -360,16 +398,28 @@ struct PhotoEditView: View {
 // MARK: Tool bar items
 
 extension PhotoEditView {
-    /// What the tool bar offers, in order (Exposure, Film, Print, then the
+    /// What the tool bar offers, in order (Exposure, Shadows, Highlights, Film, Print, then the
     /// five effects), each with its VoiceOver value and value ring. Pure, so
     /// the rings are unit-testable (replaces the v5.1 modified-tools set).
-    nonisolated static func toolItems(look: FilmLook, exposureReadout: String) -> [ToolIconItem] {
+    nonisolated static func toolItems(
+        look: FilmLook, exposureReadout: String, shadowsReadout: String = "0", highlightsReadout: String = "0"
+    ) -> [ToolIconItem] {
         let effects = look.stock.hasEffects
         let fixed = [
             ToolIconItem(
                 id: "exposure", title: "Exposure", systemImage: "plus.forwardslash.minus",
                 hint: "Over- or under-expose the film", value: exposureReadout,
                 ring: ToolRing.fraction(exposure: look.exposure)
+            ),
+            ToolIconItem(
+                id: "shadows", title: "Shadows", systemImage: "circle.lefthalf.filled",
+                hint: "Lift or deepen the shadows", value: shadowsReadout,
+                ring: ToolRing.fraction(tone: look.shadows)
+            ),
+            ToolIconItem(
+                id: "highlights", title: "Highlights", systemImage: "sun.max",
+                hint: "Recover or brighten the highlights", value: highlightsReadout,
+                ring: ToolRing.fraction(tone: look.highlights)
             ),
             ToolIconItem(id: "film", title: "Film", systemImage: "film", hint: "Choose the film stock", value: look.stock.label),
             ToolIconItem(

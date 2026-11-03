@@ -262,6 +262,36 @@ nonisolated extension Constants {
                 static let step: Double = 1.0 / 3.0
             }
 
+            // MARK: Shadows and Highlights (v1.2.2 F-122-C)
+            enum ToneControl {
+                /// The editor's Shadows and Highlights tools: -100...+100 in steps of 1
+                static let range: ClosedRange<Double> = -100...100
+                static let step: Double = 1
+                /// The scrubber's firm ticks and VoiceOver notch
+                static let accessibilityStep: Double = 5
+                static let majorStep: Double = 50
+                /// Entries in the tone table handed to Core Image (per channel)
+                static let tableSize = 256
+                /// Both curves act in the print's encoded output, around this
+                /// encoded value, between where the stocks land mid grey
+                /// (118 to 140 of 255 on a grey 0.18 input)
+                static let pivotEncoded: Double = 0.5
+                /// Shadows +: lift at the full setting at its peak, and the
+                /// shape (1-t)^2 (blackShare + peakShape * t) under the pivot
+                static let shadowOpenAmount: Double = 0.26
+                static let shadowOpenBlackShare: Double = 0.15
+                static let shadowOpenShape: Double = 3
+                /// Shadows -: the share removed from a tone at black-side
+                /// at the full setting; multiplicative, so black never clips
+                static let shadowDeepenAmount: Double = 0.7
+                /// Highlights +: lift at its peak (u^2 (1-u) shape, 1 stays 1)
+                static let highlightBoostAmount: Double = 0.07
+                /// Highlights -: drop at its peak, blending a peaked bump with
+                /// a smoothstep so the white drops a little (long roll-off)
+                static let highlightRecoverAmount: Double = 0.16
+                static let highlightRecoverBumpShare: Double = 0.65
+            }
+
             // MARK: Effect strengths (v5 F5)
             // One scale for every effect: 1 is exactly the v4 strength, 0 is
             // pixel-identical to the effect being off.

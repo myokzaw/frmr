@@ -13,21 +13,39 @@ nonisolated enum ScrubberMath {
         return min(max(range.lowerBound + steps * step, range.lowerBound), range.upperBound)
     }
 
-    /// A touch at `x` along a ruler `width` wide, as a snapped value.
-    static func value(forX x: CGFloat, width: CGFloat, in range: ClosedRange<Double>, step: Double) -> Double {
-        guard width > 0 else { return range.lowerBound }
-        let fraction = min(max(Double(x / width), 0), 1)
-        return snapped(range.lowerBound + fraction * (range.upperBound - range.lowerBound), in: range, step: step)
+    /// The unsnapped, clamped value after the ruler is dragged `translation`
+    /// points from where the drag began. The ruler follows the finger, so
+    /// dragging left reads a higher value (as in Photos).
+    static func rawValue(
+        afterDrag translation: CGFloat, from start: Double, spacing: CGFloat, step: Double, range: ClosedRange<Double>
+    ) -> Double {
+        guard spacing > 0 else { return start }
+        let moved = start - Double(translation / spacing) * step
+        return min(max(moved, range.lowerBound), range.upperBound)
     }
 
-    /// 0…1 position of `value` along the ruler.
-    static func fraction(of value: Double, in range: ClosedRange<Double>) -> Double {
-        let span = range.upperBound - range.lowerBound
-        guard span > 0 else { return 0 }
-        return min(max((value - range.lowerBound) / span, 0), 1)
+    /// `rawValue(afterDrag:...)` snapped to a notch; no movement, no change.
+    static func value(
+        afterDrag translation: CGFloat, from start: Double, spacing: CGFloat, step: Double, range: ClosedRange<Double>
+    ) -> Double {
+        snapped(rawValue(afterDrag: translation, from: start, spacing: spacing, step: step, range: range), in: range, step: step)
     }
 
-    /// Which 10% mark the value sits on; the haptic fires when it changes.
+    /// The tick indices (0 = range start) that fall inside a ruler `width`
+    /// wide when `value` sits under its centre; nil when none do.
+    static func visibleTicks(
+        around value: Double, width: CGFloat, spacing: CGFloat, in range: ClosedRange<Double>, step: Double
+    ) -> ClosedRange<Int>? {
+        let count = stepCount(in: range, step: step)
+        guard spacing > 0, width > 0, count >= 0 else { return nil }
+        let center = (value - range.lowerBound) / step
+        let half = Double(width / 2 / spacing)
+        let low = max(Int((center - half).rounded(.down)), 0)
+        let high = min(Int((center + half).rounded(.up)), count)
+        return low <= high ? low...high : nil
+    }
+
+    /// Which notch the value sits on; the haptic fires when it changes.
     static func hapticIndex(for value: Double, hapticStep: Double) -> Int {
         Int((value / hapticStep).rounded())
     }
@@ -37,13 +55,28 @@ nonisolated enum ScrubberMath {
         "\(Int((value * scale).rounded()))%"
     }
 
+    /// Whether notch `index` is the reference or a firm step.
+    static func isFirm(index: Int, scale: ScrubberScale) -> Bool {
+        let value = Double(index) * scale.step
+        if abs(value - scale.reference) < scale.step / 2 { return true }
+        guard let firmStep = scale.firmStep else { return false }
+        let firm = value / firmStep
+        return abs(firm - firm.rounded()) * firmStep < scale.step / 2
+    }
+
     /// Height class of the tick at `index`: the reference mark, every
     /// 10%, or a plain 5%.
     enum TickKind { case reference, major, minor }
 
-    static func tickKind(at index: Int, in range: ClosedRange<Double>, step: Double, hapticStep: Double, reference: Double) -> TickKind {
+    static func tickKind(
+        at index: Int, in range: ClosedRange<Double>, step: Double, hapticStep: Double, reference: Double, firmStep: Double? = nil
+    ) -> TickKind {
         let value = range.lowerBound + Double(index) * step
         if abs(value - reference) < step / 2 { return .reference }
+        if let firmStep {
+            let firm = value / firmStep
+            if abs(firm - firm.rounded()) * firmStep < step / 2 { return .reference }
+        }
         let marks = value / hapticStep
         return abs(marks - marks.rounded()) < 0.01 ? .major : .minor
     }
@@ -57,20 +90,27 @@ nonisolated struct ScrubberScale: Equatable {
     var step: Double
     /// Taller ticks every this much.
     var majorStep: Double
-    /// A light haptic every this much.
-    var hapticStep: Double
+    /// Points between two ticks: small enough that a short move is one
+    /// notch, wide enough that the whole range takes a couple of swipes.
+    var tickSpacing: CGFloat
     /// The firm tick and the stronger haptic.
     var reference: Double
     /// Lit ticks run from the reference to the value (exposure either side
     /// of 0) rather than from the start of the ruler.
     var fillsFromReference = false
+    /// More firm ticks (and stronger haptics) at every multiple of this, as
+    /// well as at the reference (Shadows and Highlights: ±50, exposure:
+    /// whole stops).
+    var firmStep: Double?
+    /// What VoiceOver moves by per swipe; nil is one `step`.
+    var accessibilityStep: Double?
 
     /// Effect strengths: 0–150% in 5% ticks, taller every 10%, firm at 100%.
     static let strength = ScrubberScale(
         range: FilmLook.strengthRange,
         step: Constants.ScrubberUI.step,
         majorStep: Constants.ScrubberUI.hapticStep,
-        hapticStep: Constants.ScrubberUI.hapticStep,
+        tickSpacing: Constants.ScrubberUI.strengthTickSpacing,
         reference: Constants.ScrubberUI.referenceValue
     )
 
@@ -80,17 +120,45 @@ nonisolated struct ScrubberScale: Equatable {
         range: FilmLook.exposureRange,
         step: FilmLook.exposureStep,
         majorStep: Constants.ScrubberUI.exposureMajorStep,
-        hapticStep: FilmLook.exposureStep,
+        tickSpacing: Constants.ScrubberUI.exposureTickSpacing,
         reference: 0,
-        fillsFromReference: true
+        fillsFromReference: true,
+        firmStep: Constants.ScrubberUI.exposureMajorStep
+    )
+
+    /// The camera's exposure compensation: the same ruler over the
+    /// camera's own range and ⅓-stop step.
+    static let cameraExposure = ScrubberScale(
+        range: Double(Constants.Camera.exposureBiasMin)...Double(Constants.Camera.exposureBiasMax),
+        step: Double(Constants.Camera.exposureStep),
+        majorStep: Constants.ScrubberUI.exposureMajorStep,
+        tickSpacing: Constants.ScrubberUI.exposureTickSpacing,
+        reference: 0,
+        fillsFromReference: true,
+        firmStep: Constants.ScrubberUI.exposureMajorStep
+    )
+
+    /// Shadows and Highlights (F-122-C): -100...+100, a tick per 1, taller
+    /// every 10, firm at 0 and ±50, VoiceOver in steps of 5.
+    static let tone = ScrubberScale(
+        range: FilmLook.toneRange,
+        step: FilmLook.toneStep,
+        majorStep: Constants.ScrubberUI.toneMajorStep,
+        tickSpacing: Constants.ScrubberUI.toneTickSpacing,
+        reference: 0,
+        fillsFromReference: true,
+        firmStep: Constants.ImageProcessing.Film.ToneControl.majorStep,
+        accessibilityStep: Constants.ImageProcessing.Film.ToneControl.accessibilityStep
     )
 }
 
 // v5.1 F8: one tick-mark scrubber adjusts whichever tool is selected, like
 // the Photos editor: a ruler with a value readout, a light haptic per notch
 // and a stronger one at the reference (100% for an effect, 0 EV for
-// exposure). Touch or drag anywhere on the ruler; double-tap, or the small
-// reset icon, returns to the default. For VoiceOver the ruler is one
+// exposure). The marker stays at the centre and the ruler slides under it:
+// drag left to raise the value, right to lower it, relative to where the
+// drag began, so a touch alone changes nothing and small moves give single
+// steps. Double-tap, or the small reset icon, returns to the default. For VoiceOver the ruler is one
 // adjustable element (one notch per swipe), and Reset is a named action.
 struct EffectScrubber: View {
     let title: String
@@ -105,8 +173,16 @@ struct EffectScrubber: View {
     /// The readout; nil shows a percentage.
     var valueText: String?
     var resetHint = "Returns to this film's default"
+    /// False where the surrounding panel already shows title, readout and
+    /// its own steps (the camera's exposure sheet).
+    var showsHeader = true
 
     private typealias UI = Constants.ScrubberUI
+
+    /// Where the drag began and the unsnapped value under the finger, so
+    /// the ruler glides between notches.
+    @State private var dragStart: Double?
+    @State private var dragPosition: Double?
 
     private struct HapticMark: Equatable {
         let title: String
@@ -118,7 +194,7 @@ struct EffectScrubber: View {
 
     var body: some View {
         VStack(spacing: UI.headerSpacing) {
-            header
+            if showsHeader { header }
             ruler
         }
         .opacity(isEnabled ? 1 : UI.disabledOpacity)
@@ -157,30 +233,45 @@ struct EffectScrubber: View {
 
     private var ruler: some View {
         GeometryReader { geometry in
-            let trackWidth = max(geometry.size.width - UI.rulerInset * 2, 1)
             ZStack {
                 Canvas { context, size in
                     drawTicks(in: &context, size: size)
                 }
-                marker(trackWidth: trackWidth)
+                // The marker never moves; the ruler does
+                Capsule()
+                    .fill(tint)
+                    .frame(width: UI.markerWidth, height: UI.markerHeight)
+                    .allowsHitTesting(false)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        set(ScrubberMath.value(forX: drag.location.x - UI.rulerInset, width: trackWidth, in: scale.range, step: scale.step))
+                        let start = dragStart ?? value
+                        dragStart = start
+                        let position = ScrubberMath.rawValue(
+                            afterDrag: drag.translation.width, from: start, spacing: scale.tickSpacing,
+                            step: scale.step, range: scale.range)
+                        dragPosition = position
+                        set(position)
+                    }
+                    .onEnded { _ in
+                        dragStart = nil
+                        dragPosition = nil
                     }
             )
             .simultaneousGesture(TapGesture(count: 2).onEnded { reset() })
         }
         .frame(height: UI.rulerHeight)
-        // Switching tool changes the value without a scrub: no tick for that
-        .sensoryFeedback(trigger: HapticMark(title: title, index: ScrubberMath.hapticIndex(for: value, hapticStep: scale.hapticStep))) { old, new in
+        .clipped()
+        // A tick per notch; switching tool changes the value without a
+        // scrub, so no tick for that
+        .sensoryFeedback(trigger: HapticMark(title: title, index: ScrubberMath.hapticIndex(for: value, hapticStep: scale.step))) { old, new in
             guard old.title == new.title else { return nil }
-            return new.index == ScrubberMath.hapticIndex(for: scale.reference, hapticStep: scale.hapticStep)
+            return ScrubberMath.isFirm(index: new.index, scale: scale)
                 ? .impact(weight: .medium)
-                : .impact(weight: .light)
+                : .selection
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
@@ -188,8 +279,8 @@ struct EffectScrubber: View {
         .accessibilityHint(hint)
         .accessibilityAdjustableAction { direction in
             switch direction {
-            case .increment: set(value + scale.step)
-            case .decrement: set(value - scale.step)
+            case .increment: set(value + (scale.accessibilityStep ?? scale.step))
+            case .decrement: set(value - (scale.accessibilityStep ?? scale.step))
             @unknown default: break
             }
         }
@@ -197,30 +288,21 @@ struct EffectScrubber: View {
         .accessibilityIdentifier(identifier)
     }
 
-    private func marker(trackWidth: CGFloat) -> some View {
-        let position = ScrubberMath.fraction(of: value, in: scale.range) * trackWidth + UI.rulerInset
-        return GeometryReader { geometry in
-            Capsule()
-                .fill(tint)
-                .frame(width: UI.markerWidth, height: UI.markerHeight)
-                .position(x: position, y: geometry.size.height / 2)
-        }
-        .allowsHitTesting(false)
-    }
-
     private func drawTicks(in context: inout GraphicsContext, size: CGSize) {
-        let count = ScrubberMath.stepCount(in: scale.range, step: scale.step)
-        guard count > 0 else { return }
-        let trackWidth = size.width - UI.rulerInset * 2
+        let position = dragPosition ?? value
+        guard let visible = ScrubberMath.visibleTicks(
+            around: position, width: size.width, spacing: scale.tickSpacing, in: scale.range, step: scale.step
+        ) else { return }
         // Ticks fill from the reference towards the value, so a negative EV
         // reads as a bar to the left of 0
         let low = min(value, scale.reference) - scale.step / 2
         let high = max(value, scale.reference) + scale.step / 2
-        for index in 0...count {
-            let x = UI.rulerInset + trackWidth * CGFloat(index) / CGFloat(count)
+        for index in visible {
             let tickValue = scale.range.lowerBound + Double(index) * scale.step
+            let x = size.width / 2 + CGFloat((tickValue - position) / scale.step) * scale.tickSpacing
             let kind = ScrubberMath.tickKind(
-                at: index, in: scale.range, step: scale.step, hapticStep: scale.majorStep, reference: scale.reference
+                at: index, in: scale.range, step: scale.step, hapticStep: scale.majorStep, reference: scale.reference,
+                firmStep: scale.firmStep
             )
             let height: CGFloat
             switch kind {

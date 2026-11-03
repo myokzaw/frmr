@@ -108,7 +108,7 @@ final class StripScreenUITests: XCTestCase {
         let scrubber = app.descendants(matching: .any)["strip.scrubber"]
         XCTAssertTrue(scrubber.waitForExistence(timeout: timeout))
         XCTAssertEqual(scrubber.value as? String, "100%")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: true)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "150%" }, "Grain scrubber should reach 150%")
         saveScreenshot(named: "strip-screen-grain-150")
         app.buttons["strip.tool.film"].tap()
