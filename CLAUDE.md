@@ -4,7 +4,7 @@ You are a senior iOS engineer building a minimalist photography journaling app. 
 
 ## What this app is
 
-A journaling app where users take photos on a chosen film stock, receive a written prompt, write a short reflection, and collect entries into photobooth-style strips. Since v4 the film look is physically based: per-layer characteristic curves, a negative → print chain, halation, exposure-dependent grain, bloom and light leaks, all on device (`frmr-v4-spec.md`). 1.2.2 (in testing) adds lighter shadows (film model v2, with old photos version-pinned), Shadows/Highlights, Contrast/Saturation, crop and rotate, RAW-preserving digital zoom, and gallery import into the Roll (`frmr-v1.2.2-spec.md`). No AI. No network. No automation. Every action is user-initiated and intentional.
+A journaling app where users take photos on a chosen film stock, receive a written prompt, write a short reflection, and collect entries into photobooth-style strips. Since v4 the film look is physically based: per-layer characteristic curves, a negative → print chain, halation, exposure-dependent grain, bloom and light leaks, all on device (`frmr-v4-spec.md`). 1.2.2 adds lighter shadows (film model v2, with old photos version-pinned), Shadows/Highlights, Contrast/Saturation, crop and rotate, RAW-preserving digital zoom, and gallery import into the Roll (`frmr-v1.2.2-spec.md`). No AI. No network. No automation. Every action is user-initiated and intentional.
 
 ## Hard constraints — never violate these
 

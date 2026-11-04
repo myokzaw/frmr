@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftData
 
-// OPEN: app display name is "Filum" as a placeholder — final name TBD
 @main
 struct FrmrApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate

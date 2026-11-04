@@ -2,7 +2,7 @@
 
 What changed in each version of frmr, in plain language. Technical detail, decisions and test results live in the matching `frmr-v*-spec.md`.
 
-## 1.2.2 — fixes, film look and gallery import (in progress, branch `v1.2.2`)
+## 1.2.2 — fixes, film look and gallery import
 
 Plan: `frmr-v1.2.2-spec.md`.
 
@@ -25,6 +25,7 @@ Plan: `frmr-v1.2.2-spec.md`.
 - **Roomier, smoother controls.** Exposure and Zoom now sit in one clean row with a bigger readout and a longer ruler. Zoom glides as you pinch or scrub and settles on 0.2× steps, and a photo taken mid-pinch is cropped to exactly what you see. White balance has more breathing room.
 - **Import from your library.** The + button in the Roll brings in up to 10 photos. Edit each in turn, or skip it, or apply one look to the rest. Imports start with no film look, are dated today, carry no location data, and show an Imported mark. RAW photos are developed from the RAW, like camera shots.
 - **Contrast and Saturation in the editor.** Two new tools next to Shadows and Highlights, from −100 to +100. Saturation boosts muted colours more than strong ones and holds back on skin tones; all the way down is black and white, and it is hidden on black-and-white looks. Contrast goes as far as true black and pure white, or down to a faded print. Existing photos look the same until you move a slider.
+- **Clearer permission prompt.** The photo library prompt now says Frmrr saves your photos as well as your film strips.
 - **Tool rings show direction.** The ring around Exposure, Shadows, Highlights, Contrast and Saturation runs clockwise when the value goes up and anticlockwise when it goes down.
 - **Select as many photos as you like in the Roll.** Delete and Export now work on any number of photos, not just 4. Make strip turns off above 4, and a note above the bar says why. Big exports use temporary files instead of memory.
 
