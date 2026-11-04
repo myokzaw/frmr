@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftData
 import SwiftUI
 
@@ -21,6 +22,9 @@ struct RollView: View {
     @State private var viewModel = RollViewModel()
     @State private var edit: PhotoEditViewModel?
     @State private var stripSource: RollStripSource?
+    // F-122-E: the system picker's selection, then the batch editor
+    @State private var importPicks: [PhotosPickerItem] = []
+    @State private var importSession: GalleryImportSession?
     // v5.1-7: deleting selected photos asks what to do with linked entries;
     // nil = the count couldn't be read, so the question offers both answers
     @State private var isDeletePromptPresented = false
@@ -62,12 +66,28 @@ struct RollView: View {
             .padding(.horizontal, Constants.DesignUI.gutter)
         }
         .frmrTabBarScrollInsets()
+        .safeAreaInset(edge: .bottom) { stripLimitNote }
         .overlay {
             if photos.isEmpty {
                 EmptyRollView(theme: theme, onTakePhoto: { selectAppTab(.camera) })
             }
         }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if !viewModel.isSelecting {
+                    PhotosPicker(
+                        selection: $importPicks,
+                        maxSelectionCount: Constants.GalleryImport.maxPhotos,
+                        matching: .images,
+                        preferredItemEncoding: .current
+                    ) {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Import photos")
+                    .accessibilityHint("Adds photos from your library to the roll")
+                    .accessibilityIdentifier("roll.import")
+                }
+            }
             // Cancel takes Select's place (the leading edge holds the
             // Library's tab switch)
             ToolbarItem(placement: .primaryAction) {
@@ -99,6 +119,10 @@ struct RollView: View {
         .fullScreenCover(item: $edit) { session in
             ReEditFlowView(session: session) { edit = nil }
         }
+        .onChange(of: importPicks) { _, picks in beginImport(picks) }
+        .fullScreenCover(item: $importSession) { session in
+            GalleryImportFlowView(session: session) { importSession = nil }
+        }
         .fullScreenCover(item: $stripSource) { source in
             StripView(items: source.items, isPhotobooth: false, onDone: viewModel.endSelecting)
         }
@@ -122,15 +146,17 @@ struct RollView: View {
         Text(RollSelectionText.summary(count: viewModel.selectionCount, exportedCount: viewModel.lastExportCount))
             .font(.frmrMeta)
             .foregroundStyle(theme.textMuted)
+            .lineLimit(1)
             .fixedSize()
+            .padding(.horizontal, Constants.DesignUI.Space.m)
             .accessibilityLabel("\(viewModel.selectionCount) selected")
             .accessibilityIdentifier("roll.selectionSummary")
         Spacer()
         Button(action: makeStrip) {
             Label("Make strip", systemImage: "film.stack")
         }
-        .disabled(!isEnabled)
-        .accessibilityHint("Builds a film strip from the selected photos")
+        .disabled(!isEnabled || !RollViewModel.canMakeStrip(selectedCount: viewModel.selectionCount))
+        .accessibilityHint("Builds a film strip from up to \(Constants.Roll.maxPhotosPerStrip) selected photos")
         .accessibilityIdentifier("roll.makeStrip")
         Button(role: .destructive, action: askToDelete) {
             Label("Delete", systemImage: "trash")
@@ -139,6 +165,21 @@ struct RollView: View {
         .disabled(!isEnabled)
         .accessibilityHint("Deletes the selected photos from your roll")
         .accessibilityIdentifier("roll.delete")
+    }
+
+    // Says why Make strip has turned off, above the bar where it has room
+    @ViewBuilder private var stripLimitNote: some View {
+        if viewModel.isSelecting, let note = RollSelectionText.stripLimitNote(count: viewModel.selectionCount) {
+            Text(note)
+                .font(.frmrMeta)
+                .foregroundStyle(theme.text)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, Constants.DesignUI.Space.m)
+                .padding(.vertical, Constants.DesignUI.Space.s)
+                .frmrAdaptiveGlassCapsule()
+                .padding(.bottom, Constants.DesignUI.Space.s)
+                .accessibilityIdentifier("roll.stripLimitNote")
+        }
     }
 
     // MARK: Delete prompt (v5.1-7)
@@ -181,7 +222,7 @@ struct RollView: View {
 
     private func tapped(_ photo: RollPhoto) {
         if viewModel.isSelecting {
-            viewModel.toggleSelection(of: photo, limit: Constants.Roll.maxPhotosPerStrip)
+            viewModel.toggleSelection(of: photo)
         } else {
             open(photo)
         }
@@ -193,6 +234,15 @@ struct RollView: View {
             return
         }
         edit = session
+    }
+
+    private func beginImport(_ picks: [PhotosPickerItem]) {
+        guard !picks.isEmpty else { return }
+        importPicks = []
+        importSession = GalleryImportSession(
+            count: picks.count, context: modelContext, errorState: errorState,
+            load: { try await GalleryImportDecoder.load(picks[$0]) }
+        )
     }
 
     private func exportSelected() {
@@ -208,9 +258,14 @@ struct RollView: View {
 
 /// Text helpers for the Roll's selection bar and prompts. Pure.
 nonisolated enum RollSelectionText {
-    static func summary(count: Int, exportedCount: Int, limit: Int = Constants.Roll.maxPhotosPerStrip) -> String {
+    static func summary(count: Int, exportedCount: Int) -> String {
         if exportedCount > 0 { return "Saved \(exportedCount) to Photos" }
-        return count == 0 ? "Pick up to \(limit)" : "\(count) of \(limit)"
+        return count == 0 ? "Select photos" : "\(count) selected"
+    }
+
+    /// nil until the selection is too big for a strip.
+    static func stripLimitNote(count: Int, limit: Int = Constants.Roll.maxPhotosPerStrip) -> String? {
+        count > limit ? "A strip holds up to \(limit) photos" : nil
     }
 
     /// The sum of per-photo counts; nil if any one couldn't be read.
@@ -294,8 +349,10 @@ private struct RollCell: View {
 
     private var accessibilityText: String {
         let time = photo.capturedAt.formatted(date: .omitted, time: .shortened)
-        let base = "Photo, \(time), \(photo.look.stock.label)"
-        return hasDiaryEntry ? base + ", has a diary entry" : base
+        var text = "Photo, \(time), \(photo.look.stock.label)"
+        if photo.source == .imported { text += ", imported" }
+        if hasDiaryEntry { text += ", has a diary entry" }
+        return text
     }
 
     var body: some View {
@@ -316,6 +373,10 @@ private struct RollCell: View {
                 .overlay(alignment: .topTrailing) {
                     SelectionBadge(isVisible: isSelecting, number: selectionNumber, tint: selection)
                         .padding(UI.selectionBadgePadding)
+                }
+                .overlay(alignment: .topLeading) {
+                    ImportedMark(isVisible: photo.source == .imported)
+                        .padding(UI.diaryBadgePadding)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     DiaryBadge(isVisible: hasDiaryEntry)
@@ -346,6 +407,22 @@ private struct DiaryBadge: View {
     }
 }
 
+// F-122-E: a small arrow-in disc on photos imported from the gallery.
+// Decorative: the cell's own label says "imported".
+private struct ImportedMark: View {
+    let isVisible: Bool
+
+    var body: some View {
+        Image(systemName: "square.and.arrow.down.fill")
+            .font(.system(size: Constants.RollUI.importedBadgeIconSize, weight: .medium))
+            .foregroundStyle(.white)
+            .frame(width: Constants.RollUI.importedBadgeSize, height: Constants.RollUI.importedBadgeSize)
+            .frmrGlass(in: Circle())
+            .opacity(isVisible ? 1 : 0)
+            .accessibilityHidden(true)
+    }
+}
+
 struct SelectionBadge: View {
     let isVisible: Bool
     let number: Int?
@@ -361,6 +438,9 @@ struct SelectionBadge: View {
                 Text("\(number)")
                     .font(.frmrMeta.weight(.bold))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(Constants.RollUI.selectionBadgeMinTextScale)
+                    .padding(.horizontal, Constants.RollUI.selectionBadgeTextInset)
                     .frmrChromeTypeSize()
             }
         }

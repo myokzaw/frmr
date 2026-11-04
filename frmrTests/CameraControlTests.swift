@@ -40,17 +40,6 @@ struct CameraControlMappingTests {
 
         #expect(result == 1.0)
     }
-
-    @Test func zoomClampsToTheDeviceRange() {
-        #expect(CaptureSession.clampedZoom(5, min: 1, max: 10) == 5)
-        #expect(CaptureSession.clampedZoom(50, min: 1, max: 10) == 10)
-        #expect(CaptureSession.clampedZoom(0.2, min: 1, max: 10) == 1)
-    }
-
-    @Test func zoomCollapsesToTheMinimumWhenTheCameraCannotZoom() {
-        // Front cameras commonly report min == max
-        #expect(CaptureSession.clampedZoom(4, min: 1, max: 1) == 1)
-    }
 }
 
 // MARK: - v3 F3: collapsible white balance

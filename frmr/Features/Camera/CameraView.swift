@@ -21,6 +21,7 @@ struct CameraView: View {
     // Generate closes the slots sheet first; the strip opens once it is gone
     @State private var generatesAfterSheet = false
     @Environment(\.verticalSizeClass) private var verticalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let dialTip = DialTip()
     private let shutterTip = ShutterTip()
@@ -86,10 +87,6 @@ struct CameraView: View {
             for await status in dialTip.statusUpdates {
                 if case .invalidated = status { ShutterTip.isDialTipDone = true }
             }
-        }
-        // v5.1 F8: white balance and exposure open as glass sheets
-        .sheet(isPresented: controlSheetPresented) {
-            CameraControlSheet(viewModel: viewModel)
         }
         // v5.2 S2: the mini-strip opens the strip's slots and actions
         .sheet(isPresented: $isSlotsSheetPresented, onDismiss: openGeneratedStrip) {
@@ -160,7 +157,10 @@ struct CameraView: View {
             LensChipRow(
                 lenses: viewModel.availableLenses,
                 selected: viewModel.selectedLens,
-                onSelect: viewModel.selectLens
+                text: viewModel.lensChipText(for:),
+                zoomedLabel: DigitalZoom.isZoomed(viewModel.zoomFactor)
+                    ? "Zoom, \(DigitalZoom.spokenValue(viewModel.zoomFactor)) times" : nil,
+                onSelect: viewModel.lensTapped
             )
         }
     }
@@ -169,9 +169,12 @@ struct CameraView: View {
     // A circle looks identical at any angle, so the shutter never rotates.
     private var bottomStack: some View {
         VStack(spacing: Constants.CameraUI.bottomStackSpacing) {
-            StockDial(selected: viewModel.filmStock, onSelect: viewModel.selectFilmStock)
-                .popoverTip(dialTip, arrowEdge: .bottom)
-                .padding(.horizontal, Constants.CameraUI.screenMargin)
+            // F-122-H: Exposure, Zoom or White balance replace the dial here
+            DialSlot(viewModel: viewModel) {
+                StockDial(selected: viewModel.filmStock, onSelect: viewModel.selectFilmStock)
+                    .popoverTip(dialTip, arrowEdge: .bottom)
+            }
+            .padding(.horizontal, Constants.CameraUI.screenMargin)
 
             ShutterButton(isDisabled: viewModel.isShutterDisabled, action: shutterTapped)
                 .popoverTip(shutterTip, arrowEdge: .bottom)
@@ -264,17 +267,6 @@ struct CameraView: View {
             }
     }
 
-    // The sheet shows while WB or EV is the open panel; a drag-down or a
-    // viewfinder tap closes it through the view model
-    private var controlSheetPresented: Binding<Bool> {
-        Binding(
-            get: { viewModel.isWhiteBalanceExpanded || viewModel.isExposurePanelExpanded },
-            set: { isPresented in
-                if !isPresented { viewModel.closePanels() }
-            }
-        )
-    }
-
     // Retake, Discard, Save and the diary prompt's Save / Skip all end the
     // session through the view model; the setter only runs on a system
     // dismissal, which ends both stages
@@ -309,6 +301,13 @@ struct CameraView: View {
     // geometry with no conversion of our own.
     private var viewfinder: some View {
         CameraPreview(session: viewModel.session, onLayerReady: viewModel.registerPreviewLayer)
+            // F-122-G: the plain preview is enlarged about its centre; the
+            // film preview scales inside its own renderer. Clipped, so the
+            // enlarged picture never leaves the frame. The gestures below sit
+            // outside this scale, so tap points are in unscaled view space.
+            .scaleEffect(viewModel.previewZoom)
+            .animation(viewModel.zoomGlideAnimation(reduceMotion: reduceMotion), value: viewModel.previewZoom)
+            .clipped()
             // v4 F9: the film viewfinder sits exactly over the preview layer
             // and ignores touches, so every gesture below still lands on the
             // layer's geometry. Off shows the plain layer.
@@ -318,6 +317,7 @@ struct CameraView: View {
                         .allowsHitTesting(false)
                 }
             }
+            .overlay { FlipTransitionOverlay(transition: viewModel.flipTransition) }
             .overlay(GrainOverlayView())
             .overlay(alignment: .topLeading) {
                 if let point = viewModel.focusPoint {
@@ -362,7 +362,7 @@ struct CameraView: View {
     private var pinchZoom: some Gesture {
         MagnifyGesture()
             .onChanged { value in viewModel.pinchChanged(scale: value.magnification) }
-            .onEnded { _ in viewModel.pinchBegan() }
+            .onEnded { _ in viewModel.pinchEnded() }
     }
 
     private func focusIndicatorID(for point: CGPoint) -> String {

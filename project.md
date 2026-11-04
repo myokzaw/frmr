@@ -10,7 +10,7 @@ A minimalist iOS **film camera** with a physically based film look. **Since v5 t
 
 Core loop (Photo mode):
 1. Pick a stock on the dial and set white balance and exposure; the viewfinder previews the look.
-2. Take the photo and fine-tune it in the editor: stock, print, B&W and effect strengths.
+2. Take the photo (digital zoom crops the RAW, F-122-G) and fine-tune it in the editor: exposure, Shadows and Highlights, Contrast and Saturation, crop and rotate, stock, print, B&W and effect strengths. Gallery photos can be imported into the Roll and edited the same way (F-122-E).
 3. Save it to the Roll, where it stays re-editable, or Download it to Photos.
 
 Diary (v5.1): photo → editor → **Continue to diary** (saves to the Roll) → reflective prompt → short entry linked to the Roll photo. Film strip mode: four photos (camera, gallery or Roll, keeping their looks) → photobooth-style strip.
@@ -124,7 +124,7 @@ Review the compiled strip and adjust its look before saving/sharing. *(Updated f
 ### Screen 5b — Library, Roll tab (v5, first tab)
 
 - A grid of Roll photos in their looks; tap one to re-edit it.
-- Select mode (up to 4) with Export and Make strip.
+- Select mode with Export and Delete for any number of photos, and Make strip for 1 to 4.
 - The empty state invites the user to take a photo.
 
 ### Screen 4b — Diary review (v4; removed in v5.1, replaced by the editor and Continue to diary)

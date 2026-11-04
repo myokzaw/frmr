@@ -52,6 +52,21 @@ nonisolated struct NegativeProfile: Sendable, Hashable {
     /// crosstalk, applied to linear light before the curves. Rows sum to
     /// one, so a neutral is untouched and the balanced mid grey survives.
     var colour: ColourMatrix = .identity
+    /// Extra shadow openness (v1.2.2 F-122-A), in sRGB units (0…1): a smooth
+    /// bump added inside the shadow toe that is zero at black and at the
+    /// toe's pivot, peaking a third of the way up, so the deepest black and
+    /// everything from mid grey up stay put. 0 (every v1 profile) changes
+    /// nothing. See `ShadowToe`.
+    var shadowLift: Double = 0
+
+    /// The same profile with another shadow lift (how version 2 opens the
+    /// shadows without touching the v1 curves).
+    func withShadowLift(_ lift: Double) -> NegativeProfile {
+        NegativeProfile(
+            r: r, g: g, b: b, isMonochrome: isMonochrome, monoWeights: monoWeights,
+            colour: colour, shadowLift: lift
+        )
+    }
 }
 
 /// A 3×3 linear-light colour matrix whose rows each sum to one (v4 F14).
@@ -181,11 +196,19 @@ nonisolated struct ShadowToe: Sendable {
     private let startSlope: Double
     private let endSlope: Double
     private let exponent: Double
+    private let lift: Double
 
     /// - Parameters:
     ///   - channel: the channel's normalised response, linear in and out.
     ///   - black: where input 0 lands, linear.
-    init(channel: (Double) -> Double, black linearBlack: Double) {
+    ///   - toeExponent: the model version's `shadowToeExponent`.
+    ///   - lift: the stock's `shadowLift`, sRGB units; 0 is the v1 toe.
+    init(
+        channel: (Double) -> Double,
+        black linearBlack: Double,
+        toeExponent: Double = Constants.ImageProcessing.Film.shadowToeExponent,
+        lift: Double = 0
+    ) {
         typealias F = Constants.ImageProcessing.Film
         let pivot = FilmModel.sRGB(fromLinear: F.shadowToePivot)
         // One-sided slope of the film arriving at the pivot, in sRGB terms
@@ -196,7 +219,7 @@ nonisolated struct ShadowToe: Sendable {
         let blackEncoded = FilmModel.extendedSRGB(fromLinear: linearBlack)
         let secant = max((atPivot - blackEncoded) / pivot, 0)
 
-        var n = max(F.shadowToeExponent, 1)
+        var n = max(toeExponent, 1)
         // ∫₀ᵖ S' = secant · pivot  ⇒  a = (secant·(n+1) − m₁) / n
         var a = (secant * (n + 1) - filmSlope) / n
         if a < 0 {
@@ -210,6 +233,7 @@ nonisolated struct ShadowToe: Sendable {
         startSlope = a
         endSlope = filmSlope
         exponent = n
+        self.lift = lift
     }
 
     /// Whether `linear` input is in the toe (below the pivot).
@@ -221,9 +245,77 @@ nonisolated struct ShadowToe: Sendable {
     func apply(input linear: Double) -> Double {
         let x = FilmModel.sRGB(fromLinear: linear)
         let t = x / pivotInput
-        let encoded = black + startSlope * x
+        var encoded = black + startSlope * x
             + (endSlope - startSlope) * pivotInput / (exponent + 1) * pow(t, exponent + 1)
+        if lift != 0 {
+            // 27/4 · t(1−t)² peaks at 1 (t = 1/3) and is 0 at both ends with
+            // zero slope at the pivot, so value and slope still meet the film
+            encoded += lift * 6.75 * t * (1 - t) * (1 - t)
+        }
         return FilmModel.linear(fromExtendedSRGB: encoded)
+    }
+}
+
+/// Everything the film model needs that differs between model versions
+/// (F-122-B): each stock's negative, each print (with its black target) and
+/// the shadow toe. A look carries its `modelVersion`; the pipeline asks for
+/// `FilmModelParameters.forVersion(_:)`. The numbers live in
+/// `Constants.ImageProcessing.Film` (v1) and `.ModelV2`.
+nonisolated struct FilmModelParameters: Sendable {
+    let version: Int
+    let shadowToeExponent: Double
+    private let negatives: [StripCustomization.FilmStock: NegativeProfile]
+    private let lab: PrintProfile
+    private let cinema: PrintProfile
+    private let matte: PrintProfile
+    private let projection: PrintProfile
+
+    /// nil for Off, the untouched fast path.
+    func negative(for stock: StripCustomization.FilmStock) -> NegativeProfile? { negatives[stock] }
+
+    func print(for printStock: StripCustomization.PrintStock) -> PrintProfile {
+        switch printStock {
+        case .lab: return lab
+        case .cinema: return cinema
+        case .matte: return matte
+        case .projection: return projection
+        }
+    }
+
+    static let v1: FilmModelParameters = {
+        typealias N = Constants.ImageProcessing.Film.Negative
+        typealias P = Constants.ImageProcessing.Film.Print
+        return FilmModelParameters(
+            version: Constants.ImageProcessing.Film.legacyModelVersion,
+            shadowToeExponent: Constants.ImageProcessing.Film.shadowToeExponent,
+            negatives: [
+                .daylight200: N.daylight200, .portrait400: N.portrait400, .cine500T: N.cine500T,
+                .slide100: N.slide100, .mono400: N.mono400, .mono3200: N.mono3200,
+            ],
+            lab: P.lab, cinema: P.cinema, matte: P.matte, projection: P.projection
+        )
+    }()
+
+    static let v2: FilmModelParameters = {
+        typealias M = Constants.ImageProcessing.Film.ModelV2
+        return FilmModelParameters(
+            version: Constants.ImageProcessing.Film.currentModelVersion,
+            shadowToeExponent: M.shadowToeExponent,
+            negatives: [
+                .daylight200: M.Negative.daylight200, .portrait400: M.Negative.portrait400,
+                .cine500T: M.Negative.cine500T, .slide100: M.Negative.slide100,
+                .mono400: M.Negative.mono400, .mono3200: M.Negative.mono3200,
+            ],
+            lab: M.Print.lab, cinema: M.Print.cinema, matte: M.Print.matte, projection: M.Print.projection
+        )
+    }()
+
+    static var current: FilmModelParameters { forVersion(Constants.ImageProcessing.Film.currentModelVersion) }
+
+    /// 1 and below read as the v1 set; anything else as the current set
+    /// (a version from a newer build still renders).
+    static func forVersion(_ version: Int) -> FilmModelParameters {
+        version <= Constants.ImageProcessing.Film.legacyModelVersion ? v1 : v2
     }
 }
 
@@ -242,11 +334,17 @@ nonisolated struct FilmChain: Sendable {
     /// at an exposure of 0.
     let exposureGain: Double
 
-    init(negative: NegativeProfile, print: PrintProfile, monochrome: Bool, exposureGain: Double = 1) {
+    init(
+        negative: NegativeProfile,
+        print: PrintProfile,
+        monochrome: Bool,
+        exposureGain: Double = 1,
+        toeExponent: Double = Constants.ImageProcessing.Film.shadowToeExponent
+    ) {
         self.exposureGain = exposureGain
         let isMono = monochrome || negative.isMonochrome
         let used = isMono
-            ? NegativeProfile(r: negative.r, g: negative.r, b: negative.r, isMonochrome: true, monoWeights: negative.monoWeights, colour: .identity)
+            ? NegativeProfile(r: negative.r, g: negative.r, b: negative.r, isMonochrome: true, monoWeights: negative.monoWeights, colour: .identity, shadowLift: negative.shadowLift)
             : negative
         // A monochrome render takes luminance, so the colour matrix has
         // nothing to act on there
@@ -277,9 +375,9 @@ nonisolated struct FilmChain: Sendable {
             neutralBlack > 0 ? targetBlack * channel(0) / neutralBlack : targetBlack
         }
         toes = (
-            ShadowToe(channel: filmR, black: black(filmR)),
-            ShadowToe(channel: filmG, black: black(filmG)),
-            ShadowToe(channel: filmB, black: black(filmB))
+            ShadowToe(channel: filmR, black: black(filmR), toeExponent: toeExponent, lift: used.shadowLift),
+            ShadowToe(channel: filmG, black: black(filmG), toeExponent: toeExponent, lift: used.shadowLift),
+            ShadowToe(channel: filmB, black: black(filmB), toeExponent: toeExponent, lift: used.shadowLift)
         )
     }
 
@@ -447,10 +545,14 @@ nonisolated enum FilmLUT {
         print: PrintProfile,
         monochrome: Bool,
         exposureGain: Double = 1,
+        parameters: FilmModelParameters = .current,
         dimension: Int = Constants.ImageProcessing.Film.lutDimension
     ) -> Data {
         guard dimension >= 2 else { return Data() }
-        let chain = FilmChain(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain)
+        let chain = FilmChain(
+            negative: negative, print: print, monochrome: monochrome,
+            exposureGain: exposureGain, toeExponent: parameters.shadowToeExponent
+        )
 
         let step = 1 / Double(dimension - 1)
         let linearAxis = (0..<dimension).map { FilmModel.linear(fromSRGB: Double($0) * step) }
@@ -498,6 +600,10 @@ nonisolated enum FilmLUT {
         let print: PrintProfile
         let monochrome: Bool
         let exposureGain: Double
+        /// Stock + print + B&W + model version (F-122-B): the version and its
+        /// toe both key the cube, so two versions never share one.
+        let modelVersion: Int
+        let toeExponent: Double
         let dimension: Int
     }
 
@@ -509,40 +615,47 @@ nonisolated enum FilmLUT {
         print: PrintProfile,
         monochrome: Bool,
         exposureGain: Double = 1,
+        parameters: FilmModelParameters = .current,
         dimension: Int = Constants.ImageProcessing.Film.lutDimension
     ) -> Data {
-        let key = Key(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension)
+        let key = Key(
+            negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain,
+            modelVersion: parameters.version, toeExponent: parameters.shadowToeExponent, dimension: dimension
+        )
         if let cached = cache.value(for: key) {
             return cached
         }
         // Built outside the lock: two threads racing on the same key both
         // build an identical cube, which is cheaper than serialising renders
-        let built = cube(negative: negative, print: print, monochrome: monochrome, exposureGain: exposureGain, dimension: dimension)
+        let built = cube(
+            negative: negative, print: print, monochrome: monochrome,
+            exposureGain: exposureGain, parameters: parameters, dimension: dimension
+        )
         cache.insert(built, for: key)
         return built
     }
 
-    private static let cache = CubeCache(limit: Constants.ImageProcessing.Film.lutCacheLimit)
+    private static let cache = CubeCache<Key>(limit: Constants.ImageProcessing.Film.lutCacheLimit)
 }
 
 /// Lock-protected, insertion-ordered cache with a size cap.
-nonisolated private final class CubeCache: @unchecked Sendable {
+nonisolated private final class CubeCache<Key: Hashable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var entries: [FilmLUT.Key: Data] = [:]
-    private var order: [FilmLUT.Key] = []
+    private var entries: [Key: Data] = [:]
+    private var order: [Key] = []
     private let limit: Int
 
     init(limit: Int) {
         self.limit = max(1, limit)
     }
 
-    func value(for key: FilmLUT.Key) -> Data? {
+    func value(for key: Key) -> Data? {
         lock.lock()
         defer { lock.unlock() }
         return entries[key]
     }
 
-    func insert(_ data: Data, for key: FilmLUT.Key) {
+    func insert(_ data: Data, for key: Key) {
         lock.lock()
         defer { lock.unlock() }
         guard entries[key] == nil else { return }
@@ -719,4 +832,147 @@ nonisolated enum LightLeak {
             return LightLeakSpot(centreX: x, centreY: y, radius: radius, red: colour.r, green: colour.g, blue: colour.b)
         }
     }
+}
+
+// MARK: Shadows, Highlights and Contrast (v1.2.2 F-122-C, F-122-J)
+
+/// The Shadows, Highlights and Contrast tools' curve: one monotone map of the
+/// print's encoded output, applied right after the film cube. Shadows acts
+/// only below the encoded mid grey, Highlights only above it, so the two never
+/// interact and the curve stays monotone whenever each half does. Contrast
+/// runs first, so Shadows and Highlights can still open what it crushed.
+nonisolated enum ToneStage {
+    typealias T = Constants.ImageProcessing.Film.ToneControl
+
+    /// The encoded value the print puts mid grey at.
+    static let pivot: Double = T.pivotEncoded
+
+    /// Encoded `value` (0...1) through the curve; `shadows` and `highlights`
+    /// and `contrast` are -1...+1 (the tools' -100...+100). All 0 returns `value`.
+    static func apply(_ input: Double, shadows: Double, highlights: Double, contrast: Double = 0) -> Double {
+        let value = contrast == 0 ? input : contrasted(input, contrast)
+        var out = value
+        let t = min(max(value / pivot, 0), 1)
+        if shadows > 0 {
+            // Opens the shadows and lifts the black a little
+            out += shadows * T.shadowOpenAmount * (1 - t) * (1 - t) * (T.shadowOpenBlackShare + T.shadowOpenShape * t)
+        } else if shadows < 0 {
+            // A share of the tone, never a subtraction: 0 stays 0 and deep
+            // tones stay distinct instead of clipping
+            out *= 1 - -shadows * T.shadowDeepenAmount * (1 - t) * (1 - t)
+        }
+        let u = min(max((value - pivot) / (1 - pivot), 0), 1)
+        let bump = 6.75 * u * u * (1 - u)
+        if highlights > 0 {
+            out += highlights * T.highlightBoostAmount * bump
+        } else if highlights < 0 {
+            let smooth = u * u * (3 - 2 * u)
+            out -= -highlights * T.highlightRecoverAmount
+                * (T.highlightRecoverBumpShare * bump + (1 - T.highlightRecoverBumpShare) * smooth)
+        }
+        return out
+    }
+
+    /// + : an S-curve around mid grey with 0 and 1 fixed, flat at both ends,
+    /// so the darkest tones reach true black and the brightest pure white.
+    /// - : the range closes toward mid grey, a faded print.
+    private static func contrasted(_ value: Double, _ contrast: Double) -> Double {
+        let x = min(max(value, 0), 1)
+        guard contrast > 0 else {
+            return pivot + (x - pivot) * (1 - -contrast * T.contrastFlattenAmount)
+        }
+        let steepness = 1 + contrast * T.contrastBoostAmount
+        let dark = pow(x, steepness)
+        return dark / (dark + pow(1 - x, steepness))
+    }
+
+    /// Float32 RGB table for `CIColorCurves`: the same curve in all three channels.
+    static func table(shadows: Double, highlights: Double, contrast: Double = 0) -> Data {
+        let count = T.tableSize
+        var floats: [Float] = []
+        floats.reserveCapacity(count * 3)
+        for index in 0..<count {
+            let input = Double(index) / Double(count - 1)
+            let output = Float(min(max(apply(input, shadows: shadows, highlights: highlights, contrast: contrast), 0), 1))
+            floats.append(contentsOf: [output, output, output])
+        }
+        return floats.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+}
+
+// MARK: Saturation (v1.2.2 F-122-J)
+
+/// The Saturation tool's colour map, in the print's encoded output. Down, every
+/// colour moves evenly toward its own grey, and -1 is that grey. Up, muted
+/// colours gain more than vivid ones and skin tones hold back, so faces don't
+/// turn orange; the hue is kept, and no channel is pushed past 0 or 1.
+nonisolated enum SaturationStage {
+    typealias S = Constants.ImageProcessing.Film.Saturation
+
+    /// `amount` is -1...+1 (the tool's -100...+100); 0 returns the colour as is.
+    static func apply(r: Double, g: Double, b: Double, amount: Double) -> (r: Double, g: Double, b: Double) {
+        guard amount != 0 else { return (r, g, b) }
+        let grey = S.lumaRed * r + S.lumaGreen * g + S.lumaBlue * b
+        var factor = 1 + amount
+        if amount > 0 {
+            let chroma = max(r, g, b) - min(r, g, b)
+            let muted = 1 - S.vividRestraint * chroma
+            let skin = 1 - S.skinProtection * skinWeight(r: r, g: g, b: b)
+            factor = 1 + amount * S.boostAmount * muted * skin
+            for channel in [r, g, b] where channel != grey {
+                let room = channel > grey ? (1 - grey) / (channel - grey) : grey / (grey - channel)
+                factor = min(factor, room)
+            }
+        }
+        func out(_ channel: Double) -> Double { min(max(grey + (channel - grey) * factor, 0), 1) }
+        return (out(r), out(g), out(b))
+    }
+
+    /// 1 for a colour squarely in the skin range, fading to 0 by hue and for
+    /// colours too vivid to be skin.
+    static func skinWeight(r: Double, g: Double, b: Double) -> Double {
+        let high = max(r, g, b)
+        let chroma = high - min(r, g, b)
+        guard chroma > 0 else { return 0 }
+        let sextant: Double
+        if high == r {
+            sextant = (g - b) / chroma
+        } else if high == g {
+            sextant = (b - r) / chroma + 2
+        } else {
+            sextant = (r - g) / chroma + 4
+        }
+        let hue = (sextant * 60 + 360).truncatingRemainder(dividingBy: 360)
+        let offset = abs(hue - S.skinHueDegrees)
+        let distance = min(offset, 360 - offset) / S.skinHueWidthDegrees
+        let fade = min(max((chroma - S.skinChromaFadeStart) / (S.skinChromaFadeEnd - S.skinChromaFadeStart), 0), 1)
+        return exp(-0.5 * distance * distance) * (1 - fade * fade * (3 - 2 * fade))
+    }
+
+    /// The map baked for `CIColorCube`: Float32 RGBA, red varying fastest.
+    static func cube(amount: Double, dimension: Int = S.cubeDimension) -> Data {
+        var floats: [Float] = []
+        floats.reserveCapacity(dimension * dimension * dimension * 4)
+        let last = Double(dimension - 1)
+        for blue in 0..<dimension {
+            for green in 0..<dimension {
+                for red in 0..<dimension {
+                    let colour = apply(r: Double(red) / last, g: Double(green) / last, b: Double(blue) / last, amount: amount)
+                    floats.append(contentsOf: [Float(colour.r), Float(colour.g), Float(colour.b), 1])
+                }
+            }
+        }
+        return floats.withUnsafeBufferPointer { Data(buffer: $0) }
+    }
+
+    /// Cached per slider step, since a drag revisits the same few values.
+    static func cachedCube(amount: Double) -> Data {
+        let key = Int((amount * 1000).rounded())
+        if let cached = cache.value(for: key) { return cached }
+        let built = cube(amount: amount)
+        cache.insert(built, for: key)
+        return built
+    }
+
+    private static let cache = CubeCache<Int>(limit: S.cacheLimit)
 }

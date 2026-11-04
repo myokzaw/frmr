@@ -37,18 +37,17 @@ final class RollViewModel {
 
     func isSelected(_ photo: RollPhoto) -> Bool { selectedIDs.contains(photo.id) }
 
-    /// Taps a photo in select mode. `limit` caps the selection (the strip
-    /// picker passes `Constants.Roll.maxPhotosPerStrip`); a tap past it is
-    /// ignored. Selection keeps tap order, which is the strip's frame order.
-    @discardableResult
-    func toggleSelection(of photo: RollPhoto, limit: Int? = nil) -> Bool {
+    /// Taps a photo in select mode. Any number can be selected, for Delete
+    /// and Export; only Make strip has a limit (`canMakeStrip`). Selection
+    /// keeps tap order, which is the strip's frame order. A new tap replaces
+    /// the "Saved to Photos" note with the count.
+    func toggleSelection(of photo: RollPhoto) {
+        lastExportCount = 0
         if let index = selectedIDs.firstIndex(of: photo.id) {
             selectedIDs.remove(at: index)
-            return true
+        } else {
+            selectedIDs.append(photo.id)
         }
-        if let limit, selectedIDs.count >= limit { return false }
-        selectedIDs.append(photo.id)
-        return true
     }
 
     func clearSelection() {
@@ -102,9 +101,16 @@ final class RollViewModel {
         look: FilmLook,
         capturedAt: Date,
         context: ModelContext,
-        now: Date = .now
+        now: Date = .now,
+        source: RollPhoto.Source = .camera
     ) throws -> RollPhoto {
-        guard let data = original.jpegData(compressionQuality: CGFloat(Constants.PhotoEdit.rollPhotoJPEGQuality)) else {
+        let data: Data
+        if source == .imported {
+            // F-122-E: an import keeps no GPS or other metadata
+            data = try GalleryImportDecoder.strippedJPEGData(from: original, quality: Constants.PhotoEdit.rollPhotoJPEGQuality)
+        } else if let encoded = original.jpegData(compressionQuality: CGFloat(Constants.PhotoEdit.rollPhotoJPEGQuality)) {
+            data = encoded
+        } else {
             throw AppError.persistenceFailed(reason: "The photo couldn't be encoded.")
         }
         let path: String
@@ -116,7 +122,7 @@ final class RollViewModel {
         } catch {
             throw AppError.persistenceFailed(reason: error.localizedDescription)
         }
-        let photo = RollPhoto(capturedAt: capturedAt, photoPath: path, look: look, editedAt: now)
+        let photo = RollPhoto(capturedAt: capturedAt, photoPath: path, look: look, editedAt: now, source: source)
         context.insert(photo)
         do {
             try context.save()
@@ -343,13 +349,15 @@ final class RollViewModel {
 
     /// Saves each photo to Photos as a full-resolution HEIC in its current
     /// look. One library change for the whole selection. Raises `AppError`
-    /// and saves nothing if any photo can't be read or rendered.
+    /// and saves nothing if any photo can't be read or rendered. Encoded
+    /// photos wait in temporary files, because a selection has no limit and
+    /// holding them all in memory could get the app killed.
     ///
-    /// - Parameter savePhotosData: where the encoded files go; Photos, or
-    ///   a stub in tests.
+    /// - Parameter savePhotoFiles: where the encoded files go; Photos, or a
+    ///   stub in tests. The files are removed once this returns.
     func export(
         _ photos: [RollPhoto],
-        savePhotosData: @escaping @Sendable ([Data]) async throws -> Void = { try await PHPhotoLibrary.saveToCameraRoll(photosData: $0) }
+        savePhotoFiles: @escaping @Sendable ([URL]) async throws -> Void = { try await PHPhotoLibrary.saveToCameraRoll(photoFiles: $0) }
     ) async {
         guard !isExporting, !photos.isEmpty else { return }
         isExporting = true
@@ -363,21 +371,35 @@ final class RollViewModel {
                 seed: StripGenerator.photoLookSeed(for: photo.lookSeedDate)
             )
         }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "RollExport-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
         do {
-            let encoded = try await Task.detached(priority: .userInitiated) {
-                try jobs.map { job in
-                    guard let original = UIImage(contentsOfFile: job.url.path()) else {
-                        throw AppError.saveToLibraryFailed
-                    }
-                    return try ImageProcessor.fullResolutionHEIC(of: original, look: job.look, seed: job.seed)
-                }
+            let files = try await Task.detached(priority: .userInitiated) {
+                try Self.encode(jobs, into: directory)
             }.value
-            try await savePhotosData(encoded)
-            lastExportCount = encoded.count
+            try await savePhotoFiles(files)
+            lastExportCount = files.count
         } catch let error as AppError {
             errorState?.raise(error)
         } catch {
             errorState?.raise(.saveToLibraryFailed)
+        }
+    }
+
+    /// One photo at a time, each one's memory released before the next.
+    private nonisolated static func encode(_ jobs: [ExportJob], into directory: URL) throws -> [URL] {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return try jobs.enumerated().map { index, job in
+            try autoreleasepool {
+                guard let original = UIImage(contentsOfFile: job.url.path()) else {
+                    throw AppError.saveToLibraryFailed
+                }
+                let data = try ImageProcessor.fullResolutionHEIC(of: original, look: job.look, seed: job.seed)
+                let file = directory.appending(path: "\(index).heic")
+                try data.write(to: file)
+                return file
+            }
         }
     }
 
@@ -400,8 +422,9 @@ final class RollViewModel {
         }
     }
 
-    /// Whether a strip can still take another Roll photo.
-    static func canAddToStrip(selectedCount: Int) -> Bool {
-        selectedCount < Constants.Roll.maxPhotosPerStrip
+    /// A strip takes one to `maxPhotosPerStrip` photos. Past that, Make strip
+    /// turns off instead of quietly dropping part of the selection.
+    static func canMakeStrip(selectedCount: Int) -> Bool {
+        (1...Constants.Roll.maxPhotosPerStrip).contains(selectedCount)
     }
 }

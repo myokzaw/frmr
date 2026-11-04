@@ -155,52 +155,68 @@ private struct ButtonFace: View {
     }
 }
 
-// WB and EV share one glass sheet whose content follows the open panel. The
-// viewfinder stays live above it and a tap there closes it.
-struct CameraControlSheet: View {
+// F-122-H: Exposure, Zoom and White balance swap in for the stock dial, in
+// the same spot, so the shutter row below stays usable. The dial keeps its
+// place (hidden) so the slot never changes height, except that White
+// balance's two rows may be taller. Reduce Motion: no slide, just the swap.
+struct DialSlot<Dial: View>: View {
     let viewModel: CameraViewModel
+    @ViewBuilder let dial: () -> Dial
 
-    private var height: CGFloat {
-        viewModel.isWhiteBalanceExpanded
-            ? Constants.CameraUI.whiteBalanceSheetHeight
-            : Constants.CameraUI.exposureSheetHeight
-    }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var control: CameraViewModel.Panel? { viewModel.dialSlotControl }
 
     var body: some View {
-        VStack {
-            if viewModel.isWhiteBalanceExpanded {
-                WhiteBalancePanel(
-                    activePreset: viewModel.activeWhiteBalancePreset,
-                    kelvin: viewModel.whiteBalanceKelvin,
-                    tint: viewModel.whiteBalanceTint,
-                    valueText: viewModel.whiteBalanceChipText,
-                    kelvinText: viewModel.whiteBalanceKelvinText,
-                    tintText: viewModel.whiteBalanceTintText,
-                    onPreset: viewModel.chooseWhiteBalancePreset,
-                    onKelvin: viewModel.setWhiteBalanceKelvin,
-                    onTint: viewModel.setWhiteBalanceTint
-                )
+        ZStack {
+            // Hidden, not removed, keeps the slot's height; it also drops out
+            // of hit-testing and accessibility, which opacity alone does not
+            if control == nil {
+                dial()
             } else {
-                ExposurePanel(
-                    bias: viewModel.exposureBias,
-                    readout: viewModel.exposureReadout,
-                    onBias: viewModel.setExposureBias,
-                    onStep: viewModel.stepExposureBias(by:)
-                )
+                dial().hidden()
             }
-            Spacer(minLength: 0)
+            if let control {
+                panel(for: control)
+                    .transition(reduceMotion ? .identity : .move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        .foregroundStyle(.white)
-        .frmrChromeTypeSize()
-        .padding(.horizontal, Constants.CameraUI.sheetPadding)
-        .padding(.top, Constants.CameraUI.sheetPadding)
-        .presentationDetents([.height(height)])
-        .presentationBackgroundInteraction(.enabled)
-        .presentationDragIndicator(.visible)
-        .frmrSheetBackground()
-        // Inherits the dark presenter; a preferred scheme here outlived the
-        // sheet and left light status text over the paper tabs
-        .environment(\.colorScheme, .dark)
+        .frmrAnimation(.panel, value: control)
+    }
+
+    @ViewBuilder private func panel(for control: CameraViewModel.Panel) -> some View {
+        switch control {
+        case .whiteBalance:
+            WhiteBalancePanel(
+                activePreset: viewModel.activeWhiteBalancePreset,
+                axis: viewModel.whiteBalanceAxis,
+                kelvin: viewModel.whiteBalanceKelvin,
+                tint: viewModel.whiteBalanceTint,
+                kelvinText: viewModel.whiteBalanceKelvinText,
+                tintText: viewModel.whiteBalanceTintText,
+                onPreset: viewModel.chooseWhiteBalancePreset,
+                onAxis: viewModel.selectWhiteBalanceAxis,
+                onKelvin: viewModel.setWhiteBalanceKelvin,
+                onTint: viewModel.setWhiteBalanceTint,
+                onClose: viewModel.closePanels
+            )
+        case .zoom:
+            ZoomPanel(
+                zoom: viewModel.zoomFactor,
+                readout: viewModel.zoomReadout,
+                onZoom: viewModel.setZoom,
+                onLiveZoom: viewModel.scrubZoom,
+                onClose: viewModel.closePanels
+            )
+        case .exposure, .film:
+            ExposurePanel(
+                bias: viewModel.exposureBias,
+                readout: viewModel.exposureReadout,
+                onBias: viewModel.setExposureBias,
+                onStep: viewModel.stepExposureBias(by:),
+                onClose: viewModel.closePanels
+            )
+        }
     }
 }
 
@@ -227,15 +243,29 @@ struct ShutterButton: View {
 }
 
 /// The lens capsule (0.5×/1×/2×). Each chip is a circle, so it turns in place.
+/// The chip you're on shows the zoom while zoomed, and opens the Zoom sheet
+/// when tapped (F-122-G).
 struct LensChipRow: View {
     let lenses: [CameraLens]
     let selected: CameraLens
+    /// What a chip says: its lens, or the zoom for the selected one.
+    let text: (CameraLens) -> String
+    /// The selected chip's VoiceOver label while zoomed ("Zoom, 2.4 times"); nil at 1x.
+    let zoomedLabel: String?
     let onSelect: (CameraLens) -> Void
 
     var body: some View {
         HStack(spacing: Constants.CameraUI.chipSpacing) {
             ForEach(lenses) { lens in
-                CameraChip(label: lens.label, isSelected: lens == selected, action: { onSelect(lens) })
+                let isSelected = lens == selected
+                CameraChip(
+                    label: text(lens),
+                    isSelected: isSelected,
+                    action: { onSelect(lens) }
+                )
+                .accessibilityLabel(isSelected ? (zoomedLabel ?? lens.label) : lens.label)
+                .accessibilityHint(isSelected ? "Double-tap to adjust zoom" : "")
+                .accessibilityIdentifier("camera.lens.\(lens.rawValue)")
             }
         }
         .frmrChromeTypeSize()
@@ -361,6 +391,56 @@ struct FlipCameraButton: View {
         .opacity(isVisible ? 1 : 0)
         .disabled(!isVisible)
         .frmrLargeContent("Flip camera", systemImage: "arrow.triangle.2.circlepath.camera")
+    }
+}
+
+// BUG-122-02: covers the viewfinder while the camera switches. The last
+// frame, blurred, turns half-way about the vertical axis (Reduce Motion: no
+// turn, just the blur and a cross-fade) and fades out when the view model
+// clears it on the first frame from the new camera.
+struct FlipTransitionOverlay: View {
+    let transition: CameraViewModel.FlipTransition?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if let transition {
+                FlipTransitionFrame(snapshot: transition.snapshot, reduceMotion: reduceMotion)
+                    .id(transition.id)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: Constants.CameraUI.flipFadeOutDuration), value: transition?.id)
+        .allowsHitTesting(false)
+    }
+}
+
+private struct FlipTransitionFrame: View {
+    let snapshot: UIImage?
+    let reduceMotion: Bool
+
+    @State private var progress = 0.0
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let snapshot {
+                Image(uiImage: snapshot)
+                    .resizable()
+                    .scaledToFill()
+                    .blur(radius: Constants.CameraUI.flipBlurRadius * progress)
+            }
+        }
+        .clipped()
+        .rotation3DEffect(
+            .degrees(reduceMotion ? 0 : Constants.CameraUI.flipHalfTurnDegrees * progress),
+            axis: (x: 0, y: 1, z: 0),
+            perspective: Constants.CameraUI.flipPerspective
+        )
+        .onAppear {
+            withAnimation(.easeInOut(duration: Constants.CameraUI.flipDuration)) { progress = 1 }
+        }
     }
 }
 

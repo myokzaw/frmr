@@ -171,7 +171,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2660;
-				LastUpgradeCheck = 2660;
+				LastUpgradeCheck = 2720;
 				TargetAttributes = {
 					46E0987A301D6BC900CDCDED = {
 						CreatedOnToolsVersion = 26.6;
@@ -328,6 +328,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -385,6 +386,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -401,8 +403,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Frmrr;
-				INFOPLIST_KEY_NSCameraUsageDescription = "frmr uses the camera to capture photos for your journal entries and film strips.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Filum saves finished film strips to your photo library when you ask it to.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Frmrr uses the camera to capture photos for your journal entries and film strips.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Frmrr saves your photos and film strips to your photo library when you ask it to.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -412,7 +414,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.1;
+				MARKETING_VERSION = 1.2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = myozaw.frmr;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -436,8 +438,8 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = Frmrr;
-				INFOPLIST_KEY_NSCameraUsageDescription = "frmr uses the camera to capture photos for your journal entries and film strips.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Filum saves finished film strips to your photo library when you ask it to.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Frmrr uses the camera to capture photos for your journal entries and film strips.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Frmrr saves your photos and film strips to your photo library when you ask it to.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -447,7 +449,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.2.1;
+				MARKETING_VERSION = 1.2.2;
 				PRODUCT_BUNDLE_IDENTIFIER = myozaw.frmr;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

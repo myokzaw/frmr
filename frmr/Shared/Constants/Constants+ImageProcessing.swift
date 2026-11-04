@@ -54,6 +54,14 @@ nonisolated extension Constants {
         // as scene exposure): shadows below ~20% sRGB compress, and before the
         // output normalisation stage a diffuse white printed at ~220–235/255.
         enum Film {
+            // MARK: Model versions (v1.2.2 F-122-B)
+            // A look stores the film-model version it was made with, so old
+            // photos keep their look. The plain `Negative`, `Print` and
+            // `shadowToeExponent` below are the version-1 set and must not
+            // change; version 2 lives in `ModelV2` at the end of this enum.
+            static let legacyModelVersion = 1
+            static let currentModelVersion = 2
+
             // OPEN: v4-5 — sRGB-encoded value input white prints at, after
             // the print stage (OutputNormalisation). Input black prints at
             // each print's own `blackTarget` (Print below).
@@ -68,6 +76,7 @@ nonisolated extension Constants {
             // photo and moves the stock's extra contrast up toward mid grey.
             // 8 keeps every stock on its default print within 25% of Off's
             // separation for input 0.02–0.20.
+            // (version-1 value; see ModelV2.shadowToeExponent)
             static let shadowToeExponent: Double = 8
             // The film's slope at the pivot is measured over pivot/this
             static let shadowToeSlopeSamples = 256
@@ -253,6 +262,67 @@ nonisolated extension Constants {
                 static let step: Double = 1.0 / 3.0
             }
 
+            // MARK: Shadows and Highlights (v1.2.2 F-122-C)
+            enum ToneControl {
+                /// The editor's Shadows and Highlights tools: -100...+100 in steps of 1
+                static let range: ClosedRange<Double> = -100...100
+                static let step: Double = 1
+                /// The scrubber's firm ticks and VoiceOver notch
+                static let accessibilityStep: Double = 5
+                static let majorStep: Double = 50
+                /// Entries in the tone table handed to Core Image (per channel)
+                static let tableSize = 256
+                /// Both curves act in the print's encoded output, around this
+                /// encoded value, between where the stocks land mid grey
+                /// (118 to 140 of 255 on a grey 0.18 input)
+                static let pivotEncoded: Double = 0.5
+                /// Shadows +: lift at the full setting at its peak, and the
+                /// shape (1-t)^2 (blackShare + peakShape * t) under the pivot
+                static let shadowOpenAmount: Double = 0.26
+                static let shadowOpenBlackShare: Double = 0.15
+                static let shadowOpenShape: Double = 3
+                /// Shadows -: the share removed from a tone at black-side
+                /// at the full setting; multiplicative, so black never clips
+                static let shadowDeepenAmount: Double = 0.7
+                /// Highlights +: lift at its peak (u^2 (1-u) shape, 1 stays 1)
+                static let highlightBoostAmount: Double = 0.07
+                /// Highlights -: drop at its peak, blending a peaked bump with
+                /// a smoothstep so the white drops a little (long roll-off)
+                static let highlightRecoverAmount: Double = 0.16
+                static let highlightRecoverBumpShare: Double = 0.65
+                /// Contrast + (F-122-J): the S-curve's steepness at mid grey is
+                /// 1 + this at the full setting. It reaches true black and white
+                static let contrastBoostAmount: Double = 1
+                /// Contrast -: the share of the tonal range given up at the
+                /// full setting; the black lifts and the white drops
+                static let contrastFlattenAmount: Double = 0.5
+            }
+
+            // MARK: Saturation (v1.2.2 F-122-J)
+            enum Saturation {
+                /// Grid per axis of the baked colour cube. The map is smooth, so
+                /// this is far smaller than the film cube and quick to re-bake
+                /// while the slider moves
+                static let cubeDimension = 33
+                static let cacheLimit = 8
+                /// + : extra colour for a muted tone at the full setting (1 doubles it)
+                static let boostAmount: Double = 1
+                /// + : how much less a fully vivid colour gets than a muted one
+                static let vividRestraint: Double = 0.8
+                /// + : the share of the boost skin tones give up, around this hue
+                static let skinProtection: Double = 0.7
+                static let skinHueDegrees: Double = 28
+                static let skinHueWidthDegrees: Double = 22
+                /// Colours more vivid than skin ever is (a sunset orange) lose
+                /// the protection between these two chroma values
+                static let skinChromaFadeStart: Double = 0.6
+                static let skinChromaFadeEnd: Double = 0.9
+                /// Rec. 709 weights, the grey a colour desaturates toward
+                static let lumaRed: Double = 0.2126
+                static let lumaGreen: Double = 0.7152
+                static let lumaBlue: Double = 0.0722
+            }
+
             // MARK: Effect strengths (v5 F5)
             // One scale for every effect: 1 is exactly the v4 strength, 0 is
             // pixel-identical to the effect being off.
@@ -379,6 +449,53 @@ nonisolated extension Constants {
                     b: printCurve(dMin: 0.0, dMax: 2.4, gamma: 1.3),
                     blackTarget: 3.0 / 255
                 )
+            }
+
+            // MARK: Model version 2 (F-122-B, F-122-A)
+            // THE place to change version-2 numbers. Never edit `Negative`,
+            // `Print` or `shadowToeExponent` (version 1, pinned by
+            // FilmModelV1PinnedTests). Version 2 = "open shadows, real
+            // blacks": the same curves as v1, every print's black lifted a
+            // little (order kept), and a per-stock `shadowLift` (an sRGB
+            // bump inside the shadow toe, see ShadowToe) that opens the
+            // shadows by the stock's character. Mid grey and up are
+            // untouched by the lift. docs/film-simulation.md §4.5/§2a.
+            enum ModelV2 {
+                // Unchanged from v1: the openness comes from `shadowLift`
+                static let shadowToeExponent: Double = Film.shadowToeExponent
+                // Largest deepest-black (sRGB/255) any non-Matte print may
+                // land on for a stock's default print: the anti-milky guard
+                static let blackCeiling: Double = 18
+                // sRGB-unit shadow lift per stock (peak of the bump, a
+                // third of the way to mid grey). Ranking, deepest first:
+                // Slide < Mono 3200 < Cine 500T < Mono 400 < Daylight 200 < Portrait 400
+                enum ShadowLift {
+                    static let portrait400 = 0.080
+                    static let daylight200 = 0.056
+                    static let mono400 = 0.050
+                    static let cine500T = 0.032
+                    static let mono3200 = 0.028
+                    static let slide100 = 0.012
+                }
+                enum Negative {
+                    static let daylight200 = Film.Negative.daylight200.withShadowLift(ShadowLift.daylight200)
+                    static let portrait400 = Film.Negative.portrait400.withShadowLift(ShadowLift.portrait400)
+                    static let cine500T = Film.Negative.cine500T.withShadowLift(ShadowLift.cine500T)
+                    static let slide100 = Film.Negative.slide100.withShadowLift(ShadowLift.slide100)
+                    static let mono400 = Film.Negative.mono400.withShadowLift(ShadowLift.mono400)
+                    static let mono3200 = Film.Negative.mono3200.withShadowLift(ShadowLift.mono3200)
+                }
+                // Each profile carries its own black target (sRGB/255):
+                // Projection 10, Cinema 12, Lab 14, Matte 34 (v1: 3, 4, 6, 28)
+                enum Print {
+                    static let lab = lifted(Film.Print.lab, black: 14)
+                    static let cinema = lifted(Film.Print.cinema, black: 12)
+                    static let matte = lifted(Film.Print.matte, black: 34)
+                    static let projection = lifted(Film.Print.projection, black: 10)
+                    private static func lifted(_ print: PrintProfile, black: Double) -> PrintProfile {
+                        PrintProfile(r: print.r, g: print.g, b: print.b, blackTarget: black / 255)
+                    }
+                }
             }
         }
     }

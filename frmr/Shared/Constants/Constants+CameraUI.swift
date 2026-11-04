@@ -67,13 +67,22 @@ nonisolated extension Constants {
         static let dialSwatchSelectedRing: CGFloat = 1.5
         static let dialCodeMinScale: CGFloat = 0.7
 
-        // v5.1 F8 WB / EV sheets (one open at a time)
-        static let sheetPadding: CGFloat = D.Space.xl
-        static let panelSpacing: CGFloat = D.Space.m
-        static let whiteBalanceSheetHeight: CGFloat = 270
-        static let exposureSheetHeight: CGFloat = 150
-        static let panelSliderLabelWidth: CGFloat = 52
+        // F-122-H: Exposure, Zoom and White balance swap in for the dial
+        // (one open at a time)
+        static let controlIdleTimeout: Duration = .seconds(6)
+        static let controlPanelPadding: CGFloat = D.Space.s
+        static let panelSpacing: CGFloat = D.Space.xxs
+        static let panelRowSpacing: CGFloat = D.Space.xs
         static let panelValueWidth: CGFloat = 56
+        // The one-row readout is fixed so the ruler never shifts as it changes
+        static let panelReadoutWidth: CGFloat = 52
+        static let panelReadoutMinScale: CGFloat = 0.8
+        static let panelVerticalPadding: CGFloat = D.Space.xs
+        static let panelRowHeight: CGFloat = D.targetMin
+        // WB's second row: a compact segmented switch and a slider
+        static let panelSecondRowHeight: CGFloat = 36
+        static let panelPresetSpacing: CGFloat = D.Space.xs
+        static let panelAxisSwitchWidth: CGFloat = 112
         static let kelvinSliderStep: Double = 50
         static let tintSliderStep: Double = 1
 
@@ -87,6 +96,14 @@ nonisolated extension Constants {
         static let lastPhotoSize: CGFloat = D.targetMin
         static let lastPhotoBorderWidth: CGFloat = 1
         static let lastPhotoBorderOpacity: CGFloat = 0.6
+
+        // BUG-122-02 flip transition: blurred last frame, half-turn about the
+        // vertical axis, fade back to live on the first new frame
+        static let flipDuration: TimeInterval = 0.45
+        static let flipFadeOutDuration: TimeInterval = 0.25
+        static let flipBlurRadius: CGFloat = 24
+        static let flipHalfTurnDegrees: Double = 180
+        static let flipPerspective: CGFloat = 0.45
 
         // v5.2 S2 Film strip: a paper mini-strip of four 4:5 frames in the
         // thumbnail's place, and a sheet with the slots and actions

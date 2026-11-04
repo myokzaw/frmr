@@ -7,6 +7,10 @@ nonisolated extension Constants {
         // Delay before the single retry of a failed portrait-lock request
         static let orientationLockRetryDelay: TimeInterval = 0.3
 
+        // BUG-122-02: the longest a camera switch may hold the flip
+        // transition before the live preview comes back regardless
+        static let cameraSwitchTimeout: TimeInterval = 1.5
+
         // Tap-to-focus indicator (F1)
         static let focusIndicatorSize: CGFloat = 72
         static let focusIndicatorStroke: CGFloat = 1.5
@@ -50,11 +54,24 @@ nonisolated extension Constants {
         // capture mode (DefaultsKeys.captureMode) no longer decides it
         static let launchModeFollowsStoredCaptureMode = false
 
-        // Pinch-to-zoom (F3)
-        static let zoomRampRate: Float = 4.0
+        // Digital zoom (F-122-G): an app-side value, never the device's
+        // videoZoomFactor (that stays 1 so Bayer RAW is always allowed)
         static let minZoomFactor: CGFloat = 1.0
-        // Soft cap: devices go higher but quality degrades past this
-        static let maxZoomFactor: CGFloat = 10.0
+        // 3x past each lens
+        static let maxDigitalZoom: CGFloat = 3.0
+        // The ruler, a pinch's result and the readout land on 0.2x steps
+        static let zoomStep: CGFloat = 0.2
+        // Guards the rounding of x.5 step ratios (1.1 -> 1.2, 2.9 -> 3.0)
+        static let zoomSnapEpsilon: CGFloat = 1e-6
+        // The viewfinder glides to a discrete change (reset, lens switch,
+        // the settle after a gesture) instead of jumping
+        static let zoomGlideDuration: TimeInterval = 0.15
+        // The Metal preview's exponential smoothing time constant
+        static let zoomSmoothingTime: TimeInterval = 0.12
+        // Closer than this to the target counts as arrived
+        static let zoomSettleEpsilon: CGFloat = 0.001
+        // Longest step the smoother takes, so a stalled frame can't leap
+        static let zoomSmoothingMaxStep: TimeInterval = 0.1
 
         // Animated preview grain (F6)
         // OPEN: v2-3 — benchmark on A15; disable if the viewfinder drops below 24fps

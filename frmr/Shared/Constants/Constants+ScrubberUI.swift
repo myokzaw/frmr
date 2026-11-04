@@ -26,6 +26,17 @@ nonisolated extension Constants {
         static let resetIconSize: CGFloat = 16
         // Exposure ruler: taller ticks at whole stops
         static let exposureMajorStep: Double = 1
+        // Shadows and Highlights ruler (F-122-C): taller ticks every 10
+        static let toneMajorStep: Double = 10
+        // Points between ticks, per ruler: a short move is one notch and the
+        // whole range takes a couple of swipes (v1.2.2 F-122-D)
+        static let toneTickSpacing: CGFloat = 6
+        static let exposureTickSpacing: CGFloat = 22
+        // Camera zoom ruler (F-122-G): a tick per 0.2x, a little wider than
+        // the old per-0.1x spacing of 22 so each step still feels deliberate
+        static let zoomTickSpacing: CGFloat = 24
+        static let zoomMajorStep: Double = 1
+        static let strengthTickSpacing: CGFloat = 10
         static let disabledOpacity: CGFloat = 0.4
 
         // Tool icon bar; each glyph sits in its value ring (v5.2 M5)

@@ -96,40 +96,60 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front) != nil
     }
 
-    func switchCamera(to position: CameraPosition, lens: CameraLens) {
-        sessionQueue.async {
-            let deviceType: AVCaptureDevice.DeviceType =
-                position == .front ? .builtInWideAngleCamera : lens.deviceType
-            guard
-                let device = AVCaptureDevice.default(deviceType, for: .video, position: position.avPosition),
-                let input = try? AVCaptureDeviceInput(device: device)
-            else {
-                // Safe to continue: the requested camera doesn't exist on this
-                // device, the current one stays active and visible in the viewfinder
-                print("[CaptureSession] Requested camera unavailable: \(position)/\(lens)")
-                return
+    /// Swaps the camera. True when the new one is attached; false leaves the
+    /// previous camera running (BUG-122-02).
+    func switchCamera(to position: CameraPosition, lens: CameraLens) async -> Bool {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                continuation.resume(returning: self.performSwitch(to: position, lens: lens))
             }
-
-            let previousInputs = self.session.inputs
-            self.session.beginConfiguration()
-            previousInputs.forEach { self.session.removeInput($0) }
-            if self.session.canAddInput(input) {
-                self.session.addInput(input)
-                self.camera = device
-                self.cameraPosition = position
-                self.makeRotationCoordinator(for: device)
-            } else {
-                // Restore the previous camera so capture keeps working
-                previousInputs
-                    .filter { self.session.canAddInput($0) }
-                    .forEach { self.session.addInput($0) }
-                print("[CaptureSession] Could not attach \(position)/\(lens); keeping previous camera")
-            }
-            self.session.commitConfiguration()
-            // A new input means a new video connection: give it the portrait
-            // angle and mirroring once
-            self.configureVideoConnection()
         }
+    }
+
+    private func performSwitch(to position: CameraPosition, lens: CameraLens) -> Bool {
+        let deviceType: AVCaptureDevice.DeviceType =
+            position == .front ? .builtInWideAngleCamera : lens.deviceType
+        guard
+            let device = AVCaptureDevice.default(deviceType, for: .video, position: position.avPosition),
+            let input = try? AVCaptureDeviceInput(device: device)
+        else {
+            // The requested camera doesn't exist; the current one stays active
+            print("[CaptureSession] Requested camera unavailable: \(position)/\(lens)")
+            return false
+        }
+
+        let previousInputs = session.inputs
+        let previousPosition = cameraPosition
+        session.beginConfiguration()
+        previousInputs.forEach { session.removeInput($0) }
+        var attached = false
+        var configuredBeforeCommit = false
+        if session.canAddInput(input) {
+            session.addInput(input)
+            camera = device
+            cameraPosition = position
+            resetDeviceZoom(device)
+            makeRotationCoordinator(for: device)
+            // BUG-122-01: the new input made a new video connection that starts
+            // in sensor orientation. Angle and mirroring go in before the commit
+            // so the first frame it delivers is already upright.
+            configuredBeforeCommit = configureVideoConnection()
+            attached = true
+        } else {
+            // Restore the previous camera so capture keeps working
+            previousInputs
+                .filter { session.canAddInput($0) }
+                .forEach { session.addInput($0) }
+            cameraPosition = previousPosition
+            configuredBeforeCommit = configureVideoConnection()
+            print("[CaptureSession] Could not attach \(position)/\(lens); keeping previous camera")
+        }
+        session.commitConfiguration()
+        if !configuredBeforeCommit {
+            // The connection only appeared at commit on this device
+            configureVideoConnection()
+        }
+        return attached
     }
 
     // MARK: Live film preview (v4 F9)
@@ -155,8 +175,9 @@ nonisolated final class CaptureSession: @unchecked Sendable {
     /// the horizon (ios-camera-orientation: the interface is portrait-locked
     /// and the preview must not shift under the user). The front camera is
     /// mirrored to match AVCaptureVideoPreviewLayer's default.
-    private func configureVideoConnection() {
-        guard let connection = videoOutput.connection(with: .video) else { return }
+    @discardableResult
+    private func configureVideoConnection() -> Bool {
+        guard let connection = videoOutput.connection(with: .video) else { return false }
         let angle = Constants.Camera.portraitPreviewRotationAngle
         // Unsupported angles raise an Objective-C exception Swift can't catch
         if connection.isVideoRotationAngleSupported(angle) {
@@ -168,6 +189,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = cameraPosition == .front
         }
+        return true
     }
 
     func start() {
@@ -378,49 +400,19 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         }
     }
 
-    /// The zoom range this camera actually offers, capped by our soft maximum
-    /// (devices go further, but image quality falls off).
-    func zoomRange() async -> ClosedRange<CGFloat> {
-        await withCheckedContinuation { continuation in
-            sessionQueue.async {
-                guard let camera = self.camera else {
-                    continuation.resume(returning: Constants.Camera.minZoomFactor...Constants.Camera.minZoomFactor)
-                    return
-                }
-                let lower = camera.minAvailableVideoZoomFactor
-                let upper = max(lower, min(camera.maxAvailableVideoZoomFactor, Constants.Camera.maxZoomFactor))
-                continuation.resume(returning: lower...upper)
-            }
+    /// Puts the device back at zoom 1. Digital zoom is app-side (F-122-G), so
+    /// `videoZoomFactor` must always be 1 or Bayer RAW capture raises
+    /// (BUG-122-03). Session queue only.
+    private func resetDeviceZoom(_ device: AVCaptureDevice) {
+        guard device.videoZoomFactor != 1 else { return }
+        do {
+            try device.lockForConfiguration()
+            defer { device.unlockForConfiguration() }
+            device.videoZoomFactor = 1
+        } catch {
+            // Safe to continue: makePhotoSettings still falls back to processed-only
+            print("[CaptureSession] Could not reset zoom: \(error)")
         }
-    }
-
-    func setZoom(_ factor: CGFloat, animated: Bool) {
-        sessionQueue.async {
-            guard let camera = self.camera else { return }
-            let clamped = Self.clampedZoom(
-                factor,
-                min: camera.minAvailableVideoZoomFactor,
-                max: min(camera.maxAvailableVideoZoomFactor, Constants.Camera.maxZoomFactor)
-            )
-            do {
-                try camera.lockForConfiguration()
-                defer { camera.unlockForConfiguration() }
-                if animated {
-                    camera.ramp(toVideoZoomFactor: clamped, withRate: Constants.Camera.zoomRampRate)
-                } else {
-                    camera.videoZoomFactor = clamped
-                }
-            } catch {
-                // Safe to continue: the current zoom level stays as-is
-                print("[CaptureSession] Could not set zoom: \(error)")
-            }
-        }
-    }
-
-    // Pure, so the clamping is unit-testable without a device
-    static func clampedZoom(_ factor: CGFloat, min lower: CGFloat, max upper: CGFloat) -> CGFloat {
-        guard upper > lower else { return lower }
-        return Swift.min(Swift.max(factor, lower), upper)
     }
 
     private func configureIfNeeded() {
@@ -447,6 +439,7 @@ nonisolated final class CaptureSession: @unchecked Sendable {
         session.addOutput(photoOutput)
         photoOutput.maxPhotoQualityPrioritization = .quality
         camera = device
+        resetDeviceZoom(device)
         makeRotationCoordinator(for: device)
 
         // BGRA so Core Image reads frames directly; late frames are dropped
@@ -473,10 +466,26 @@ nonisolated final class CaptureSession: @unchecked Sendable {
                 AVVideoQualityKey: NSNumber(value: Constants.jpegCompressionQuality)
             ]
         ]
-        if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first {
+        let cropFactor = photoOutput.connection(with: .video)?.videoScaleAndCropFactor ?? 1
+        if let rawFormat = photoOutput.availableRawPhotoPixelFormatTypes.first,
+           Self.canCaptureBayerRaw(
+               zoomFactor: camera?.videoZoomFactor ?? 1,
+               isRampingZoom: camera?.isRampingVideoZoom ?? false,
+               cropFactor: cropFactor
+           ) {
             return AVCapturePhotoSettings(rawPixelFormatType: rawFormat, processedFormat: processedFormat)
         }
         return AVCapturePhotoSettings(format: processedFormat)
+    }
+
+    /// Bayer RAW needs the device zoom and the photo connection's crop at
+    /// exactly 1; any other value makes `capturePhoto` raise
+    /// NSInvalidArgumentException, which Swift can't catch (BUG-122-03).
+    /// Digital zoom is app-side since F-122-G, so this is a safety net: if
+    /// the device is ever not at 1, the shot is processed-only. Pure so the
+    /// rule is unit-testable.
+    static func canCaptureBayerRaw(zoomFactor: CGFloat, isRampingZoom: Bool, cropFactor: CGFloat) -> Bool {
+        !isRampingZoom && zoomFactor == 1 && cropFactor == 1
     }
 
     /// Device gains must sit in 1…maxWhiteBalanceGain or the device throws;

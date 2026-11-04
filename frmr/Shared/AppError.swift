@@ -11,6 +11,7 @@ enum AppError: LocalizedError {
     case stripRenderFailed
     case filmLookRenderFailed
     case persistenceFailed(reason: String)
+    case importFailed
 
     var errorDescription: String? {
         switch self {
@@ -30,6 +31,8 @@ enum AppError: LocalizedError {
             return "Couldn't develop the photo in its film stock. Try again."
         case .persistenceFailed(let reason):
             return "Couldn't save your entry. \(reason)"
+        case .importFailed:
+            return "Couldn't import a photo. It may not be available on this device, or its format can't be read."
         }
     }
 }

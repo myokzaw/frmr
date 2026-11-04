@@ -8,6 +8,11 @@ import SwiftData
 /// Migration: a new model type added to the container is a lightweight
 /// additive schema change — existing stores open unchanged and gain an empty
 /// RollPhoto table. Nothing here alters DiaryEntry or DailyStrip.
+///
+/// Migration (F-122-E): `sourceRaw` is a new stored attribute with an
+/// inline default ("camera"), so SwiftData's lightweight migration opens
+/// every existing store and fills old rows with that default. No custom
+/// migration stage is needed.
 @Model
 final class RollPhoto {
     var id: UUID
@@ -21,19 +26,37 @@ final class RollPhoto {
     /// still applies if its fields ever change.
     var lookData: Data
     var editedAt: Date
+    /// `Source.rawValue`; read through `source`. The inline default is what
+    /// lightweight migration gives rows saved before 1.2.2.
+    var sourceRaw: String = Source.camera.rawValue
+
+    /// Where the photo came from (F-122-E): shot in the app, or imported
+    /// from the gallery.
+    enum Source: String {
+        case camera
+        case imported
+    }
 
     init(
         id: UUID = UUID(),
         capturedAt: Date,
         photoPath: String,
         look: FilmLook,
-        editedAt: Date = .now
+        editedAt: Date = .now,
+        source: Source = .camera
     ) {
         self.id = id
         self.capturedAt = capturedAt
         self.photoPath = photoPath
         self.lookData = FilmLook.encoded(look) ?? Data()
         self.editedAt = editedAt
+        self.sourceRaw = source.rawValue
+    }
+
+    /// An unknown or missing value reads as camera, like every old row.
+    var source: Source {
+        get { Source(rawValue: sourceRaw) ?? .camera }
+        set { sourceRaw = newValue.rawValue }
     }
 
     /// The look the photo is shown with. A damaged row reads as the

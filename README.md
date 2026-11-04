@@ -14,13 +14,19 @@ frmr makes your photos look like film because it works like film. Each stock has
   - **Slide 100:** punchy, saturated, deep blacks.
   - **Mono 400:** classic black and white.
   - **Mono 3200:** hard contrast and heavy grain.
-- **A real camera.** It captures RAW photos. Tap to focus, pinch to zoom, swipe to change exposure, and set white balance with presets or Kelvin and tint.
+- **A real camera.** It captures RAW photos. Tap to focus, swipe to change exposure, and set white balance with presets or Kelvin and tint.
+- **Zoom that stays RAW.** Pinch, or tap your lens button for a zoom ruler up to 3×. The shot keeps the full RAW with the zoom saved as a crop you can widen later.
+- **Adjust while you shoot.** Exposure, Zoom and White balance take the stock dial's place, so the shutter is always in reach.
 - **Composition grid.** Thirds, square or golden-ratio lines, set in Settings.
 - **Built for one hand.** On tall iPhones the dial and shutter sit below the viewfinder, so nothing covers your shot. The controls turn upright as you rotate the phone, like the Camera app.
 
 ### Make every frame yours
 - **Edit right after the shot, or later.** Change the exposure (±2 stops), the stock, the print paper or black and white. Small previews show your own photo in each option.
-- **Physical film effects.** Halation, Haze, Light leak, Grain and Vignette, each from 0 to 150%.
+- **Shadows and Highlights.** Lift or deepen the darks and recover or brighten the brights, on the film itself.
+- **Contrast and Saturation.** Push the picture to true black and white or fade it, and add colour without turning faces orange, or take it all the way out.
+- **Crop and rotate.** Original, Free, 3:4, 4:5, 1:1 or 16:9, plus a quarter-turn rotate. Your original is never changed.
+- **Bring in photos from your library.** Import up to 10 at a time into the Roll and give each a film look. Location data is removed.
+- **Physical film effects.** Halation, Haze, Light leak, Grain and Vignette, each from 0 to 150%, on rulers you can feel click.
 - **Compare.** Hold to see the original.
 - **Nothing is lost.** Your Roll keeps every original, so you can re-edit any photo at any time.
 

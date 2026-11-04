@@ -37,6 +37,19 @@ The tone and colour part (steps 1 and 2) is pure maths in Swift. It is baked int
 
 ---
 
+## 2a. Model versions (v1.2.2 F-122-B)
+
+A `FilmLook` stores `modelVersion` (Int). A look without the key decodes as **1**; every new look is `Constants.ImageProcessing.Film.currentModelVersion` (**2**).
+
+- **`FilmModelParameters`** (`FilmModel.swift`) is the per-version set: each stock's `NegativeProfile`, each print's `PrintProfile` (with its black target) and `shadowToeExponent`. `FilmModelParameters.forVersion(_:)` returns v1 for 1 and below, v2 otherwise; `.current` is the version new looks use.
+- **Where the numbers live:** the plain `Film.Negative`, `Film.Print` and `Film.shadowToeExponent` are the **v1 set and must not change**. The v2 set is `Film.ModelV2` (Negative, Print, shadowToeExponent). **v2 (F-122-A, candidate, awaiting user approval of the before/after sheets)** keeps the v1 curves and exponent, lifts every print's black and gives each stock a `shadowLift` (§4.5a). To change the film look, edit `ModelV2` only.
+- **Plumbing:** `FilmLook.customization` and `StripCustomization.modelVersion` carry the version; `ImageProcessor.filmLook` reads the set from it; `FilmChain(toeExponent:)` and `FilmLUT.cube/cachedCube(parameters:)` take it. The cube cache key is the profiles plus `modelVersion` and the toe exponent, so two versions never share a cube.
+- **Who uses which version:** the live viewfinder, fresh captures and `FilmSwatch` use `.current`. Roll, viewer, entries, export and strips render the version stored in the look (a strip frame uses its own photo's version, also under a stock override). A diary entry with no stored look reads as v1.
+- **Editor:** opening a v1 Roll photo sets the working look to the current version (not counted as an edit); Save stores it, Discard leaves the stored look at v1.
+- **`isStockDefault`** compares at the look's own version (the version is not a user edit).
+
+---
+
 ## 3. The pipeline, step by step
 
 ```
@@ -48,6 +61,12 @@ Capture (RAW + JPEG)
       │
 Render time (strip slot, review, thumbnail, Download)
   1. uprightCIImage / sensor-space input   resolve or carry the orientation tag
+  1a. Rotate (F-122-F)                     FilmLook.quarterTurns (clockwise, 0...3) folded into the orientation
+                                           tag (ImageProcessor.turnedOrientation): no pixels move. Full look AND
+                                           strips (StripCustomization.quarterTurns), before everything.
+  1b. Crop (F-122-F, full look only)       FilmLook.crop, a rect of the UPRIGHT, TURNED original, cut out next
+                                           (ImageProcessor.cropped), so every step below sees the cropped frame.
+                                           Strips never crop: StripCustomization has no crop field.
   2. resize                                strip: aspect-fill + crop to the 4:5 slot (resizedToSlot)
                                            full look: shrink to cover the display size, or keep full res
   3. Exposure      × 2^EV  (v5.2)          stock Off: a plain linear gain here (and nothing else but B&W)
@@ -57,6 +76,9 @@ Render time (strip slot, review, thumbnail, Download)
                                            → added in LINEAR light
   5. Film cube     (gain baked in)         colour matrix → ×2^EV → negative curve → print curve
                                            → shadow toe + black/white normalisation  (FilmModel)
+  5b. Contrast / Shadows / Highlights      one monotone tone curve on the printed picture, right after the cube
+      (F-122-C, F-122-J)                   (stock Off: right after the plain gain / B&W). Skipped when all are 0.
+  5c. Saturation + (F-122-J)               colour cube; before the effects, so grain doesn't become colour noise
   6. Vignette      × strengths.vignette    on the printed picture
   7. Haze (bloom)  × strengths.haze        blurred copy, screen-blended
   8. Light leak    × strengths.lightLeak   seeded warm glows outside a frame edge, screen-blended
@@ -64,6 +86,8 @@ Render time (strip slot, review, thumbnail, Download)
 ```
 
 The order is part of the spec and is deliberate:
+- **Crop (v1.2.2 F-122-F)** goes before everything: `FilmLook.crop` is a normalised rect of the upright original, so it is correct for EXIF-rotated sources (cut out in upright space, then carried back to sensor space with the same tag). Every frame-sized stage then runs on the cropped frame: vignette and light-leak positions come from the cropped extent, halation and haze radii are fractions of the cropped width, and grain size scales with the cropped width (`grainScale`). Display renders decode and shrink *after* the crop (`FilmLookCache` decodes the file larger by 1 / crop size so the cut-out still covers the view). A whole-photo crop is no crop. The crop is geometry, not look: "Reset to stock defaults" keeps it (`isStockDefault` ignores it); the Crop tool has its own Reset. Strips use the whole photo.
+- **Rotate (v1.2.2 F-122-F)** comes before the crop: `FilmLook.quarterTurns` (clockwise, 0…3) is composed into the orientation tag, and the crop rect is relative to the turned photo, so rotating with a crop active rotates the rect too (`CropRect.turnedClockwise`). Unlike the crop it also reaches strips (`StripCustomization.quarterTurns`, applied to the upright slot input), so a turned photo is never sideways in a strip. Zero turns changes nothing in the pipeline. Like the crop it is geometry: "Reset to stock defaults" keeps it; the Crop tool's Reset clears both. `ImageProcessor.geometryOnly` is the cheap turned-and-cropped photo (no film) the editor shows until a render lands.
 - Halation goes **before** the cube, so the glow passes through the film's shoulder the way real light does.
 - Grain goes **last**, so it sits on top of the print.
 
@@ -73,6 +97,16 @@ The order is part of the spec and is deliberate:
 - Grain follows from the print density, as before.
 - With **stock Off** the gain is a plain linear gain (`applyLinearGain`) and hard-clips like any gain; B&W-only (`CIPhotoEffectMono`) follows it.
 - **0 EV changes nothing:** gain 1 skips the stage, uses the same cube key, and `FilmLook.altersPhoto` stays false for Off + 0 EV. `exposure` ≠ 0 makes a look "altered" even with stock Off.
+
+**Contrast and Saturation (v1.2.2 F-122-J):** `FilmLook.contrast` / `saturation` (−100…+100, step 1, left out of storage at 0, so old looks read 0 and render unchanged).
+- **Contrast** runs first in `ToneStage`'s curve, so Shadows and Highlights can still open what it crushed. Up is a gain S-curve around encoded 0.5, reaching true black and pure white, so high values deliberately override the stocks' open blacks. Down squeezes the range toward 0.5, a faded print.
+- **Saturation** is `SaturationStage`, a 33-point cube in encoded output. Down moves each colour evenly toward its Rec. 709 grey and runs after every effect, so −100 is truly grey even with colour grain or a light leak. Up runs before the effects: muted colours gain most, hues around 28° with skin-like chroma give up 70% of the boost, the hue and luma are kept, and nothing is pushed out of range. It is skipped when the look renders in black and white.
+- Recipe: tune `Constants.ImageProcessing.Film.ToneControl.contrast*` and `Film.Saturation`.
+
+**Shadows and Highlights (v1.2.2 F-122-C):** `FilmLook.shadows` / `highlights` (−100…+100, step 1, 0 = off, old looks decode 0) are a separate stage, not part of the cube: `ToneStage` (`FilmModel.swift`) is one curve on the printed picture's encoded value, applied by `ImageProcessor.applyToneStage` as a 256-entry `CIColorCurves` table straight after the cube (stock Off: after the plain gain or B&W). **Why not in the cube:** a colour-matrix stock needs a full 64³ build per cube key, so folding the tools in would rebuild it every scrub tick; the table is 256 floats built per render, so scrubbing costs the same as Exposure. The live preview and the full-resolution Download share `filmLook(...)`, so they match.
+- Pivot at encoded 0.5 (`ToneControl.pivotEncoded`, between where the stocks land mid grey, 118–140/255). **Shadows** acts only below it: + adds a bump `(1−t)²(0.15 + 3t)` times 0.26 at +100 (lifts black a little, peaks in the low shadows); − multiplies by `1 − 0.7(1−t)²` at −100, so 0 stays 0 and deep tones stay distinct. **Highlights** acts only above it: + adds `u²(1−u)` (white stays 1); − subtracts a blend of that bump and a smoothstep, so white drops slightly and the roll-off is longer. Each half is monotone, so the curve is.
+- Recipe: to tune the feel, edit `Constants.ImageProcessing.Film.ToneControl` (the `*Amount` and shape numbers). Keep the slope positive; `ToneStageCurveTests` checks it.
+- Zero-zero skips the stage (pixel-identical). Model versions: applies to any version (the editor works at the current one).
 
 **Strength 0 skips the stage entirely**, which is why "0" is pixel-identical to "off". Tests enforce this.
 
@@ -131,7 +165,22 @@ One affine map in linear light, shared by all three channels:
 ### 4.5 Shadow toe: `ShadowToe`
 Below the mid-grey pivot (0.18 linear), each channel's response is replaced by a smooth curve. It starts at that channel's black and meets the film curve at the pivot, with the same value and slope, so there is no kink. The steep part sits just under mid grey (`shadowToeExponent` 8), so deep shadows keep the separation of the untouched photo.
 
-**Why:** real low-key photos (IMG_3530 in the calibration set) turned into flat grey. Changing x0 or gamma would also have changed midtones and highlights. **Nothing at or above mid grey is affected.**
+### 4.5a Model v2: open shadows, real blacks (F-122-A)
+v1 landed deep shadows barely above the untouched photo and its blacks at 3-6/255, so everything read too dark. v2 changes only `Film.ModelV2`:
+
+| Print | Black v1 | Black v2 |
+|---|---|---|
+| Projection | 3 | 10 |
+| Cinema | 4 | 12 |
+| Lab | 6 | 14 |
+| Matte | 28 | 34 |
+
+- **Toe:** `shadowToeExponent` stays 8 and the pivot 0.18. Instead `NegativeProfile.shadowLift` (sRGB units; 0 for every v1 profile) adds `lift * 27/4 * t(1-t)^2` to the toe's encoded output (`t` = x / pivot). It is 0 at black and at the pivot with zero slope there, so value and slope still meet the film and nothing from mid grey up moves except through the print's black target (under 1/255). Monotonic as long as the lift stays small.
+- **Per-stock lift:** Portrait 0.080, Daylight 0.056, Mono 400 0.050, Cine 0.032, Mono 3200 0.028, Slide 0.012. Ranking at linear 0.02-0.05, deepest first: Slide, Mono 3200, Cine, Mono 400, Daylight, Portrait.
+- **Anti-milky guard:** each stock's black on its default print stays at or below `ModelV2.blackCeiling` (18/255); Matte is exempt.
+- Tests: `FilmModelV2ShadowTests`. The sheets come from `FilmStockSampleSheetTests` (env-gated).
+
+**Why (v1):** real low-key photos (IMG_3530 in the calibration set) turned into flat grey. Changing x0 or gamma would also have changed midtones and highlights. **Nothing at or above mid grey is affected.**
 
 ### 4.6 One render: `FilmChain`
 `FilmChain(negative:print:monochrome:)` pre-computes the offsets, the normalisation and the three toes. `render(r:g:b:)` then does one of two things:
@@ -253,6 +302,8 @@ Random elements (grain, light leak) use `SeededRandom` (SplitMix64). Swift's `Ha
 | `FilmEffectsTests` | Halation, grain, haze, light-leak behaviour, and seed determinism (parameterised) |
 | `OffIsIdentityTests` | Strength 0 / stock Off = pixel-identical, for every effect, stock and render surface (parameterised) |
 | `FilmLookTests` | `FilmLook` migration, strength 1 = v4, vignette; exposure (v5.2): snapping, Codable and old data, monotonic brightening, shoulder roll-off, plain gain for Off, halation reading exposed light, determinism |
+| `ContrastSaturationTests` (F-122-J) | Curve monotone and reaching black and white, −100 Saturation grey on every colour stock with effects on, skin and vivid restraint, gamut and hue, black-and-white looks ignore Saturation, storage, editor wiring |
+| `ShadowsHighlightsTests` (F-122-C) | Tone curve monotone and one-sided, every stock at ±100, floor at −100 Shadows, Off, Codable, snapping, editor wiring |
 | `FilmCalibrationTests` (also) | Stock swatch colours (v5.2) |
 | `ImageProcessorTests` | Orientation mapping (8 cases), slot resize, HEIC tag |
 | `StripLookRegressionTests`, `FilmAtCaptureRegressionTests` (QA-owned) | Orientation across every stock × B&W × effect, and determinism |
@@ -284,6 +335,7 @@ The test writes one labelled contact sheet per photo, with all stocks side by si
 | v4 F2/F3 | Negative → print chain, solved offsets | Character from curves, without print casts |
 | v4 tone follow-up | Output normalisation | Whites at 223/255 looked grey |
 | v4 shadow fix | `ShadowToe`, per-print black targets | Real DNGs showed grey blacks and crushed shadows |
+| v1.2.2 F-122-A | Model v2: lifted print blacks, per-stock `shadowLift` | v4 overshot: shadows and blacks too dark on every stock |
 | v4 F14 | Colour matrices, grain profiles | Calibrated against real-film reference scans |
 | v4 | Grain scaled to the frame in `renderFullLook` | Download must match the review |
 | v5 F5 | `FilmLook` strengths, vignette, Haze = bloom | Sliders everywhere; 0 = off |

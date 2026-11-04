@@ -143,7 +143,7 @@ Screenshots live in `qa/screenshots/` and are never committed.
 
 **The script fails on:** a build error, any failing test, or any Swift warning. Logs go to `build/test-logs/`.
 
-**Creating the simulators** (once per machine): `xcrun simctl create frmr-backend "iPhone 17 Pro" com.apple.CoreSimulator.SimRuntime.iOS-26-4`, and the same for the other names in the table.
+**Creating the simulators** (once per machine): `xcrun simctl create frmr-backend "iPhone 17 Pro" com.apple.CoreSimulator.SimRuntime.iOS-27-0`, and the same for the other names in the table.
 
 **Parallel rounds:** when backend and frontend work at the same time, the lead may give each agent its own git worktree. They then can't see each other's half-finished edits, and the lead merges them. Ownership rules still apply, so the merges stay conflict-free.
 

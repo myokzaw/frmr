@@ -13,4 +13,14 @@ nonisolated extension Constants {
         // OPEN: v5-7 — "Clear roll" is separate from "Clear diary"
         static let clearRollIsSeparateFromClearDiary = true
     }
+
+    // MARK: Gallery import (F-122-E)
+    enum GalleryImport {
+        /// How many photos one import may pick
+        static let maxPhotos = 10
+        /// Long side of an imported photo. The 12 MP camera's RAW path
+        /// develops 4032 px on the long side, so panoramas and 48 MP shots
+        /// come down to what the editor already handles.
+        static let maxLongSide = 4032
+    }
 }

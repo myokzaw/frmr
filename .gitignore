@@ -3,3 +3,6 @@ xcuserdata/
 DerivedData/
 build/
 qa/DerivedData/
+# Personal calibration photos and rendered sheets: never committed
+Test Images/
+qa/film-sheets/

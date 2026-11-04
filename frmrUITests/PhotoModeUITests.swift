@@ -16,7 +16,7 @@ final class PhotoModeUITests: XCTestCase {
     private let seedArgument = "-UITestSeedRoll"
     private let stockIDs = ["none", "daylight200", "portrait400", "cine500T", "slide100", "mono400", "mono3200"]
     private let effectIDs = ["halation", "haze", "lightLeak", "grain", "vignette"]
-    private let toolIDs = ["exposure", "film", "print", "halation", "haze", "lightLeak", "grain", "vignette"]
+    private let toolIDs = ["exposure", "shadows", "highlights", "contrast", "saturation", "crop", "film", "print", "halation", "haze", "lightLeak", "grain", "vignette"]
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -115,23 +115,28 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertTrue(waitUntilSelected(app.buttons["camera.dial.none"]))
     }
 
+    // F-122-H: WB, EV and Zoom swap in for the stock dial; none is a sheet
     @MainActor
-    func testWhiteBalanceAndExposureOpenGlassSheets() throws {
+    func testWhiteBalanceAndExposureSwapInForTheDial() throws {
         let app = launch()
         let wb = app.buttons["camera.wb.chip"]
         let ev = app.buttons["camera.ev.chip"]
+        let any = app.descendants(matching: .any)
         XCTAssertTrue(wb.waitForExistence(timeout: timeout))
         XCTAssertEqual(wb.value as? String, "AUTO", "White balance starts on Auto")
         XCTAssertEqual(ev.value as? String, "0.0", "Exposure starts at zero")
+        XCTAssertTrue(any["camera.dial"].exists, "The dial is there before a control opens")
 
         wb.tap()
         XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForExistence(timeout: timeout), "Kelvin slider missing")
-        XCTAssertTrue(app.sliders["camera.wb.tint"].exists, "Tint slider missing")
+        XCTAssertTrue(any["camera.wb.panel"].exists, "WB panel container missing")
+        XCTAssertTrue(any["camera.dial"].waitForNonExistence(timeout: timeout), "The dial gives way to the WB control")
+        XCTAssertFalse(app.sliders["camera.wb.tint"].exists, "One slider at a time: Tint is behind the switch")
+        XCTAssertTrue(app.buttons["camera.shutter"].isHittable, "The shutter stays usable with WB open")
         for preset in ["auto", "sunlight", "cloudy", "shade", "tungsten", "fluorescent"] {
             XCTAssertTrue(app.buttons["camera.wb.\(preset)"].exists, "Preset \(preset) missing")
         }
         XCTAssertTrue(app.buttons["camera.wb.auto"].isSelected, "Auto is the active preset")
-        saveScreenshot(named: "camera-wb-sheet")
 
         // A preset sets the button's value to its Kelvin
         app.buttons["camera.wb.tungsten"].tap()
@@ -142,26 +147,32 @@ final class PhotoModeUITests: XCTestCase {
         app.sliders["camera.wb.kelvin"].adjust(toNormalizedSliderPosition: 0.9)
         XCTAssertTrue(waitForValue(wb) { $0.hasSuffix("K") && $0 != "AUTO" })
         XCTAssertFalse(app.buttons["camera.wb.tungsten"].isSelected, "A slider-set balance has no preset")
-        saveScreenshot(named: "camera-wb-sheet-custom")
 
-        // One sheet at a time: EV swaps into the same sheet
+        // The Kelvin | Tint switch moves the same slot to the tint slider
+        app.segmentedControls["camera.wb.axis"].buttons["Tint"].tap()
+        XCTAssertTrue(app.sliders["camera.wb.tint"].waitForExistence(timeout: timeout), "Tint slider missing")
+        XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout))
+
+        // One control at a time: EV swaps in directly
         ev.tap()
-        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForExistence(timeout: timeout), "EV slider missing: \(app.debugDescription.prefix(3000))")
-        XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout), "WB should give way when EV opens")
+        XCTAssertTrue(any["camera.ev.slider"].waitForExistence(timeout: timeout), "EV slider missing")
+        XCTAssertTrue(any["camera.wb.panel"].waitForNonExistence(timeout: timeout), "WB should give way when EV opens")
+        XCTAssertTrue(app.buttons["camera.shutter"].isHittable, "The shutter stays usable with EV open")
         app.buttons["camera.ev.brighter"].tap()
         XCTAssertTrue(waitForValue(ev) { $0 == "+0.3" }, "One step brighter reads +0.3")
         app.buttons["camera.ev.darker"].tap()
         app.buttons["camera.ev.darker"].tap()
         XCTAssertTrue(waitForValue(ev) { $0 == "-0.3" }, "Two steps darker reads -0.3, got \(String(describing: ev.value))")
-        saveScreenshot(named: "camera-ev-sheet")
 
-        // Tapping the open sheet's button again closes it
+        // The same button again, or the x, brings the dial back
         ev.tap()
-        XCTAssertTrue(app.sliders["camera.ev.slider"].waitForNonExistence(timeout: timeout), "The button closes its sheet")
+        XCTAssertTrue(any["camera.ev.panel"].waitForNonExistence(timeout: timeout), "The button closes its control")
+        XCTAssertTrue(any["camera.dial"].waitForExistence(timeout: timeout), "The dial returns")
         wb.tap()
-        XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForExistence(timeout: timeout))
-        wb.tap()
-        XCTAssertTrue(app.sliders["camera.wb.kelvin"].waitForNonExistence(timeout: timeout))
+        XCTAssertTrue(any["camera.wb.panel"].waitForExistence(timeout: timeout))
+        app.buttons["Close"].tap()
+        XCTAssertTrue(any["camera.wb.panel"].waitForNonExistence(timeout: timeout), "The x closes the control")
+        XCTAssertTrue(any["camera.dial"].waitForExistence(timeout: timeout), "The dial returns after the x")
     }
 
     // MARK: F2, F3, F8 editor
@@ -188,7 +199,7 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertLessThan(diary.frame.midX, save.frame.midX)
         XCTAssertEqual(save.label, "Save to roll")
 
-        // F8 / F-EXP: all eight tools in the icon bar, Exposure first, Film selected
+        // F8 / F-EXP: every tool in the icon bar, Exposure first, Film selected
         for id in toolIDs {
             XCTAssertTrue(app.buttons["edit.tool.\(id)"].exists, "Tool \(id) missing")
         }
@@ -231,16 +242,16 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertEqual(scrubber.value as? String, "100%", "Halation starts at the stock default")
         XCTAssertFalse(reset.isEnabled, "Reset is off while the value is the default")
         saveScreenshot(named: "edit-tool-halation")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: false)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "0%" }, "The left end reads 0%, got \(String(describing: scrubber.value))")
         XCTAssertTrue(waitUntilEnabled(reset), "Reset enables once the value moves")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: true)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "150%" }, "The right end reads 150%, got \(String(describing: scrubber.value))")
         saveScreenshot(named: "edit-scrubber-150")
         reset.tap()
         XCTAssertTrue(waitForValue(scrubber) { $0 == "100%" }, "Reset returns to the stock default")
         // Double-tap resets too
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).tap()
+        scrubber.scrub(by: 40)
         XCTAssertTrue(waitForValue(scrubber) { $0 != "100%" })
         scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).doubleTap()
         XCTAssertTrue(waitForValue(scrubber) { $0 == "100%" }, "Double-tap resets to the default")
@@ -253,7 +264,7 @@ final class PhotoModeUITests: XCTestCase {
             saveScreenshot(named: "edit-tool-\(effect)", settle: 0)
         }
         tapTool("vignette", in: app)
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        scrubber.scrub(by: -40)
         XCTAssertTrue(waitForValue(scrubber) { $0 != "0%" })
         saveScreenshot(named: "edit-vignette-changed")
 
@@ -337,14 +348,14 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertFalse(reset.isEnabled, "Reset is off at 0 EV")
         saveScreenshot(named: "edit-tool-exposure")
 
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.99, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: true)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "+2.0 EV" }, "The right end reads +2.0 EV, got \(String(describing: scrubber.value))")
         XCTAssertTrue(waitForValue(tool) { $0 == "+2.0 EV" }, "The tool bar carries the value")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5)).tap()
+        scrubber.scrubToEnd(increasing: false)
         XCTAssertTrue(waitForValue(scrubber) { $0 == "\u{2212}2.0 EV" }, "The left end reads −2.0 EV, got \(String(describing: scrubber.value))")
-        // One notch right of the middle is a third of a stop
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + 1.0 / 12.0 * 0.95, dy: 0.5)).tap()
-        XCTAssertTrue(waitForValue(scrubber) { $0 == "+0.3 EV" }, "One notch is +0.3 EV, got \(String(describing: scrubber.value))")
+        // One notch (one tick's width of drag, left = brighter) is a third of a stop
+        scrubber.scrub(by: -24)
+        XCTAssertTrue(waitForValue(scrubber) { $0 == "\u{2212}1.7 EV" }, "One notch up from −2.0 is −1.7 EV, got \(String(describing: scrubber.value))")
         saveScreenshot(named: "edit-exposure-changed")
         XCTAssertTrue(waitUntilEnabled(reset))
         reset.tap()
@@ -386,7 +397,7 @@ final class PhotoModeUITests: XCTestCase {
         tapTool("vignette", in: relaunched)
         let scrubber = relaunched.descendants(matching: .any)["edit.scrubber"]
         XCTAssertTrue(scrubber.waitForExistence(timeout: timeout))
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        scrubber.scrub(by: -40)
         relaunched.buttons["edit.discard"].tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForExistence(timeout: timeout))
         XCTAssertEqual(rollCount(in: relaunched), afterSave, "Discard in re-edit keeps the photo")
@@ -396,7 +407,7 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertTrue(relaunched.buttons["edit.save"].waitForExistence(timeout: timeout))
         tapTool("vignette", in: relaunched)
         XCTAssertEqual(scrubber.value as? String, "0%", "Discarded changes must not have been saved")
-        scrubber.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        scrubber.scrub(by: -40)
         relaunched.buttons["edit.save"].tap()
         XCTAssertTrue(relaunched.buttons["roll.photo"].waitForExistence(timeout: timeout))
         relaunched.buttons["roll.photo"].firstMatch.tap()
@@ -425,7 +436,7 @@ final class PhotoModeUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(cells.count, 3)
         saveScreenshot(named: "library-roll-seeded", settle: 2)
 
-        // Select mode: numbered selection, at most four photos
+        // Select mode: numbered selection
         app.buttons["roll.select"].tap()
         XCTAssertTrue(app.buttons["roll.makeStrip"].waitForExistence(timeout: timeout), "The selection bar did not appear")
         XCTAssertFalse(app.buttons["roll.makeStrip"].isEnabled, "Make strip needs a selection")
@@ -448,11 +459,48 @@ final class PhotoModeUITests: XCTestCase {
         let halation = app.descendants(matching: .any)["strip.scrubber"]
         XCTAssertTrue(halation.waitForExistence(timeout: timeout))
         XCTAssertEqual(halation.value as? String, "100%", "Strip halation defaults to the stock default")
-        halation.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        halation.scrub(by: -40)
         XCTAssertTrue(waitForValue(halation) { $0 != "100%" }, "Halation scrubber did not move: \(String(describing: halation.value))")
         saveScreenshot(named: "strip-screen-roll-halation", settle: 2)
         app.buttons["Close"].tap()
         XCTAssertTrue(app.buttons["roll.select"].waitForExistence(timeout: timeout), "Close returns to the Roll")
+    }
+
+    /// Selection has no limit; only Make strip stops at four, and says so.
+    @MainActor
+    func testRollSelectsPastTheStripLimit() throws {
+        // The fixture adds three photos on each launch
+        launch(arguments: [seedArgument]).terminate()
+        let app = launch(arguments: [seedArgument])
+        openRoll(app)
+        let cells = app.buttons.matching(identifier: "roll.photo")
+        XCTAssertTrue(cells.firstMatch.waitForExistence(timeout: timeout), "Seeded Roll is empty")
+        XCTAssertGreaterThanOrEqual(cells.count, 5)
+
+        app.buttons["roll.select"].tap()
+        XCTAssertTrue(app.buttons["roll.makeStrip"].waitForExistence(timeout: timeout))
+        for index in 0..<5 { cells.element(boundBy: index).tap() }
+        XCTAssertTrue(app.staticTexts["roll.selectionSummary"].label.contains("5 selected"), app.staticTexts["roll.selectionSummary"].label)
+        XCTAssertTrue(app.staticTexts["roll.stripLimitNote"].waitForExistence(timeout: timeout), "The strip limit note is missing")
+        XCTAssertFalse(app.buttons["roll.makeStrip"].isEnabled, "A strip holds four photos")
+        XCTAssertTrue(app.buttons["roll.export"].isEnabled)
+        XCTAssertTrue(app.buttons["roll.delete"].isEnabled)
+        saveScreenshot(named: "library-roll-select-past-limit", settle: 1)
+
+        cells.element(boundBy: 0).tap()
+        XCTAssertTrue(app.staticTexts["roll.selectionSummary"].label.contains("4 selected"))
+        XCTAssertFalse(app.staticTexts["roll.stripLimitNote"].exists, "Four fit a strip")
+        XCTAssertTrue(app.buttons["roll.makeStrip"].isEnabled)
+        app.buttons["roll.cancelSelect"].tap()
+
+        // A decrease runs the tool's ring anticlockwise
+        cells.element(boundBy: 0).tap()
+        tapTool("contrast", in: app)
+        let contrast = app.descendants(matching: .any)["edit.contrast"]
+        XCTAssertTrue(contrast.waitForExistence(timeout: timeout))
+        contrast.scrub(by: 150)
+        XCTAssertTrue(waitForValue(contrast) { $0.hasPrefix("\u{2212}") }, "Contrast did not go down: \(String(describing: contrast.value))")
+        saveScreenshot(named: "edit-contrast-ring-down", settle: 2)
     }
 
     // MARK: Steps

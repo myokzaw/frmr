@@ -65,7 +65,7 @@ final class FilmLookRenderScheduler {
         generation += 1
         let generation = generation
 
-        guard look.altersPhoto else {
+        guard look.altersOutput else {
             renderTask = nil
             completion(.rendered(photo))
             return false
